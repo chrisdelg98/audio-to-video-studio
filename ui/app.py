@@ -188,78 +188,78 @@ class AudioToVideoApp(ctk.CTk):
         frame = ctk.CTkScrollableFrame(parent, fg_color=C_PANEL, corner_radius=8)
         frame.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
         frame.grid_columnconfigure(0, weight=1)
-
         row = 0
 
-        # ── Sección: Archivos ──
-        row = self._section_label(frame, "📁  Archivos", row)
-
+        # ── Archivos ──
+        c, row = self._collapsible_section(frame, "📁  Archivos", row)
+        ar = 0
         self._var_audio_folder = tk.StringVar()
-        row = self._file_row(frame, "Carpeta de audios:", self._var_audio_folder,
-                             self._browse_audio_folder, row)
-
+        ar = self._file_row(c, "Carpeta de audios:", self._var_audio_folder,
+                            self._browse_audio_folder, ar)
         self._var_image = tk.StringVar()
-        row = self._file_row(frame, "Imagen de fondo:", self._var_image,
-                             self._browse_image, row)
-
+        ar = self._file_row(c, "Imagen de fondo:", self._var_image,
+                            self._browse_image, ar)
         self._var_output = tk.StringVar()
-        row = self._file_row(frame, "Carpeta de salida:", self._var_output,
-                             self._browse_output, row)
+        ar = self._file_row(c, "Carpeta de salida:", self._var_output,
+                            self._browse_output, ar)
 
-        # ── Sección: Resolución ──
-        row = self._section_label(frame, "📐  Resolución", row)
+        # ── Resolución ──
+        c, row = self._collapsible_section(frame, "📐  Resolución", row)
         self._var_resolution = tk.StringVar(value="1080p")
-        res_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        res_frame.grid(row=row, column=0, sticky="ew", padx=12, pady=4)
+        res_frame = ctk.CTkFrame(c, fg_color="transparent")
+        res_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=4)
         ctk.CTkRadioButton(res_frame, text="1080p", variable=self._var_resolution,
                            value="1080p").pack(side="left", padx=8)
         ctk.CTkRadioButton(res_frame, text="4K", variable=self._var_resolution,
                            value="4K").pack(side="left", padx=8)
-        row += 1
 
-        # ── Sección: Parámetros ──
-        row = self._section_label(frame, "⚙️  Parámetros", row)
-
+        # ── Parámetros ──
+        c, row = self._collapsible_section(frame, "⚙️  Parámetros", row)
+        ar = 0
         self._var_zoom_max = tk.DoubleVar(value=1.05)
-        row = self._slider_row(frame, "Zoom máximo:", self._var_zoom_max, 1.0, 1.2, row,
-                               fmt="{:.3f}")
-
+        ar = self._slider_row(c, "Zoom máximo:", self._var_zoom_max, 1.0, 1.2, ar,
+                              fmt="{:.3f}")
         self._var_zoom_speed = tk.IntVar(value=300)
-        row = self._slider_row(frame, "Velocidad zoom:", self._var_zoom_speed, 50, 1000, row,
-                               fmt="{:.0f}")
-
+        ar = self._slider_row(c, "Velocidad zoom:", self._var_zoom_speed, 50, 1000, ar,
+                              fmt="{:.0f}")
         self._var_fade_in = tk.DoubleVar(value=2.0)
-        row = self._slider_row(frame, "Fade in (s):", self._var_fade_in, 0, 10, row,
-                               fmt="{:.1f}")
-
+        ar = self._slider_row(c, "Fade in (s):", self._var_fade_in, 0, 10, ar, fmt="{:.1f}")
         self._var_fade_out = tk.DoubleVar(value=2.0)
-        row = self._slider_row(frame, "Fade out (s):", self._var_fade_out, 0, 10, row,
-                               fmt="{:.1f}")
-
+        ar = self._slider_row(c, "Fade out (s):", self._var_fade_out, 0, 10, ar, fmt="{:.1f}")
         self._var_crf = tk.IntVar(value=18)
-        row = self._slider_row(frame, "Calidad CRF:", self._var_crf, 0, 51, row, fmt="{:.0f}")
+        ar = self._slider_row(
+            c, "Calidad CRF:", self._var_crf, 0, 51, ar, fmt="{:.0f}",
+            tooltip_text=(
+                "CRF (Constant Rate Factor) — controla la calidad del video.\n\n"
+                "• 0  → Lossless (sin pérdida). Archivo enorme.\n"
+                "• 18 → Alta calidad (recomendado). Buen balance.\n"
+                "• 23 → Calidad media. Archivo más liviano.\n"
+                "• 28 → Baja calidad. Solo para pruebas.\n"
+                "• 51 → La peor calidad posible.\n\n"
+                "Menor número = mejor imagen, archivo más grande.\n"
+                "Mayor número = imagen peor, archivo más pequeño."
+            ),
+        )
 
-        # ── Sección: Efectos ──
-        row = self._section_label(frame, "✨  Efectos visuales", row)
-
+        # ── Efectos visuales ──
+        c, row = self._collapsible_section(frame, "✨  Efectos visuales", row)
+        ar = 0
         self._var_zoom = tk.BooleanVar(value=True)
         self._var_glitch = tk.BooleanVar(value=False)
         self._var_overlay = tk.BooleanVar(value=False)
         self._var_normalize = tk.BooleanVar(value=False)
+        ar = self._check_row(c, "Zoom dinámico", self._var_zoom, ar)
+        ar = self._check_row(c, "Glitch effect (video)", self._var_glitch, ar)
+        ar = self._check_row(c, "Overlay animado (video)", self._var_overlay,
+                             ar, command=self._toggle_overlay_widgets)
+        ar = self._check_row(c, "Normalizar audio", self._var_normalize, ar)
 
-        row = self._check_row(frame, "Zoom dinámico", self._var_zoom, row)
-        row = self._check_row(frame, "Glitch effect", self._var_glitch, row)
-        row = self._check_row(frame, "Overlay animado", self._var_overlay,
-                              row, command=self._toggle_overlay_widgets)
-        row = self._check_row(frame, "Normalizar audio", self._var_normalize, row)
-
-        # Área de overlay (visible solo si está activado)
-        self._overlay_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        self._overlay_frame.grid(row=row, column=0, sticky="ew", padx=12)
+        # Sub-frame overlay: visible solo cuando se activa
+        self._overlay_frame = ctk.CTkFrame(c, fg_color="transparent")
+        self._overlay_frame.grid(row=ar, column=0, sticky="ew", padx=12)
         self._var_overlay_path = tk.StringVar()
-        ovl_label = ctk.CTkLabel(self._overlay_frame, text="Video overlay:",
-                                 text_color=C_MUTED, font=ctk.CTkFont(size=11))
-        ovl_label.pack(side="left", padx=4)
+        ctk.CTkLabel(self._overlay_frame, text="Video overlay:",
+                     text_color=C_MUTED, font=ctk.CTkFont(size=11)).pack(side="left", padx=4)
         ctk.CTkEntry(self._overlay_frame, textvariable=self._var_overlay_path,
                      width=140).pack(side="left", padx=4)
         ctk.CTkButton(self._overlay_frame, text="...", width=30,
@@ -270,12 +270,107 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkSlider(self._overlay_frame, from_=0.0, to=1.0,
                       variable=self._var_overlay_opacity, width=80).pack(side="left")
         self._overlay_frame.grid_remove()
-        row += 1
 
-        # ── Sección: Presets ──
-        row = self._section_label(frame, "🎛️  Presets", row)
-        preset_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        preset_frame.grid(row=row, column=0, sticky="ew", padx=12, pady=6)
+        # ── Texto overlay ──
+        c, row = self._collapsible_section(frame, "🔤  Texto overlay", row, default_open=False)
+        ar = 0
+        self._var_text_overlay = tk.BooleanVar(value=False)
+        ar = self._check_row(c, "Activar texto overlay", self._var_text_overlay,
+                             ar, command=self._toggle_text_overlay_widgets)
+
+        # Contenedor interior con fondo sutil
+        self._text_overlay_frame = ctk.CTkFrame(c, fg_color="#0d1b2a", corner_radius=6)
+        self._text_overlay_frame.grid(row=ar, column=0, sticky="ew", padx=8, pady=(0, 6))
+        self._text_overlay_frame.grid_columnconfigure(0, weight=1)
+        tof = 0
+
+        # Texto
+        ctk.CTkLabel(self._text_overlay_frame, text="Texto:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=11), anchor="w").grid(
+            row=tof, column=0, sticky="w", padx=10, pady=(8, 0))
+        tof += 1
+        self._var_text_content = tk.StringVar()
+        ctk.CTkEntry(self._text_overlay_frame, textvariable=self._var_text_content,
+                     placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
+            row=tof, column=0, sticky="ew", padx=10, pady=(2, 6))
+        tof += 1
+
+        # Posición
+        pos_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
+        pos_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        ctk.CTkLabel(pos_f, text="Posición:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=11), width=70, anchor="w").pack(side="left")
+        self._var_text_position = tk.StringVar(value="Bottom")
+        for _pos in ("Top", "Middle", "Bottom"):
+            ctk.CTkRadioButton(pos_f, text=_pos, variable=self._var_text_position,
+                               value=_pos, font=ctk.CTkFont(size=11)).pack(side="left", padx=6)
+        tof += 1
+
+        # Margen desde el borde
+        m_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
+        m_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        m_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(m_f, text="Margen (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=11), width=120, anchor="w").grid(row=0, column=0)
+        self._var_text_margin = tk.IntVar(value=40)
+        _m_lbl = ctk.CTkLabel(m_f, text="40", text_color=C_TEXT,
+                              font=ctk.CTkFont(size=11), width=40)
+        _m_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(m_f, from_=10, to=200, variable=self._var_text_margin,
+                      command=lambda v: _m_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        tof += 1
+
+        # Tamaño de fuente
+        fs_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
+        fs_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        fs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=11), width=120, anchor="w").grid(row=0, column=0)
+        self._var_text_font_size = tk.IntVar(value=36)
+        _fs_lbl = ctk.CTkLabel(fs_f, text="36", text_color=C_TEXT,
+                               font=ctk.CTkFont(size=11), width=40)
+        _fs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(fs_f, from_=12, to=120, variable=self._var_text_font_size,
+                      command=lambda v: _fs_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        tof += 1
+
+        # Intensidad glitch (píxeles de desplazamiento, 0 = sin glitch)
+        gi_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
+        gi_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        gi_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(gi_f, text="Glitch (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=11), width=120, anchor="w").grid(row=0, column=0)
+        self._var_text_glitch_intensity = tk.IntVar(value=3)
+        _gi_lbl = ctk.CTkLabel(gi_f, text="3", text_color=C_TEXT,
+                               font=ctk.CTkFont(size=11), width=40)
+        _gi_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(gi_f, from_=0, to=20, variable=self._var_text_glitch_intensity,
+                      command=lambda v: _gi_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        tof += 1
+
+        # Velocidad de la animación glitch
+        gs_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
+        gs_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=(2, 8))
+        gs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=11), width=120, anchor="w").grid(row=0, column=0)
+        self._var_text_glitch_speed = tk.DoubleVar(value=4.0)
+        _gs_lbl = ctk.CTkLabel(gs_f, text="4.0", text_color=C_TEXT,
+                               font=ctk.CTkFont(size=11), width=40)
+        _gs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(gs_f, from_=0.5, to=20.0, variable=self._var_text_glitch_speed,
+                      command=lambda v: _gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+
+        self._text_overlay_frame.grid_remove()
+
+        # ── Presets ──
+        c, row = self._collapsible_section(frame, "🎛️  Presets", row)
+        preset_frame = ctk.CTkFrame(c, fg_color="transparent")
+        preset_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=6)
         for preset in SettingsManager.available_presets():
             ctk.CTkButton(
                 preset_frame,
@@ -284,13 +379,12 @@ class AudioToVideoApp(ctk.CTk):
                 fg_color=C_BTN_SECONDARY,
                 command=lambda p=preset: self._apply_preset(p),
             ).pack(side="left", padx=4)
-        row += 1
-        # ── Sección: Output Naming ──
-        row = self._section_label(frame, "🏷️  Output Naming", row)
 
-        # Dropdown de modo
-        inner_mode = ctk.CTkFrame(frame, fg_color="transparent")
-        inner_mode.grid(row=row, column=0, sticky="ew", padx=12, pady=4)
+        # ── Output Naming ──
+        c, row = self._collapsible_section(frame, "🏷️  Output Naming", row, default_open=False)
+        ar = 0
+        inner_mode = ctk.CTkFrame(c, fg_color="transparent")
+        inner_mode.grid(row=ar, column=0, sticky="ew", padx=12, pady=4)
         inner_mode.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
             inner_mode, text="Modo:", text_color=C_MUTED,
@@ -305,11 +399,10 @@ class AudioToVideoApp(ctk.CTk):
             fg_color=C_ACCENT,
             button_color=C_BTN_SECONDARY,
         ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
-        row += 1
+        ar += 1
 
-        # Prefijo (solo visible en modos Prefix / Prefix + Custom List)
-        self._naming_prefix_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        self._naming_prefix_frame.grid(row=row, column=0, sticky="ew", padx=12, pady=(2, 0))
+        self._naming_prefix_frame = ctk.CTkFrame(c, fg_color="transparent")
+        self._naming_prefix_frame.grid(row=ar, column=0, sticky="ew", padx=12, pady=(2, 0))
         self._naming_prefix_frame.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
             self._naming_prefix_frame, text="Prefijo:", text_color=C_MUTED,
@@ -323,11 +416,10 @@ class AudioToVideoApp(ctk.CTk):
             height=28,
         ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
         self._naming_prefix_frame.grid_remove()
-        row += 1
+        ar += 1
 
-        # Lista personalizada (solo visible en modos Custom / Prefix + Custom List)
-        self._naming_list_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        self._naming_list_frame.grid(row=row, column=0, sticky="ew", padx=12, pady=(4, 0))
+        self._naming_list_frame = ctk.CTkFrame(c, fg_color="transparent")
+        self._naming_list_frame.grid(row=ar, column=0, sticky="ew", padx=12, pady=(4, 0))
         self._naming_list_frame.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
             self._naming_list_frame,
@@ -345,22 +437,19 @@ class AudioToVideoApp(ctk.CTk):
         )
         self._txt_naming_list.grid(row=1, column=0, sticky="ew")
         self._naming_list_frame.grid_remove()
-        row += 1
+        ar += 1
 
-        # Numeración automática
         self._var_naming_autonumber = tk.BooleanVar(value=True)
-        row = self._check_row(frame, "Numeración automática (01, 02…)",
-                              self._var_naming_autonumber, row)
+        ar = self._check_row(c, "Numeración automática (01, 02…)",
+                             self._var_naming_autonumber, ar)
 
-        # ── Sección: Performance ──
-        row = self._section_label(frame, "⚡  Performance", row)
-
-        inner_perf = ctk.CTkFrame(frame, fg_color="transparent")
-        inner_perf.grid(row=row, column=0, sticky="ew", padx=12, pady=4)
+        # ── Performance ──
+        c, row = self._collapsible_section(frame, "⚡  Performance", row, default_open=False)
+        inner_perf = ctk.CTkFrame(c, fg_color="transparent")
+        inner_perf.grid(row=0, column=0, sticky="ew", padx=12, pady=4)
         inner_perf.grid_columnconfigure(1, weight=1)
         inner_perf.grid_columnconfigure(4, weight=1)
 
-        # CPU Mode
         ctk.CTkLabel(
             inner_perf, text="CPU:", text_color=C_MUTED,
             font=ctk.CTkFont(size=11), width=40, anchor="w",
@@ -389,8 +478,6 @@ class AudioToVideoApp(ctk.CTk):
             "• High  (75%)  →  Más rápido, el sistema puede sentirse pesado.\n"
             "• Max  (100%)  →  Usa todos los núcleos. Máxima velocidad.",
         )
-
-        # Encode Preset
         ctk.CTkLabel(
             inner_perf, text="Preset:", text_color=C_MUTED,
             font=ctk.CTkFont(size=11), width=50, anchor="w",
@@ -411,7 +498,7 @@ class AudioToVideoApp(ctk.CTk):
             font=ctk.CTkFont(size=11, weight="bold"),
             corner_radius=11,
         )
-        _preset_btn.grid(row=0, column=5, padx=(0, 0))
+        _preset_btn.grid(row=0, column=5)
         _Tooltip(
             _preset_btn,
             "Velocidad de encoding vs calidad/tamaño del archivo.\n\n"
@@ -422,19 +509,14 @@ class AudioToVideoApp(ctk.CTk):
             "• slow                  → Calidad óptima (recomendado).\n"
             "• veryslow              → Máxima compresión, muy lento.",
         )
-        row += 1
-
-        # Info de threads disponibles
-        import os as _os
-        cpu_total = _os.cpu_count() or 2
+        _cpu_total = os.cpu_count() or 2
         ctk.CTkLabel(
-            frame,
-            text=f"CPU detectados: {cpu_total} núcleos",
+            c,
+            text=f"CPU detectados: {_cpu_total} núcleos",
             text_color=C_MUTED,
             font=ctk.CTkFont(size=10),
             anchor="w",
-        ).grid(row=row, column=0, sticky="w", padx=14, pady=(0, 6))
-        row += 1
+        ).grid(row=1, column=0, sticky="w", padx=14, pady=(0, 6))
 
     # --- Right panel --------------------------------------------------
 
@@ -565,7 +647,7 @@ class AudioToVideoApp(ctk.CTk):
     # HELPERS DE CONSTRUCCIÓN DE WIDGETS
     # ──────────────────────────────────────────────────────────────────
 
-    def _section_label(self, parent: ctk.CTkScrollableFrame, text: str, row: int) -> int:
+    def _section_label(self, parent: Any, text: str, row: int) -> int:
         ctk.CTkLabel(
             parent,
             text=text,
@@ -578,9 +660,56 @@ class AudioToVideoApp(ctk.CTk):
         )
         return row + 2
 
+    def _collapsible_section(
+        self,
+        parent: Any,
+        title: str,
+        row: int,
+        default_open: bool = True,
+    ) -> tuple[ctk.CTkFrame, int]:
+        """Crea una sección colapsable. Retorna (content_frame, siguiente_row)."""
+        _open = [default_open]
+        _title = title
+
+        btn = ctk.CTkButton(
+            parent,
+            text=f"{'\u25bc' if default_open else '\u25b6'}  {title}",
+            anchor="w",
+            fg_color="transparent",
+            hover_color=C_ACCENT,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=30,
+            corner_radius=4,
+        )
+        btn.grid(row=row, column=0, sticky="ew", padx=6, pady=(12, 0))
+
+        ctk.CTkFrame(parent, height=1, fg_color=C_ACCENT).grid(
+            row=row + 1, column=0, sticky="ew", padx=12, pady=(0, 4),
+        )
+
+        content = ctk.CTkFrame(parent, fg_color="transparent")
+        content.grid_columnconfigure(0, weight=1)
+        content.grid(row=row + 2, column=0, sticky="ew")
+        if not default_open:
+            content.grid_remove()
+
+        def _toggle() -> None:
+            if _open[0]:
+                content.grid_remove()
+                btn.configure(text=f"\u25b6  {_title}")
+                _open[0] = False
+            else:
+                content.grid()
+                btn.configure(text=f"\u25bc  {_title}")
+                _open[0] = True
+
+        btn.configure(command=_toggle)
+        return content, row + 3
+
     def _file_row(
         self,
-        parent: ctk.CTkScrollableFrame,
+        parent: Any,
         label: str,
         var: tk.StringVar,
         command: Any,
@@ -603,13 +732,14 @@ class AudioToVideoApp(ctk.CTk):
 
     def _slider_row(
         self,
-        parent: ctk.CTkScrollableFrame,
+        parent: Any,
         label: str,
         var: tk.Variable,
         from_: float,
         to: float,
         row: int,
         fmt: str = "{:.2f}",
+        tooltip_text: str = "",
     ) -> int:
         inner = ctk.CTkFrame(parent, fg_color="transparent")
         inner.grid(row=row, column=0, sticky="ew", padx=12, pady=3)
@@ -638,11 +768,21 @@ class AudioToVideoApp(ctk.CTk):
             command=_update,
         ).grid(row=0, column=1, sticky="ew", padx=4)
 
+        if tooltip_text:
+            _info_btn = ctk.CTkButton(
+                inner, text="?", width=22, height=22,
+                fg_color=C_ACCENT, hover_color=C_BTN_SECONDARY,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                corner_radius=11,
+            )
+            _info_btn.grid(row=0, column=3, padx=(4, 0))
+            _Tooltip(_info_btn, tooltip_text)
+
         return row + 1
 
     def _check_row(
         self,
-        parent: ctk.CTkScrollableFrame,
+        parent: Any,
         label: str,
         var: tk.BooleanVar,
         row: int,
@@ -696,6 +836,12 @@ class AudioToVideoApp(ctk.CTk):
             self._overlay_frame.grid()
         else:
             self._overlay_frame.grid_remove()
+
+    def _toggle_text_overlay_widgets(self) -> None:
+        if self._var_text_overlay.get():
+            self._text_overlay_frame.grid()
+        else:
+            self._text_overlay_frame.grid_remove()
 
     def _on_naming_mode_change(self, mode: str) -> None:
         """Muestra u oculta el campo de prefijo y/o la lista según el modo elegido."""
@@ -930,6 +1076,10 @@ class AudioToVideoApp(ctk.CTk):
             if not overlay_path or not Path(overlay_path).is_file():
                 errors.append("• Video de overlay no válido (o no seleccionado).")
 
+        if self._var_text_overlay.get():
+            if not self._var_text_content.get().strip():
+                errors.append("• El texto overlay está activado pero el texto está vacío.")
+
         # ── Validación de nombres de salida ──
         naming_mode = self._var_naming_mode.get()
         if naming_mode in ("Custom List", "Prefix + Custom List"):
@@ -990,6 +1140,14 @@ class AudioToVideoApp(ctk.CTk):
             # Performance
             "cpu_mode": self._var_cpu_mode.get(),
             "encode_preset": self._var_encode_preset.get(),
+            # Text overlay
+            "enable_text_overlay": self._var_text_overlay.get(),
+            "text_content": self._var_text_content.get(),
+            "text_position": self._var_text_position.get(),
+            "text_margin": int(self._var_text_margin.get()),
+            "text_font_size": int(self._var_text_font_size.get()),
+            "text_glitch_intensity": int(self._var_text_glitch_intensity.get()),
+            "text_glitch_speed": round(self._var_text_glitch_speed.get(), 1),
         })
 
     def _load_settings_to_ui(self) -> None:
@@ -1024,6 +1182,16 @@ class AudioToVideoApp(ctk.CTk):
         # Performance
         self._var_cpu_mode.set(s.get("cpu_mode", "Medium"))
         self._var_encode_preset.set(s.get("encode_preset", "slow"))
+
+        # Text overlay
+        self._var_text_overlay.set(s.get("enable_text_overlay", False))
+        self._var_text_content.set(s.get("text_content", ""))
+        self._var_text_position.set(s.get("text_position", "Bottom"))
+        self._var_text_margin.set(s.get("text_margin", 40))
+        self._var_text_font_size.set(s.get("text_font_size", 36))
+        self._var_text_glitch_intensity.set(s.get("text_glitch_intensity", 3))
+        self._var_text_glitch_speed.set(s.get("text_glitch_speed", 4.0))
+        self._toggle_text_overlay_widgets()
 
         # Cargar preview si hay imagen
         img = s.get("background_image", "")

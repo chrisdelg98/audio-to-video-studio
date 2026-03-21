@@ -40,6 +40,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Performance
     "cpu_mode": "Medium",
     "encode_preset": "slow",
+    # Text overlay
+    "enable_text_overlay": False,
+    "text_content": "",
+    "text_position": "Bottom",
+    "text_margin": 40,
+    "text_font_size": 36,
+    "text_glitch_intensity": 3,
+    "text_glitch_speed": 4.0,
 }
 
 # Presets de configuración

@@ -17,6 +17,7 @@ from typing import Any
 from effects.base_effect import BaseEffect
 from effects.glitch_effect import GlitchEffect
 from effects.overlay_effect import OverlayEffect
+from effects.text_overlay_effect import TextOverlayEffect
 from effects.zoom_effect import ZoomEffect
 
 
@@ -151,7 +152,7 @@ class FFmpegBuilder:
             )
         )
 
-        # Overlay
+        # Overlay de video
         effects.append(
             OverlayEffect(
                 enabled=self.settings.get("enable_overlay", False),
@@ -159,6 +160,9 @@ class FFmpegBuilder:
                 opacity=float(self.settings.get("overlay_opacity", 0.5)),
             )
         )
+
+        # Texto con glitch
+        effects.append(TextOverlayEffect(self.settings))
 
         return effects
 
@@ -189,8 +193,17 @@ class FFmpegBuilder:
                 overlay_effect = eff
                 break
 
+        # --- Performance (threads + preset) ---
+        cpu_mode = self.settings.get("cpu_mode", "Medium")
+        threads = calc_threads(cpu_mode)
+        encode_preset = self.settings.get("encode_preset", "slow")
+        if encode_preset not in ENCODE_PRESETS:
+            encode_preset = "slow"
+        # Preview siempre usa ultrafast para velocidad
+        effective_preset = "ultrafast" if preview else encode_preset
+
         # --- Inputs ---
-        cmd: list[str] = ["ffmpeg", "-y"]
+        cmd: list[str] = ["ffmpeg", "-y", "-threads", str(threads)]
 
         # Input 0: imagen de fondo (loop)
         cmd += ["-loop", "1", "-i", image_path]
@@ -230,20 +243,10 @@ class FFmpegBuilder:
         if audio_filter:
             cmd += ["-af", audio_filter]
 
-        # --- Performance (threads + preset) ---
-        cpu_mode = self.settings.get("cpu_mode", "Medium")
-        threads = calc_threads(cpu_mode)
-        encode_preset = self.settings.get("encode_preset", "slow")
-        if encode_preset not in ENCODE_PRESETS:
-            encode_preset = "slow"
-        # Preview siempre usa ultrafast para velocidad
-        effective_preset = "ultrafast" if preview else encode_preset
-
         # --- Codec y calidad ---
         cmd += [
             "-c:v", "libx264",
             "-preset", effective_preset,
-            "-threads", str(threads),
             "-crf", str(crf),
             "-c:a", "aac",
             "-b:a", "192k",
@@ -277,10 +280,12 @@ class FFmpegBuilder:
         current_label = "[vbase]"
         label_counter = 0
 
-        # Aplicar efectos secuencialmente (excepto overlay que necesita tratamiento especial)
+        # Aplicar efectos secuencialmente
+        # OverlayEffect se maneja al final (necesita stream extra)
+        # TextOverlayEffect es un filtro puro (no necesita stream extra)
         for effect in effects:
             if isinstance(effect, OverlayEffect):
-                continue  # se maneja al final
+                continue
 
             if not effect.enabled:
                 continue

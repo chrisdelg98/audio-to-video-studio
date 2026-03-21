@@ -271,7 +271,21 @@ class Runner:
             if proc.returncode == 0:
                 return True, ""
             else:
-                error_detail = "\n".join(stderr_lines[-20:])  # últimas 20 líneas
+                # Filtrar líneas de cabecera de FFmpeg (version banner, libs, etc.)
+                # para mostrar solo las líneas con el error real.
+                _skip_prefixes = (
+                    "ffmpeg version", "built with", "configuration:",
+                    "lib", "  lib", "Input #", "Output #", "Stream mapping",
+                    "Press [", "frame=", "  Duration", "    Stream",
+                    "video:", "audio:", "  Metadata",
+                )
+                meaningful = [
+                    ln for ln in stderr_lines
+                    if not any(ln.startswith(p) for p in _skip_prefixes)
+                ]
+                # Si el filtrado dejó vacío, mostrar las últimas líneas sin filtrar
+                show_lines = meaningful[-30:] if meaningful else stderr_lines[-30:]
+                error_detail = "\n".join(show_lines)
                 return False, error_detail
 
         except FileNotFoundError:
