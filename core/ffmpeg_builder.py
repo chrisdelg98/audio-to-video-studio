@@ -268,12 +268,28 @@ class FFmpegBuilder:
             nvenc_preset = _NVENC_PRESET_MAP.get(effective_preset, "p5")
             if preview:
                 nvenc_preset = "p1"
+
+            # Escalar rendimiento NVENC según modo CPU
+            # Max → máxima velocidad (2-pass lookahead, B-frames, más bitrate)
+            # Medium/Low → conservador
             cmd += [
                 "-c:v", "h264_nvenc",
                 "-preset", nvenc_preset,
+                "-tune", "hq",
                 "-rc", "vbr",
                 "-cq", str(crf),
-                "-b:v", "0",
+                "-b:v", "8M",
+                "-maxrate", "12M",
+                "-bufsize", "16M",
+                "-profile:v", "high",
+                "-bf", "4" if cpu_mode == "Max" else "2",
+                "-g", "250",
+                "-spatial-aq", "1",
+                "-temporal-aq", "1",
+                "-aq-strength", "8",
+                "-rc-lookahead", "32" if cpu_mode in ("Max", "High") else "16",
+                "-multipass", "fullres" if cpu_mode in ("Max", "High") else "disabled",
+                "-threads", str(threads),
             ]
         else:
             cmd += [
