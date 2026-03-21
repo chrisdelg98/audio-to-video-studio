@@ -63,24 +63,33 @@ class ZoomEffect(BaseEffect):
 
         amplitude = zoom_max - 1.0
 
-        # Ease-in/ease-out con (1-cos)/2:
-        #   n=0              → zoom = 1.0      (sin zoom)
-        #   n = PI*speed     → zoom = zoom_max (pico suave)
-        #   n = 2*PI*speed   → zoom = 1.0      (regresa suave)
+        # Pre-escalar a la tamaño máximo de zoom (FIJO, sin eval=frame).
+        # Esto estabiliza el kernel de filtrado lanczos entre frames, eliminando
+        # los artefactos de ringing que cambian cuando la dimensión de scale salta.
+        # Se fuerza número par para compatibilidad YUV420 / H.264.
+        max_w = (int(w * zoom_max) + 1) // 2 * 2
+        max_h = (int(h * zoom_max) + 1) // 2 * 2
+
+        # Zoom oscila suavemente: n=0 → 1.0, n=PI*speed → zoom_max, n=2PI*speed → 1.0
         zoom_expr = f"1+{amplitude:.5f}*(1-cos(n/{speed:.1f}))/2"
 
-        # scale agranda el frame según zoom_expr; trunc()*2 garantiza
-        # dimensiones pares (requerido por H.264/libx264).
-        scale_w = f"trunc(iw*({zoom_expr})*0.5)*2"
-        scale_h = f"trunc(ih*({zoom_expr})*0.5)*2"
+        # Ventana de crop variable: a zoom=1.0 cubre toda la imagen preescalada;
+        # a zoom=zoom_max cubre exactamente la resolución de salida.
+        # La precisión es ±1 píxel (trunc), pero la escala final la distribuye
+        # sobre los {w} píxeles de salida → cambio imperceptible.
+        crop_w = f"trunc({max_w}/({zoom_expr}))"
+        crop_h = f"trunc({max_h}/({zoom_expr}))"
+        x_expr = f"({max_w}-{crop_w})/2"
+        y_expr = f"({max_h}-{crop_h})/2"
 
-        # crop recorta el centro exacto al tamaño de salida deseado.
-        # eval=frame es requerido en FFmpeg 8+ para que 'n' se evalúe por frame
-        # (el modo default 'init' no permite variables de frame como n, t, pos).
         return (
             f"{label_in}"
-            f"scale=w='{scale_w}':h='{scale_h}':flags=lanczos+accurate_rnd+full_chroma_inp:eval=frame,"
-            f"crop={w}:{h}"
+            # Paso 1: escalar al tamaño máximo (FIJO, una sola vez)
+            f"scale={max_w}:{max_h}:flags=lanczos+accurate_rnd+full_chroma_inp,"
+            # Paso 2: recortar ventana variable por frame
+            f"crop=w='{crop_w}':h='{crop_h}':x='{x_expr}':y='{y_expr}':eval=frame,"
+            # Paso 3: escalar de vuelta a la resolución exacta de salida
+            f"scale={w}:{h}:flags=lanczos+accurate_rnd+full_chroma_inp"
             f"{label_out}"
         )
 

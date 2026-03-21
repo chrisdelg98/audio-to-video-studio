@@ -246,6 +246,7 @@ class FFmpegBuilder:
         # --- Codec y calidad ---
         cmd += [
             "-c:v", "libx264",
+            "-threads", str(threads),
             "-preset", effective_preset,
             "-crf", str(crf),
             "-c:a", "aac",
