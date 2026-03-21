@@ -213,16 +213,19 @@ class AudioToVideoApp(ctk.CTk):
     # --- Header -------------------------------------------------------
 
     def _build_header(self) -> None:
-        header = ctk.CTkFrame(self, fg_color=C_PANEL, corner_radius=0)
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 0))
+        header = ctk.CTkFrame(self, fg_color=C_PANEL, corner_radius=0, height=48)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_propagate(False)
         header.grid_columnconfigure(0, weight=0)
         header.grid_columnconfigure(1, weight=0)
         header.grid_columnconfigure(2, weight=1)
         header.grid_columnconfigure(3, weight=0)
+        header.grid_rowconfigure(0, weight=1)   # content row fills the fixed height
+        header.grid_rowconfigure(1, weight=0)   # separator row stays 1px
 
         # Barra de acento vertical izquierda (decorativa)
         ctk.CTkFrame(header, width=3, fg_color=C_ACCENT, corner_radius=1).grid(
-            row=0, column=0, padx=(14, 0), pady=10, sticky="ns"
+            row=0, column=0, padx=(14, 0), pady=8, sticky="ns"
         )
 
         ctk.CTkLabel(
@@ -230,7 +233,7 @@ class AudioToVideoApp(ctk.CTk):
             text="🎬  Audio to Video Studio",
             font=ctk.CTkFont(size=15, weight="bold"),
             text_color=C_TEXT,
-        ).grid(row=0, column=1, padx=(8, 0), pady=10, sticky="w")
+        ).grid(row=0, column=1, padx=(8, 0), sticky="w")
 
         self._lbl_status = ctk.CTkLabel(
             header,
@@ -245,7 +248,7 @@ class AudioToVideoApp(ctk.CTk):
             header, fg_color=C_CARD, corner_radius=6,
             border_width=1, border_color=C_BORDER,
         )
-        ctrl.grid(row=0, column=3, padx=(4, 14), pady=8)
+        ctrl.grid(row=0, column=3, padx=(4, 14))
 
         # Botón tema 🌙 / ☀️
         _theme_icon = "☀️" if self._current_theme == "Dark" else "🌙"
@@ -519,7 +522,7 @@ class AudioToVideoApp(ctk.CTk):
             variable=self._var_naming_mode,
             command=self._on_naming_mode_change,
             fg_color=C_CARD,
-            button_color=C_ACCENT,
+            button_color=C_ACCENT if self._current_theme == "Dark" else C_BORDER,
             text_color=C_TEXT,
         ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
         ar += 1
@@ -583,14 +586,14 @@ class AudioToVideoApp(ctk.CTk):
             values=["Low", "Medium", "High", "Max"],
             variable=self._var_cpu_mode,
             fg_color=C_CARD,
-            button_color=C_ACCENT,
+            button_color=C_ACCENT if self._current_theme == "Dark" else C_BORDER,
             text_color=C_TEXT,
             width=100,
         ).grid(row=0, column=1, sticky="ew", padx=(4, 2))
         _cpu_btn = ctk.CTkButton(
             inner_perf, text="?", width=22, height=22,
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            text_color=C_TEXT_DIM,
+            fg_color=C_ACCENT, hover_color=C_ACCENT_H,
+            text_color="#ffffff",
             font=ctk.CTkFont(size=self._fs(11), weight="bold"),
             corner_radius=4,
         )
@@ -614,14 +617,14 @@ class AudioToVideoApp(ctk.CTk):
                     "faster", "fast", "medium", "slow", "slower", "veryslow"],
             variable=self._var_encode_preset,
             fg_color=C_CARD,
-            button_color=C_ACCENT,
+            button_color=C_ACCENT if self._current_theme == "Dark" else C_BORDER,
             text_color=C_TEXT,
             width=100,
         ).grid(row=0, column=4, sticky="ew", padx=(4, 2))
         _preset_btn = ctk.CTkButton(
             inner_perf, text="?", width=22, height=22,
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            text_color=C_TEXT_DIM,
+            fg_color=C_ACCENT, hover_color=C_ACCENT_H,
+            text_color="#ffffff",
             font=ctk.CTkFont(size=self._fs(11), weight="bold"),
             corner_radius=4,
         )
@@ -934,8 +937,8 @@ class AudioToVideoApp(ctk.CTk):
         if tooltip_text:
             _info_btn = ctk.CTkButton(
                 inner, text="?", width=22, height=22,
-                fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-                text_color=C_TEXT_DIM,
+                fg_color=C_ACCENT, hover_color=C_ACCENT_H,
+                text_color="#ffffff",
                 font=ctk.CTkFont(size=self._fs(11), weight="bold"),
                 corner_radius=4,
             )
