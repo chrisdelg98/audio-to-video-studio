@@ -14,7 +14,17 @@ Configuración de posición:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 from effects.base_effect import BaseEffect
+
+
+# Fuente por defecto según OS (ruta con '/' para evitar escaping de drawtext)
+if sys.platform == "win32":
+    _DEFAULT_FONT = "C:/Windows/Fonts/arial.ttf"
+else:
+    _DEFAULT_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
 class TextOverlayEffect(BaseEffect):
@@ -28,6 +38,10 @@ class TextOverlayEffect(BaseEffect):
         self.font_size: int = int(settings.get("text_font_size", 36))
         self.glitch_intensity: int = int(settings.get("text_glitch_intensity", 3))
         self.glitch_speed: float = float(settings.get("text_glitch_speed", 4.0))
+
+        # Resolver fuente: usar ruta directa para evitar fontconfig
+        font_path = Path(_DEFAULT_FONT)
+        self.fontfile: str = str(font_path).replace("\\", "/") if font_path.exists() else ""
 
     # ------------------------------------------------------------------
 
@@ -59,25 +73,28 @@ class TextOverlayEffect(BaseEffect):
 
         x_expr = "(w-text_w)/2"
 
+        # fontfile directo → evita fontconfig (no funciona en Windows sin config)
+        ff = f":fontfile='{self.fontfile}'" if self.fontfile else ""
+
         layers: list[str] = []
 
         if gi > 0:
             # Fantasma cian (desplazado a la izquierda según oscilación)
             layers.append(
-                f"drawtext=text='{safe}':fontcolor=cyan@0.5:fontsize={fs}"
+                f"drawtext=text='{safe}'{ff}:fontcolor=cyan@0.5:fontsize={fs}"
                 f":x={x_expr}-{gi}*abs(sin(t*{gs:.1f})):y={y_expr}"
                 f":shadowcolor=black@0.3:shadowx=1:shadowy=1"
             )
             # Fantasma rojo (desplazado a la derecha)
             layers.append(
-                f"drawtext=text='{safe}':fontcolor=red@0.5:fontsize={fs}"
+                f"drawtext=text='{safe}'{ff}:fontcolor=red@0.5:fontsize={fs}"
                 f":x={x_expr}+{gi}*abs(sin(t*{gs:.1f})):y={y_expr}"
                 f":shadowcolor=black@0.3:shadowx=1:shadowy=1"
             )
 
         # Texto blanco principal (siempre encima)
         layers.append(
-            f"drawtext=text='{safe}':fontcolor=white:fontsize={fs}"
+            f"drawtext=text='{safe}'{ff}:fontcolor=white:fontsize={fs}"
             f":x={x_expr}:y={y_expr}"
             f":shadowcolor=black@0.7:shadowx=2:shadowy=2"
         )
