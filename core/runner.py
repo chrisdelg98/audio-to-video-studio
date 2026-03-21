@@ -216,7 +216,7 @@ class Runner:
             duration=duration,
         )
 
-        self.on_log(f"  → Comando: {' '.join(cmd[:6])} ...")
+        self.on_log(f"  \u2192 Comando: {' '.join(cmd[:8])} ...")
 
         # Ejecutar FFmpeg
         start = time.time()
@@ -229,7 +229,9 @@ class Runner:
         else:
             job.success = False
             job.error = error_msg
-            self.on_log(f"  ✘ FFmpeg falló: {error_msg[:300]}")
+            # Show full error, indent each line
+            for ln in error_msg.splitlines():
+                self.on_log(f"  {ln}")
 
     def _run_ffmpeg(self, cmd: list[str]) -> tuple[bool, str]:
         """
@@ -271,22 +273,37 @@ class Runner:
             if proc.returncode == 0:
                 return True, ""
             else:
-                # Filtrar líneas de cabecera de FFmpeg (version banner, libs, etc.)
-                # para mostrar solo las líneas con el error real.
+                # Step 1: find lines that look like actual errors
+                _error_indicators = ("error", "invalid", "no such file", "failed",
+                                     "unknown", "not found", "cannot", "unable", "fatal")
+                error_lines = [
+                    ln for ln in stderr_lines
+                    if any(ind in ln.lower() for ind in _error_indicators)
+                ]
+
+                # Step 2: always include the last 15 lines (FFmpeg puts the final
+                #         error near the end) and deduplicate order-preservingly
+                tail = stderr_lines[-15:] if len(stderr_lines) > 15 else stderr_lines
+                seen: set[str] = set()
+                combined: list[str] = []
+                for ln in error_lines + tail:
+                    if ln not in seen:
+                        seen.add(ln)
+                        combined.append(ln)
+
+                # Step 3: strip pure banner lines from combined
                 _skip_prefixes = (
                     "ffmpeg version", "built with", "configuration:",
-                    "lib", "  lib", "Input #", "Output #", "Stream mapping",
-                    "Press [", "frame=", "  Duration", "    Stream",
-                    "video:", "audio:", "  Metadata",
+                    "  lib", "libav", "Press [",
                 )
-                meaningful = [
-                    ln for ln in stderr_lines
-                    if not any(ln.startswith(p) for p in _skip_prefixes)
+                filtered = [
+                    ln for ln in combined
+                    if not any(ln.lower().startswith(p.lower()) for p in _skip_prefixes)
                 ]
-                # Si el filtrado dejó vacío, mostrar las últimas líneas sin filtrar
-                show_lines = meaningful[-30:] if meaningful else stderr_lines[-30:]
-                error_detail = "\n".join(show_lines)
-                return False, error_detail
+
+                # If filtering removed everything, fall back to last 15 raw lines
+                show_lines = filtered if filtered else tail
+                return False, "\n".join(show_lines)
 
         except FileNotFoundError:
             return False, "ffmpeg no encontrado en PATH."
@@ -334,5 +351,8 @@ class Runner:
         if fail:
             for r in results:
                 if not r.success:
-                    self.on_log(f"  ✘ {r.audio_path.name}: {r.error[:100]}")
+                    self.on_log(f"  ✘ {r.audio_path.name}:")
+                    # Show up to first 5 error lines in summary
+                    for ln in r.error.splitlines()[:5]:
+                        self.on_log(f"    {ln}")
         self.on_log("=" * 50)

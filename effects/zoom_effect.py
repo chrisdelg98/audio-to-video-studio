@@ -75,9 +75,11 @@ class ZoomEffect(BaseEffect):
         scale_h = f"trunc(ih*({zoom_expr})*0.5)*2"
 
         # crop recorta el centro exacto al tamaño de salida deseado.
+        # eval=frame es requerido en FFmpeg 8+ para que 'n' se evalúe por frame
+        # (el modo default 'init' no permite variables de frame como n, t, pos).
         return (
             f"{label_in}"
-            f"scale=w='{scale_w}':h='{scale_h}':flags=lanczos+accurate_rnd+full_chroma_inp,"
+            f"scale=w='{scale_w}':h='{scale_h}':flags=lanczos+accurate_rnd+full_chroma_inp:eval=frame,"
             f"crop={w}:{h}"
             f"{label_out}"
         )

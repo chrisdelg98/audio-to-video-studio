@@ -48,6 +48,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "text_font_size": 36,
     "text_glitch_intensity": 3,
     "text_glitch_speed": 4.0,
+    # UI
+    "theme": "Dark",
+    "font_size": "Medium",
 }
 
 # Presets de configuración
