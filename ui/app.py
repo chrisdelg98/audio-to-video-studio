@@ -241,7 +241,72 @@ class AudioToVideoApp(ctk.CTk):
                 command=lambda p=preset: self._apply_preset(p),
             ).pack(side="left", padx=4)
         row += 1
+        # ── Sección: Output Naming ──
+        row = self._section_label(frame, "🏷️  Output Naming", row)
 
+        # Dropdown de modo
+        inner_mode = ctk.CTkFrame(frame, fg_color="transparent")
+        inner_mode.grid(row=row, column=0, sticky="ew", padx=12, pady=4)
+        inner_mode.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            inner_mode, text="Modo:", text_color=C_MUTED,
+            font=ctk.CTkFont(size=11), width=60, anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        self._var_naming_mode = tk.StringVar(value="Default")
+        ctk.CTkOptionMenu(
+            inner_mode,
+            values=["Default", "Prefix", "Custom List", "Prefix + Custom List"],
+            variable=self._var_naming_mode,
+            command=self._on_naming_mode_change,
+            fg_color=C_ACCENT,
+            button_color=C_BTN_SECONDARY,
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        row += 1
+
+        # Prefijo (solo visible en modos Prefix / Prefix + Custom List)
+        self._naming_prefix_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        self._naming_prefix_frame.grid(row=row, column=0, sticky="ew", padx=12, pady=(2, 0))
+        self._naming_prefix_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            self._naming_prefix_frame, text="Prefijo:", text_color=C_MUTED,
+            font=ctk.CTkFont(size=11), width=60, anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        self._var_naming_prefix = tk.StringVar()
+        ctk.CTkEntry(
+            self._naming_prefix_frame,
+            textvariable=self._var_naming_prefix,
+            placeholder_text="Ej: Lofi - ",
+            height=28,
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        self._naming_prefix_frame.grid_remove()
+        row += 1
+
+        # Lista personalizada (solo visible en modos Custom / Prefix + Custom List)
+        self._naming_list_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        self._naming_list_frame.grid(row=row, column=0, sticky="ew", padx=12, pady=(4, 0))
+        self._naming_list_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            self._naming_list_frame,
+            text="Nombres personalizados (uno por línea):",
+            text_color=C_MUTED,
+            font=ctk.CTkFont(size=11),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 2))
+        self._txt_naming_list = ctk.CTkTextbox(
+            self._naming_list_frame,
+            height=90,
+            fg_color="#0d1117",
+            text_color=C_TEXT,
+            font=ctk.CTkFont(family="Consolas", size=11),
+        )
+        self._txt_naming_list.grid(row=1, column=0, sticky="ew")
+        self._naming_list_frame.grid_remove()
+        row += 1
+
+        # Numeración automática
+        self._var_naming_autonumber = tk.BooleanVar(value=True)
+        row = self._check_row(frame, "Numeración automática (01, 02…)",
+                              self._var_naming_autonumber, row)
     # --- Right panel --------------------------------------------------
 
     def _build_right_panel(self, parent: ctk.CTkFrame) -> None:
@@ -503,6 +568,21 @@ class AudioToVideoApp(ctk.CTk):
         else:
             self._overlay_frame.grid_remove()
 
+    def _on_naming_mode_change(self, mode: str) -> None:
+        """Muestra u oculta el campo de prefijo y/o la lista según el modo elegido."""
+        needs_prefix = mode in ("Prefix", "Prefix + Custom List")
+        needs_list = mode in ("Custom List", "Prefix + Custom List")
+
+        if needs_prefix:
+            self._naming_prefix_frame.grid()
+        else:
+            self._naming_prefix_frame.grid_remove()
+
+        if needs_list:
+            self._naming_list_frame.grid()
+        else:
+            self._naming_list_frame.grid_remove()
+
     def _apply_preset(self, name: str) -> None:
         self.settings.apply_preset(name)
         self._load_settings_to_ui()
@@ -721,6 +801,28 @@ class AudioToVideoApp(ctk.CTk):
             if not overlay_path or not Path(overlay_path).is_file():
                 errors.append("• Video de overlay no válido (o no seleccionado).")
 
+        # ── Validación de nombres de salida ──
+        naming_mode = self._var_naming_mode.get()
+        if naming_mode in ("Custom List", "Prefix + Custom List"):
+            names_raw = self._txt_naming_list.get("1.0", "end").strip()
+            if not names_raw:
+                errors.append("• La lista de nombres personalizados está vacía.")
+            else:
+                custom_names = [n.strip() for n in names_raw.splitlines() if n.strip()]
+                # Validar contra número de audios si ya hay carpeta elegida
+                af = self._var_audio_folder.get()
+                if af and Path(af).is_dir():
+                    try:
+                        audio_count = len(get_audio_files(af))
+                        if audio_count > 0 and len(custom_names) < audio_count:
+                            errors.append(
+                                f"• La lista tiene {len(custom_names)} nombre(s) "
+                                f"pero hay {audio_count} audio(s). "
+                                f"Se necesitan al menos {audio_count} nombres."
+                            )
+                    except Exception:
+                        pass
+
         if errors:
             messagebox.showerror("Validación", "\n".join(errors))
             return False
@@ -732,6 +834,9 @@ class AudioToVideoApp(ctk.CTk):
 
     def _collect_settings(self) -> None:
         """Lee los valores de la UI y los escribe en SettingsManager."""
+        names_raw = self._txt_naming_list.get("1.0", "end")
+        custom_names = [n.strip() for n in names_raw.splitlines() if n.strip()]
+
         self.settings.update({
             "audio_folder": self._var_audio_folder.get(),
             "background_image": self._var_image.get(),
@@ -748,6 +853,11 @@ class AudioToVideoApp(ctk.CTk):
             "overlay_path": self._var_overlay_path.get(),
             "overlay_opacity": round(self._var_overlay_opacity.get(), 2),
             "normalize_audio": self._var_normalize.get(),
+            # Naming
+            "naming_mode": self._var_naming_mode.get(),
+            "naming_prefix": self._var_naming_prefix.get(),
+            "naming_custom_list": custom_names,
+            "naming_auto_number": self._var_naming_autonumber.get(),
         })
 
     def _load_settings_to_ui(self) -> None:
@@ -768,6 +878,16 @@ class AudioToVideoApp(ctk.CTk):
         self._var_overlay_path.set(s.get("overlay_path", ""))
         self._var_overlay_opacity.set(s.get("overlay_opacity", 0.5))
         self._var_normalize.set(s.get("normalize_audio", False))
+
+        # Naming
+        self._var_naming_mode.set(s.get("naming_mode", "Default"))
+        self._var_naming_prefix.set(s.get("naming_prefix", ""))
+        custom_names: list[str] = s.get("naming_custom_list", [])
+        self._txt_naming_list.delete("1.0", "end")
+        if custom_names:
+            self._txt_naming_list.insert("1.0", "\n".join(custom_names))
+        self._var_naming_autonumber.set(s.get("naming_auto_number", True))
+        self._on_naming_mode_change(self._var_naming_mode.get())
 
         # Cargar preview si hay imagen
         img = s.get("background_image", "")

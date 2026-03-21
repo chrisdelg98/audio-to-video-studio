@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core.ffmpeg_builder import FFmpegBuilder
+from core.naming_manager import NamingManager
 from core.utils import (
-    build_output_filename,
     ensure_dir,
     get_audio_duration,
     get_audio_files,
@@ -138,17 +138,43 @@ class Runner:
             return
 
         total = len(audio_files)
+
+        # ── Naming ──────────────────────────────────────────────────
+        nm = NamingManager(
+            mode=self.settings.get("naming_mode", "Default"),
+            prefix=self.settings.get("naming_prefix", ""),
+            custom_names=self.settings.get("naming_custom_list", []),
+            auto_number=self.settings.get("naming_auto_number", True),
+        )
+
+        naming_errors = nm.validate(total)
+        if naming_errors:
+            for err in naming_errors:
+                self.on_log(f"✘ Naming: {err}")
+            self.on_finished([])
+            return
+
+        for warn in nm.get_warnings(total):
+            self.on_log(f"⚠ Naming: {warn}")
+
+        output_names = nm.generate_names(audio_files)
+        # ────────────────────────────────────────────────────────────
+
         self.on_log(f"▶ Iniciando procesamiento de {total} archivo(s)...\n")
         ensure_dir(output_folder)
 
-        for idx, audio_path in enumerate(audio_files, start=1):
+        for idx, (audio_path, output_name) in enumerate(
+            zip(audio_files, output_names), start=1
+        ):
             if self._cancel_event.is_set():
                 self.on_log("🛑 Proceso cancelado por el usuario.")
                 break
 
-            job = JobResult(index=idx, audio_path=audio_path)
+            output_path = nm.build_output_path(output_name, output_folder)
+            job = JobResult(index=idx, audio_path=audio_path, output_path=output_path)
             self.on_progress(idx - 1, total, audio_path.name)
             self.on_log(f"\n[{idx}/{total}] Procesando: {audio_path.name}")
+            self.on_log(f"  → Output: {output_path.name}")
 
             try:
                 self._process_one(job, image_path, output_folder, total)
@@ -171,16 +197,15 @@ class Runner:
         output_folder: Path,
         total: int,
     ) -> None:
-        """Procesa un único archivo de audio."""
+        """Procesa un único archivo de audio. output_path ya viene asignado en job."""
         # Duración
         self.on_log(f"  → Obteniendo duración...")
         duration = get_audio_duration(job.audio_path)
         job.duration_audio = duration
         self.on_log(f"  → Duración: {duration:.2f}s")
 
-        # Ruta de salida
-        output_path = build_output_filename(job.index, job.audio_path, output_folder)
-        job.output_path = output_path
+        # output_path ya fue resuelto por NamingManager en _process_all
+        output_path = job.output_path
 
         # Construir comando
         builder = FFmpegBuilder(self.settings)
