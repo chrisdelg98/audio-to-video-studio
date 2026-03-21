@@ -23,6 +23,7 @@ from effects.zoom_effect import ZoomEffect
 
 # Resoluciones soportadas
 RESOLUTIONS: dict[str, tuple[int, int]] = {
+    "720p": (1280, 720),
     "1080p": (1920, 1080),
     "4K": (3840, 2160),
 }
@@ -43,6 +44,19 @@ ENCODE_PRESETS = (
     "ultrafast", "superfast", "veryfast",
     "faster", "fast", "medium", "slow", "slower", "veryslow",
 )
+
+# Mapeo de presets x264 → NVENC (p1=fastest … p7=best quality)
+_NVENC_PRESET_MAP: dict[str, str] = {
+    "ultrafast":  "p1",
+    "superfast":  "p1",
+    "veryfast":   "p2",
+    "faster":     "p3",
+    "fast":       "p4",
+    "medium":     "p4",
+    "slow":       "p5",
+    "slower":     "p6",
+    "veryslow":   "p7",
+}
 
 
 def calc_threads(cpu_mode: str) -> int:
@@ -137,7 +151,7 @@ class FFmpegBuilder:
         effects.append(
             ZoomEffect(
                 enabled=self.settings.get("enable_zoom", True),
-                zoom_max=float(self.settings.get("zoom_max", 1.05)),
+                zoom_max=float(self.settings.get("zoom_max", 1.02)),
                 zoom_speed=int(self.settings.get("zoom_speed", 300)),
                 width=self.width,
                 height=self.height,
@@ -149,6 +163,9 @@ class FFmpegBuilder:
         effects.append(
             GlitchEffect(
                 enabled=self.settings.get("enable_glitch", False),
+                intensity=int(self.settings.get("glitch_intensity", 4)),
+                speed=int(self.settings.get("glitch_speed", 90)),
+                pulse=int(self.settings.get("glitch_pulse", 3)),
             )
         )
 
@@ -202,6 +219,9 @@ class FFmpegBuilder:
         # Preview siempre usa ultrafast para velocidad
         effective_preset = "ultrafast" if preview else encode_preset
 
+        # Encoder: GPU (NVENC) o CPU (libx264)
+        use_gpu = self.settings.get("gpu_encoding", False)
+
         # --- Inputs ---
         cmd: list[str] = ["ffmpeg", "-y", "-threads", str(threads)]
 
@@ -244,11 +264,26 @@ class FFmpegBuilder:
             cmd += ["-af", audio_filter]
 
         # --- Codec y calidad ---
+        if use_gpu:
+            nvenc_preset = _NVENC_PRESET_MAP.get(effective_preset, "p5")
+            if preview:
+                nvenc_preset = "p1"
+            cmd += [
+                "-c:v", "h264_nvenc",
+                "-preset", nvenc_preset,
+                "-rc", "vbr",
+                "-cq", str(crf),
+                "-b:v", "0",
+            ]
+        else:
+            cmd += [
+                "-c:v", "libx264",
+                "-threads", str(threads),
+                "-preset", effective_preset,
+                "-crf", str(crf),
+            ]
+
         cmd += [
-            "-c:v", "libx264",
-            "-threads", str(threads),
-            "-preset", effective_preset,
-            "-crf", str(crf),
             "-c:a", "aac",
             "-b:a", "192k",
             "-movflags", "+faststart",

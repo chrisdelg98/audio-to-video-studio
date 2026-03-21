@@ -1,13 +1,26 @@
 """
-ZoomEffect — Efecto de zoom dinámico suave usando scale+crop de FFmpeg.
+ZoomEffect — Zoom dinámico ultra-suave con super-muestreo 4× + tmix.
 
-Usa scale con expresión por frame + crop centrado para producir un zoom
-perfectamente fluido con ease-in/ease-out real.
+Pipeline de 4 etapas:
+  1. scale:eval=frame → ampliar a ~7680px × factor de zoom (bicubic)
+  2. crop             → recortar centro al tamaño del super-muestreo (fijo)
+  3. scale            → reducir a resolución final (lanczos)
+  4. tmix=frames=5    → promediar 5 frames consecutivos
 
-Por qué NO se usa zoompan:
-  - zoompan es secuencial y lento (procesa un frame a la vez con estado interno)
-  - Genera tiempos de frame irregulares → se percibe como "lag" o "choppiness"
-  - scale+crop procesa cada frame de forma independiente → mucho más rápido y uniforme
+Etapas 1-3 eliminan la mayor parte de la cuantización (≤0.5 px en salida).
+La etapa 4 (tmix) convierte el salto residual de 0.5 px en una transición
+lineal de 5 frames (0.1 px/frame), completamente invisible al ojo humano.
+
+tmix funciona porque la fuente es una imagen estática:
+  - Durante las fases "hold" (dimensión constante), los 5 frames son
+    idénticos → promedio = frame sin cambio alguno.
+  - En el instante del salto (frame K), el promedio crea:
+      K:   20% nuevo + 80% anterior
+      K+1: 40% nuevo + 60% anterior
+      K+2: 60% nuevo + 40% anterior
+      K+3: 80% nuevo + 20% anterior
+      K+4: 100% nuevo
+    → transición lineal perfecta en 167 ms, imperceptible.
 """
 
 from effects.base_effect import BaseEffect
@@ -15,29 +28,19 @@ from effects.base_effect import BaseEffect
 
 class ZoomEffect(BaseEffect):
     """
-    Aplica un zoom dinámico usando scale+crop con expresión matemática per-frame.
+    Zoom oscilante con super-muestreo 4× + interpolación temporal.
 
-    Fórmula de easing:
-        zoom_factor = 1 + amplitude * (1 - cos(n / speed)) / 2
+    Fórmula:
+        z(n) = 1 + amplitude * (1 − cos(n / speed)) / 2
 
-        - Basada en (1-cos)/2 → oscila suavemente entre 0 y 1
-        - Derivada = 0 en los extremos → ease-in/ease-out perfecto
-        - Siempre >= 1.0 → el crop nunca sobrepasa los bordes
-        - Período completo de un ciclo: 2 * PI * speed frames
-
-    Parámetros:
-        zoom_max:   Factor máximo de zoom (ej. 1.05 = 5% máximo). Default 1.05.
-        zoom_speed: Controla la duración del ciclo. Mayor = ciclo más lento.
-                    A 30fps, speed=300 ≈ 63s por ciclo (zoom muy lento y suave).
-        width:      Anchura del frame de salida en píxeles.
-        height:     Altura del frame de salida en píxeles.
-        fps:        FPS del video de salida.
+    El factor de super-muestreo mantiene ~7680 px de ancho intermedio.
+    tmix=5 suaviza los saltos residuales de cuantización.
     """
 
     def __init__(
         self,
         enabled: bool = True,
-        zoom_max: float = 1.05,
+        zoom_max: float = 1.02,
         zoom_speed: int = 300,
         width: int = 1920,
         height: int = 1080,
@@ -57,39 +60,34 @@ class ZoomEffect(BaseEffect):
             return f"{label_in}copy{label_out}"
 
         zoom_max = self.params["zoom_max"]
-        speed = self.params["zoom_speed"]
-        w = self.params["width"]
-        h = self.params["height"]
+        speed    = self.params["zoom_speed"]
+        w        = self.params["width"]
+        h        = self.params["height"]
 
         amplitude = zoom_max - 1.0
 
-        # Pre-escalar a la tamaño máximo de zoom (FIJO, sin eval=frame).
-        # Esto estabiliza el kernel de filtrado lanczos entre frames, eliminando
-        # los artefactos de ringing que cambian cuando la dimensión de scale salta.
-        # Se fuerza número par para compatibilidad YUV420 / H.264.
-        max_w = (int(w * zoom_max) + 1) // 2 * 2
-        max_h = (int(h * zoom_max) + 1) // 2 * 2
+        # Factor adaptativo: ~7680px ancho intermedio
+        #   720p→4×  1080p→4×  1440p→3×  4K→2×
+        factor = max(2, min(4, 7680 // max(w, 1)))
+        wf = w * factor
+        hf = h * factor
 
-        # Zoom oscila suavemente: n=0 → 1.0, n=PI*speed → zoom_max, n=2PI*speed → 1.0
-        zoom_expr = f"1+{amplitude:.5f}*(1-cos(n/{speed:.1f}))/2"
+        # Expresión de zoom ('n' = frame counter en scale:eval=frame)
+        z = f"1+{amplitude:.6f}*(1-cos(n/{speed:.1f}))/2"
 
-        # Ventana de crop variable: a zoom=1.0 cubre toda la imagen preescalada;
-        # a zoom=zoom_max cubre exactamente la resolución de salida.
-        # La precisión es ±1 píxel (trunc), pero la escala final la distribuye
-        # sobre los {w} píxeles de salida → cambio imperceptible.
-        crop_w = f"trunc({max_w}/({zoom_expr}))"
-        crop_h = f"trunc({max_h}/({zoom_expr}))"
-        x_expr = f"({max_w}-{crop_w})/2"
-        y_expr = f"({max_h}-{crop_h})/2"
+        # Dimensiones en super-resolución (par para yuv420p)
+        sw = f"trunc(iw*{factor}*({z})/2)*2"
+        sh = f"trunc(ih*{factor}*({z})/2)*2"
 
+        # tmix=5: promedia 5 frames → transición lineal entre pasos
+        # de cuantización. Máximo cambio visible = 0.1 px/frame.
         return (
             f"{label_in}"
-            # Paso 1: escalar al tamaño máximo (FIJO, una sola vez)
-            f"scale={max_w}:{max_h}:flags=lanczos+accurate_rnd+full_chroma_inp,"
-            # Paso 2: recortar ventana variable por frame
-            f"crop=w='{crop_w}':h='{crop_h}':x='{x_expr}':y='{y_expr}':eval=frame,"
-            # Paso 3: escalar de vuelta a la resolución exacta de salida
-            f"scale={w}:{h}:flags=lanczos+accurate_rnd+full_chroma_inp"
+            f"scale={sw}:{sh}:eval=frame:flags=bicubic,"
+            f"crop={wf}:{hf}:(in_w-{wf})/2:(in_h-{hf})/2,"
+            f"scale={w}:{h}:flags=lanczos,"
+            f"tmix=frames=5:weights=1 1 1 1 1"
             f"{label_out}"
         )
+
 

@@ -70,7 +70,7 @@ _DARK_PALETTE: dict[str, str] = {
     "ACCENT": "#4361ee", "ACCENT_H": "#3451d1",
     "BTN_PRIMARY": "#4361ee", "BTN_SECONDARY": "#1e1e32",
     "BTN_OK": "#2d8f5a", "BTN_DANGER": "#d64040",
-    "TEXT": "#e0e0ee", "TEXT_DIM": "#9090b8", "MUTED": "#5a5a7a",
+    "TEXT": "#e0e0ee", "TEXT_DIM": "#9090b8", "MUTED": "#8d8d9c",
     "HOVER": "#22223a",
     "SUCCESS": "#40c880", "ERROR": "#e05050", "WARN": "#e8a030",
     "INPUT": "#0a0a10", "LOG": "#080810",
@@ -327,6 +327,8 @@ class AudioToVideoApp(ctk.CTk):
         self._var_resolution = tk.StringVar(value="1080p")
         res_frame = ctk.CTkFrame(c, fg_color="transparent")
         res_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=4)
+        ctk.CTkRadioButton(res_frame, text="720p", variable=self._var_resolution,
+                           value="720p").pack(side="left", padx=8)
         ctk.CTkRadioButton(res_frame, text="1080p", variable=self._var_resolution,
                            value="1080p").pack(side="left", padx=8)
         ctk.CTkRadioButton(res_frame, text="4K", variable=self._var_resolution,
@@ -335,11 +337,11 @@ class AudioToVideoApp(ctk.CTk):
         # ── Parámetros ──
         c, row = self._collapsible_section(frame, "⚙️  Parámetros", row, default_open=False)
         ar = 0
-        self._var_zoom_max = tk.DoubleVar(value=1.05)
+        self._var_zoom_max = tk.DoubleVar(value=1.02)
         ar = self._slider_row(c, "Zoom máximo:", self._var_zoom_max, 1.0, 1.2, ar,
                               fmt="{:.3f}")
         self._var_zoom_speed = tk.IntVar(value=300)
-        ar = self._slider_row(c, "Velocidad zoom:", self._var_zoom_speed, 50, 1000, ar,
+        ar = self._slider_row(c, "Velocidad zoom:", self._var_zoom_speed, 100, 800, ar,
                               fmt="{:.0f}")
         self._var_fade_in = tk.DoubleVar(value=2.0)
         ar = self._slider_row(c, "Fade in (s):", self._var_fade_in, 0, 10, ar, fmt="{:.1f}")
@@ -369,6 +371,28 @@ class AudioToVideoApp(ctk.CTk):
         self._var_normalize = tk.BooleanVar(value=False)
         ar = self._check_row(c, "Zoom dinámico", self._var_zoom, ar)
         ar = self._check_row(c, "Glitch effect (video)", self._var_glitch, ar)
+
+        # Sub-frame glitch: sliders de intensidad y velocidad
+        self._glitch_settings_frame = ctk.CTkFrame(c, fg_color="transparent")
+        self._glitch_settings_frame.grid(row=ar, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._glitch_settings_frame.grid_columnconfigure(0, weight=1)
+        self._var_glitch_intensity = tk.IntVar(value=4)
+        self._var_glitch_speed = tk.IntVar(value=90)
+        self._var_glitch_pulse = tk.IntVar(value=3)
+        ar_g = 0
+        ar_g = self._slider_row(self._glitch_settings_frame, "Intensidad:",
+                                self._var_glitch_intensity, 1, 20, ar_g, fmt="{:.0f}")
+        ar_g = self._slider_row(self._glitch_settings_frame, "Frecuencia (frames):",
+                                self._var_glitch_speed, 20, 300, ar_g, fmt="{:.0f}")
+        ar_g = self._slider_row(self._glitch_settings_frame, "Duración pulso:",
+                                self._var_glitch_pulse, 1, 10, ar_g, fmt="{:.0f}")
+        if not self._var_glitch.get():
+            self._glitch_settings_frame.grid_remove()
+        self._var_glitch.trace_add("write", lambda *_: (
+            self._glitch_settings_frame.grid() if self._var_glitch.get()
+            else self._glitch_settings_frame.grid_remove()
+        ))
+        ar += 1  # ya contado el row del checkbox
         ar = self._check_row(c, "Overlay animado (video)", self._var_overlay,
                              ar, command=self._toggle_overlay_widgets)
         ar = self._check_row(c, "Normalizar audio", self._var_normalize, ar)
@@ -591,13 +615,13 @@ class AudioToVideoApp(ctk.CTk):
             width=100,
         ).grid(row=0, column=1, sticky="ew", padx=(4, 2))
         _cpu_btn = ctk.CTkButton(
-            inner_perf, text="?", width=22, height=22,
+            inner_perf, text="?", width=28, height=28,
             fg_color=C_ACCENT, hover_color=C_ACCENT_H,
             text_color="#ffffff",
             font=ctk.CTkFont(size=self._fs(11), weight="bold"),
             corner_radius=4,
         )
-        _cpu_btn.grid(row=0, column=2, padx=(0, 10))
+        _cpu_btn.grid(row=0, column=2, padx=(4, 10))
         _Tooltip(
             _cpu_btn,
             "Controla cuántos núcleos del procesador usa FFmpeg.\n\n"
@@ -622,13 +646,13 @@ class AudioToVideoApp(ctk.CTk):
             width=100,
         ).grid(row=0, column=4, sticky="ew", padx=(4, 2))
         _preset_btn = ctk.CTkButton(
-            inner_perf, text="?", width=22, height=22,
+            inner_perf, text="?", width=28, height=28,
             fg_color=C_ACCENT, hover_color=C_ACCENT_H,
             text_color="#ffffff",
             font=ctk.CTkFont(size=self._fs(11), weight="bold"),
             corner_radius=4,
         )
-        _preset_btn.grid(row=0, column=5)
+        _preset_btn.grid(row=0, column=5, padx=(4, 0))
         _Tooltip(
             _preset_btn,
             "Velocidad de encoding vs calidad/tamaño del archivo.\n\n"
@@ -639,6 +663,40 @@ class AudioToVideoApp(ctk.CTk):
             "• slow                  → Calidad óptima (recomendado).\n"
             "• veryslow              → Máxima compresión, muy lento.",
         )
+        # --- Fila 2: GPU encoding toggle ---
+        inner_gpu = ctk.CTkFrame(c, fg_color="transparent")
+        inner_gpu.grid(row=1, column=0, sticky="ew", padx=12, pady=(2, 4))
+        inner_gpu.grid_columnconfigure(1, weight=1)
+
+        self._var_gpu_encoding = tk.BooleanVar(value=False)
+        ctk.CTkSwitch(
+            inner_gpu,
+            text="GPU Encoding (NVENC)",
+            variable=self._var_gpu_encoding,
+            font=ctk.CTkFont(size=self._fs(11)),
+            text_color=C_TEXT,
+            progress_color=C_ACCENT,
+            button_color=C_BORDER,
+            button_hover_color=C_ACCENT_H,
+        ).grid(row=0, column=0, sticky="w")
+        _gpu_btn = ctk.CTkButton(
+            inner_gpu, text="?", width=28, height=28,
+            fg_color=C_ACCENT, hover_color=C_ACCENT_H,
+            text_color="#ffffff",
+            font=ctk.CTkFont(size=self._fs(11), weight="bold"),
+            corner_radius=4,
+        )
+        _gpu_btn.grid(row=0, column=1, sticky="w", padx=(8, 0))
+        _Tooltip(
+            _gpu_btn,
+            "Usa el encoder de hardware NVIDIA NVENC.\n\n"
+            "• Requiere GPU NVIDIA con NVENC (GTX 1050+).\n"
+            "• 5-10× más rápido que libx264.\n"
+            "• Libera la CPU para los filtros de video.\n"
+            "• Calidad similar para YouTube/streaming.\n\n"
+            "Si el encoding falla, desactiva esta opción.",
+        )
+
         _cpu_total = os.cpu_count() or 2
         ctk.CTkLabel(
             c,
@@ -646,7 +704,7 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_MUTED,
             font=ctk.CTkFont(size=self._fs(10)),
             anchor="w",
-        ).grid(row=1, column=0, sticky="w", padx=14, pady=(0, 6))
+        ).grid(row=2, column=0, sticky="w", padx=14, pady=(0, 6))
 
     # --- Right panel --------------------------------------------------
 
@@ -1333,6 +1391,9 @@ class AudioToVideoApp(ctk.CTk):
             "resolution": self._var_resolution.get(),
             "enable_zoom": self._var_zoom.get(),
             "enable_glitch": self._var_glitch.get(),
+            "glitch_intensity": int(self._var_glitch_intensity.get()),
+            "glitch_speed": int(self._var_glitch_speed.get()),
+            "glitch_pulse": int(self._var_glitch_pulse.get()),
             "enable_overlay": self._var_overlay.get(),
             "overlay_path": self._var_overlay_path.get(),
             "overlay_opacity": round(self._var_overlay_opacity.get(), 2),
@@ -1345,6 +1406,7 @@ class AudioToVideoApp(ctk.CTk):
             # Performance
             "cpu_mode": self._var_cpu_mode.get(),
             "encode_preset": self._var_encode_preset.get(),
+            "gpu_encoding": self._var_gpu_encoding.get(),
             # Text overlay
             "enable_text_overlay": self._var_text_overlay.get(),
             "text_content": self._var_text_content.get(),
@@ -1367,7 +1429,7 @@ class AudioToVideoApp(ctk.CTk):
         self._var_audio_folder.set(s.get("audio_folder", ""))
         self._var_image.set(s.get("background_image", ""))
         self._var_output.set(s.get("output_folder", ""))
-        self._var_zoom_max.set(s.get("zoom_max", 1.05))
+        self._var_zoom_max.set(s.get("zoom_max", 1.02))
         self._var_zoom_speed.set(s.get("zoom_speed", 300))
         self._var_fade_in.set(s.get("fade_in", 2.0))
         self._var_fade_out.set(s.get("fade_out", 2.0))
@@ -1375,6 +1437,9 @@ class AudioToVideoApp(ctk.CTk):
         self._var_resolution.set(s.get("resolution", "1080p"))
         self._var_zoom.set(s.get("enable_zoom", True))
         self._var_glitch.set(s.get("enable_glitch", False))
+        self._var_glitch_intensity.set(s.get("glitch_intensity", 4))
+        self._var_glitch_speed.set(s.get("glitch_speed", 90))
+        self._var_glitch_pulse.set(s.get("glitch_pulse", 3))
         self._var_overlay.set(s.get("enable_overlay", False))
         self._var_overlay_path.set(s.get("overlay_path", ""))
         self._var_overlay_opacity.set(s.get("overlay_opacity", 0.5))
@@ -1393,6 +1458,7 @@ class AudioToVideoApp(ctk.CTk):
         # Performance
         self._var_cpu_mode.set(s.get("cpu_mode", "Medium"))
         self._var_encode_preset.set(s.get("encode_preset", "slow"))
+        self._var_gpu_encoding.set(s.get("gpu_encoding", False))
 
         # Text overlay
         self._var_text_overlay.set(s.get("enable_text_overlay", False))
