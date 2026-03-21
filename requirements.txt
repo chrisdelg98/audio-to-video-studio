@@ -1,0 +1,12 @@
+# Audio to Video Studio — Dependencias Python
+#
+# Instalar con:
+#   pip install -r requirements.txt
+#
+# Requiere Python 3.10+
+
+# Interfaz gráfica
+customtkinter>=5.2.2
+
+# Procesamiento de imágenes (preview y thumbnails)
+Pillow>=10.0.0

@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# App data
+config/settings.json
+config/presets/*.json
+*.log
+logs/
+
+# Output
+output/
+temp/
+tmp/
+
+# PyInstaller
+*.spec
+build/
+dist/
+
+# Coverage
+.coverage
+htmlcov/
+
