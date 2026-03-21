@@ -32,8 +32,12 @@ class GlitchEffect(BaseEffect):
         intensity: int = 4,
         speed: int = 90,
         pulse: int = 3,
+        fast_mode: bool = False,
     ) -> None:
-        super().__init__(enabled=enabled, intensity=intensity, speed=speed, pulse=pulse)
+        super().__init__(
+            enabled=enabled, intensity=intensity, speed=speed,
+            pulse=pulse, fast_mode=fast_mode,
+        )
 
     def build_filter(self, label_in: str, label_out: str, duration: float) -> str:
         if not self.enabled:
@@ -42,6 +46,7 @@ class GlitchEffect(BaseEffect):
         intensity = max(1, int(self.params["intensity"]))
         speed     = max(10, int(self.params["speed"]))
         pulse     = max(1, min(int(self.params["pulse"]), speed - 1))
+        fast      = bool(self.params.get("fast_mode", False))
 
         # RGB shift: canales R y B se desplazan en sentidos opuestos.
         rh = intensity
@@ -49,52 +54,55 @@ class GlitchEffect(BaseEffect):
         rv = intensity // 2
         bv = -(intensity // 2)
 
-        # Ruido digital proporcional a la intensidad (máx 30).
-        noise_str = min(intensity * 2, 30)
-
         # Leve flicker de contraste/brillo.
         contrast   = 1.0 + intensity * 0.008
         brightness = intensity * 0.003
 
-        # ── Expresión de blend con temporización aleatoria ──
-        #
-        # chunk: grupo de `pulse` frames que comparten la misma decisión.
-        # random(seed) = hash determinista → mismo resultado para mismo seed
-        # → todos los píxeles de un chunk reciben la misma decisión temporal.
-        chunk = f"(floor(N/{pulse})*{pulse})"
+        if fast:
+            # ── Fast path (GPU mode): sin random() ni noise ──
+            # Trigger: mod(N,speed) — determinista, ~0 costo
+            # Bandas: sin(Y) con fase basada en burst index (golden ratio
+            # 2.39 rad ≈ 137.5° → patrón no repetitivo, parece aleatorio)
+            burst = f"floor(N/{max(pulse, 1)})"
+            trigger = f"lte(mod(N,{speed}),{pulse})"
+            # 25% full-frame (cada 4 bursts), 75% bandas sinusoidales
+            full_frame = f"lte(mod({burst},4),0)"
+            bands = f"gt(sin(Y*12.57/H+{burst}*2.39)*0.5+0.5,0.6)"
+            region = f"max({full_frame},{bands})"
 
-        # Probabilidad de trigger por chunk
-        # (promedia 1 ráfaga cada `speed` frames).
+            blend_expr = f"if({trigger}*{region},B,A)"
+
+            return (
+                f"{label_in}split=2[_gbase][_graw];"
+                f"[_graw]"
+                f"rgbashift=rh={rh}:rv={rv}:bh={bh}:bv={bv},"
+                f"eq=contrast={contrast:.4f}:brightness={brightness:.4f}"
+                f"[_gmod];"
+                f"[_gbase][_gmod]blend=all_expr='{blend_expr}'"
+                f"{label_out}"
+            )
+
+        # ── Quality path (CPU mode): random timing + noise + bandas ──
+        noise_str = min(intensity * 2, 30)
+
+        chunk = f"(floor(N/{pulse})*{pulse})"
         prob = pulse / speed
 
-        # Trigger temporal aleatorio por chunk.
         trigger = f"lt(random({chunk}*7919),{prob:.4f})"
-
-        # 25% de ráfagas son full-frame; 75% solo bandas.
         full = f"lt(random({chunk}*5003),0.25)"
-
-        # Bandas sinusoidales con fase aleatoria por ráfaga.
-        # ~3-4 franjas cubriendo ~30% del frame; posición varía por burst.
         bands = f"lt(sin(Y*37.68/H+random({chunk}*3571)*6.28)*0.5+0.5,0.3)"
-
-        # Región: full-frame OR dentro de una banda.
         region = f"max({full},{bands})"
-
-        # Fuerza de blend variable por ráfaga (50-100%).
         strength = f"0.5+0.5*random({chunk}*1237)"
 
         blend_expr = f"if({trigger}*{region},A+(B-A)*({strength}),A)"
 
         return (
-            # Dividir en rama limpia y rama glitch
             f"{label_in}split=2[_gbase][_graw];"
-            # Rama glitch: shift RGB + ruido + eq
             f"[_graw]"
             f"rgbashift=rh={rh}:rv={rv}:bh={bh}:bv={bv},"
             f"noise=alls={noise_str}:allf=t,"
             f"eq=contrast={contrast:.4f}:brightness={brightness:.4f}"
             f"[_gmod];"
-            # Blend: mezcla limpio/glitch según trigger + región
             f"[_gbase][_gmod]blend=all_expr='{blend_expr}'"
             f"{label_out}"
         )

@@ -1,26 +1,25 @@
 """
-ZoomEffect — Zoom dinámico ultra-suave con super-muestreo 4× + tmix.
+ZoomEffect — Zoom dinámico ultra-suave con super-muestreo 3× + tmix adaptativo.
 
 Pipeline de 4 etapas:
-  1. scale:eval=frame → ampliar a ~7680px × factor de zoom (bicubic)
+  1. scale:eval=frame → ampliar a ~5760px × factor de zoom (bilinear)
   2. crop             → recortar centro al tamaño del super-muestreo (fijo)
   3. scale            → reducir a resolución final (lanczos)
-  4. tmix=frames=5    → promediar 5 frames consecutivos
+  4. tmix             → promediar N frames consecutivos
 
-Etapas 1-3 eliminan la mayor parte de la cuantización (≤0.5 px en salida).
-La etapa 4 (tmix) convierte el salto residual de 0.5 px en una transición
-lineal de 5 frames (0.1 px/frame), completamente invisible al ojo humano.
+El super-muestreo es fijo (3× ≈ 5760px) para rendimiento constante.
+La suavidad se ajusta vía tmix (barato: opera a resolución de salida):
+  - Amplitud < 1.5% (ej. 1.010): tmix=9  →  0.037 px/frame
+  - Amplitud 1.5-4% (ej. 1.020): tmix=5  →  0.067 px/frame
+  - Amplitud ≥ 4%   (ej. 1.050): tmix=3  →  0.110 px/frame
 
-tmix funciona porque la fuente es una imagen estática:
-  - Durante las fases "hold" (dimensión constante), los 5 frames son
-    idénticos → promedio = frame sin cambio alguno.
-  - En el instante del salto (frame K), el promedio crea:
-      K:   20% nuevo + 80% anterior
-      K+1: 40% nuevo + 60% anterior
-      K+2: 60% nuevo + 40% anterior
-      K+3: 80% nuevo + 20% anterior
-      K+4: 100% nuevo
-    → transición lineal perfecta en 167 ms, imperceptible.
+Zoom sutil necesita más tmix porque el movimiento es tan lento que
+la cuantización (0.33px) supera el desplazamiento real por frame.
+tmix=9 reparte ese salto en 9 frames → transición imperceptible.
+
+El upscale usa bilinear (4 muestras/px) en vez de bicubic (16 muestras/px)
+porque su único propósito es dar precisión sub-pixel al posicionamiento.
+La calidad visual la aporta el downscale con lanczos en la etapa 3.
 """
 
 from effects.base_effect import BaseEffect
@@ -28,13 +27,13 @@ from effects.base_effect import BaseEffect
 
 class ZoomEffect(BaseEffect):
     """
-    Zoom oscilante con super-muestreo 4× + interpolación temporal.
+    Zoom oscilante con super-muestreo 3× + tmix adaptativo.
 
     Fórmula:
         z(n) = 1 + amplitude * (1 − cos(n / speed)) / 2
 
-    El factor de super-muestreo mantiene ~7680 px de ancho intermedio.
-    tmix=5 suaviza los saltos residuales de cuantización.
+    Factor 3× fijo (~5760px intermedio) para rendimiento constante.
+    tmix se adapta según amplitud para mantener suavidad óptima.
     """
 
     def __init__(
@@ -66,9 +65,20 @@ class ZoomEffect(BaseEffect):
 
         amplitude = zoom_max - 1.0
 
-        # Factor adaptativo: ~7680px ancho intermedio
-        #   720p→4×  1080p→4×  1440p→3×  4K→2×
-        factor = max(2, min(4, 7680 // max(w, 1)))
+        # Factor fijo 3× para rendimiento constante (~5760px intermedio)
+        factor = max(2, min(4, 5760 // max(w, 1)))
+
+        # tmix adaptativo según amplitud (barato: opera a res. de salida)
+        # Zoom sutil → más tmix para compensar cuantización lenta
+        # Zoom agresivo → menos tmix, velocidad oculta los saltos
+        if amplitude < 0.015:
+            tmix = 9   # 0.33px / 9 = 0.037 px/frame
+        elif amplitude < 0.04:
+            tmix = 5   # 0.33px / 5 = 0.067 px/frame
+        else:
+            tmix = 3   # 0.33px / 3 = 0.110 px/frame
+
+        weights = " ".join(["1"] * tmix)
         wf = w * factor
         hf = h * factor
 
@@ -79,14 +89,14 @@ class ZoomEffect(BaseEffect):
         sw = f"trunc(iw*{factor}*({z})/2)*2"
         sh = f"trunc(ih*{factor}*({z})/2)*2"
 
-        # tmix=5: promedia 5 frames → transición lineal entre pasos
-        # de cuantización. Máximo cambio visible = 0.1 px/frame.
+        # bilinear para upscale (solo necesita precisión posicional),
+        # lanczos para downscale (preserva nitidez visual).
         return (
             f"{label_in}"
-            f"scale={sw}:{sh}:eval=frame:flags=bicubic,"
+            f"scale={sw}:{sh}:eval=frame:flags=bilinear,"
             f"crop={wf}:{hf}:(in_w-{wf})/2:(in_h-{hf})/2,"
             f"scale={w}:{h}:flags=lanczos,"
-            f"tmix=frames=5:weights=1 1 1 1 1"
+            f"tmix=frames={tmix}:weights={weights}"
             f"{label_out}"
         )
 

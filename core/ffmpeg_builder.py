@@ -148,6 +148,7 @@ class FFmpegBuilder:
         effects: list[BaseEffect] = []
 
         # Zoom dinámico
+        use_gpu = self.settings.get("gpu_encoding", False)
         effects.append(
             ZoomEffect(
                 enabled=self.settings.get("enable_zoom", True),
@@ -166,6 +167,7 @@ class FFmpegBuilder:
                 intensity=int(self.settings.get("glitch_intensity", 4)),
                 speed=int(self.settings.get("glitch_speed", 90)),
                 pulse=int(self.settings.get("glitch_pulse", 3)),
+                fast_mode=use_gpu,
             )
         )
 
@@ -223,7 +225,16 @@ class FFmpegBuilder:
         use_gpu = self.settings.get("gpu_encoding", False)
 
         # --- Inputs ---
-        cmd: list[str] = ["ffmpeg", "-y", "-threads", str(threads)]
+        cmd: list[str] = [
+            "ffmpeg", "-y",
+            "-threads", str(threads),
+            "-filter_threads", str(threads),
+            "-filter_complex_threads", str(threads),
+        ]
+
+        # Con GPU: aceleración de decodificación por hardware
+        if use_gpu:
+            cmd += ["-hwaccel", "auto"]
 
         # Input 0: imagen de fondo (loop)
         cmd += ["-loop", "1", "-i", image_path]
