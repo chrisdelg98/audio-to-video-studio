@@ -1,8 +1,13 @@
 """
-ZoomEffect — Efecto de zoom dinámico suave usando zoompan de FFmpeg.
+ZoomEffect — Efecto de zoom dinámico suave usando scale+crop de FFmpeg.
 
-Genera un zoom que oscila sinusoidalmente para dar sensación de movimiento
-sin cortes abruptos (loop suave).
+Usa scale con expresión por frame + crop centrado para producir un zoom
+perfectamente fluido con ease-in/ease-out real.
+
+Por qué NO se usa zoompan:
+  - zoompan es secuencial y lento (procesa un frame a la vez con estado interno)
+  - Genera tiempos de frame irregulares → se percibe como "lag" o "choppiness"
+  - scale+crop procesa cada frame de forma independiente → mucho más rápido y uniforme
 """
 
 from effects.base_effect import BaseEffect
@@ -10,14 +15,23 @@ from effects.base_effect import BaseEffect
 
 class ZoomEffect(BaseEffect):
     """
-    Aplica un zoom dinámico usando el filtro zoompan de FFmpeg.
+    Aplica un zoom dinámico usando scale+crop con expresión matemática per-frame.
+
+    Fórmula de easing:
+        zoom_factor = 1 + amplitude * (1 - cos(n / speed)) / 2
+
+        - Basada en (1-cos)/2 → oscila suavemente entre 0 y 1
+        - Derivada = 0 en los extremos → ease-in/ease-out perfecto
+        - Siempre >= 1.0 → el crop nunca sobrepasa los bordes
+        - Período completo de un ciclo: 2 * PI * speed frames
 
     Parámetros:
-        zoom_max:   Factor máximo de zoom sobre 1.0 (ej. 1.05 → 5% de zoom).
-        zoom_speed: Período de la oscilación en frames. Mayor = más lento.
+        zoom_max:   Factor máximo de zoom (ej. 1.05 = 5% máximo). Default 1.05.
+        zoom_speed: Controla la duración del ciclo. Mayor = ciclo más lento.
+                    A 30fps, speed=300 ≈ 63s por ciclo (zoom muy lento y suave).
         width:      Anchura del frame de salida en píxeles.
         height:     Altura del frame de salida en píxeles.
-        fps:        Frames por segundo del video de salida.
+        fps:        FPS del video de salida.
     """
 
     def __init__(
@@ -46,22 +60,25 @@ class ZoomEffect(BaseEffect):
         speed = self.params["zoom_speed"]
         w = self.params["width"]
         h = self.params["height"]
-        fps = self.params["fps"]
 
-        # Amplitud del zoom sobre 1.0 (ej. 0.05 para 5%)
         amplitude = zoom_max - 1.0
 
-        # zoompan genera frames uno a uno; 'on' es el número de frame de salida
-        zoom_expr = f"1+{amplitude:.4f}*sin(on/{speed})"
+        # Ease-in/ease-out con (1-cos)/2:
+        #   n=0              → zoom = 1.0      (sin zoom)
+        #   n = PI*speed     → zoom = zoom_max (pico suave)
+        #   n = 2*PI*speed   → zoom = 1.0      (regresa suave)
+        zoom_expr = f"1+{amplitude:.5f}*(1-cos(n/{speed:.1f}))/2"
 
-        # d=1 procesa un frame de entrada por iteración (imagen estática → loop)
+        # scale agranda el frame según zoom_expr; trunc()*2 garantiza
+        # dimensiones pares (requerido por H.264/libx264).
+        scale_w = f"trunc(iw*({zoom_expr})*0.5)*2"
+        scale_h = f"trunc(ih*({zoom_expr})*0.5)*2"
+
+        # crop recorta el centro exacto al tamaño de salida deseado.
         return (
-            f"{label_in}zoompan="
-            f"z='{zoom_expr}':"
-            f"x='iw/2-(iw/zoom/2)':"
-            f"y='ih/2-(ih/zoom/2)':"
-            f"d=1:"
-            f"s={w}x{h}:"
-            f"fps={fps}"
+            f"{label_in}"
+            f"scale=w='{scale_w}':h='{scale_h}':flags=lanczos+accurate_rnd+full_chroma_inp,"
+            f"crop={w}:{h}"
             f"{label_out}"
         )
+
