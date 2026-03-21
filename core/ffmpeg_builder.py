@@ -10,6 +10,7 @@ Responsabilidades:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,31 @@ RESOLUTIONS: dict[str, tuple[int, int]] = {
 
 # FPS por defecto
 DEFAULT_FPS = 30
+
+# Modos de CPU → fracción de núcleos a usar
+CPU_MODES: dict[str, float] = {
+    "Low":    0.25,
+    "Medium": 0.50,
+    "High":   0.75,
+    "Max":    1.00,
+}
+
+# Presets de encoding válidos para libx264
+ENCODE_PRESETS = (
+    "ultrafast", "superfast", "veryfast",
+    "faster", "fast", "medium", "slow", "slower", "veryslow",
+)
+
+
+def calc_threads(cpu_mode: str) -> int:
+    """Calcula el número de threads según el modo seleccionado.
+
+    Usa os.cpu_count() para detectar los núcleos disponibles.
+    Garantiza mínimo 1 thread aunque cpu_count() devuelva None.
+    """
+    total = os.cpu_count() or 2
+    fraction = CPU_MODES.get(cpu_mode, 0.50)
+    return max(1, int(total * fraction))
 
 
 class FFmpegBuilder:
@@ -204,10 +230,20 @@ class FFmpegBuilder:
         if audio_filter:
             cmd += ["-af", audio_filter]
 
+        # --- Performance (threads + preset) ---
+        cpu_mode = self.settings.get("cpu_mode", "Medium")
+        threads = calc_threads(cpu_mode)
+        encode_preset = self.settings.get("encode_preset", "slow")
+        if encode_preset not in ENCODE_PRESETS:
+            encode_preset = "slow"
+        # Preview siempre usa ultrafast para velocidad
+        effective_preset = "ultrafast" if preview else encode_preset
+
         # --- Codec y calidad ---
         cmd += [
             "-c:v", "libx264",
-            "-preset", "slow" if not preview else "ultrafast",
+            "-preset", effective_preset,
+            "-threads", str(threads),
             "-crf", str(crf),
             "-c:a", "aac",
             "-b:a", "192k",

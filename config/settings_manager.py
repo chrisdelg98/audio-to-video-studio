@@ -37,6 +37,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "naming_prefix": "",
     "naming_custom_list": [],
     "naming_auto_number": True,
+    # Performance
+    "cpu_mode": "Medium",
+    "encode_preset": "slow",
 }
 
 # Presets de configuración

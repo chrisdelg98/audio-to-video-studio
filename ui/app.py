@@ -57,6 +57,50 @@ C_ERROR = "#e63946"
 C_WARN = "#f4a261"
 
 
+class _Tooltip:
+    """Ventana flotante que aparece al pasar el mouse sobre un widget."""
+
+    _BG = "#1e2a3a"
+    _FG = "#dce8f5"
+
+    def __init__(self, widget: tk.Widget, text: str) -> None:
+        self._widget = widget
+        self._text = text
+        self._win: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+
+    def _show(self, _event: object = None) -> None:
+        if self._win:
+            return
+        wx = self._widget.winfo_rootx() + self._widget.winfo_width() + 8
+        wy = self._widget.winfo_rooty()
+        self._win = tw = tk.Toplevel(self._widget)
+        tw.wm_overrideredirect(True)
+        tw.configure(bg=self._BG)
+        tw.wm_geometry(f"+{wx}+{wy}")
+        tk.Label(
+            tw,
+            text=self._text,
+            justify="left",
+            bg=self._BG,
+            fg=self._FG,
+            font=("Segoe UI", 10),
+            wraplength=300,
+            padx=10,
+            pady=8,
+            relief="flat",
+            bd=0,
+        ).pack()
+        # Borde exterior
+        tw.configure(highlightbackground="#3a5a7a", highlightthickness=1)
+
+    def _hide(self, _event: object = None) -> None:
+        if self._win:
+            self._win.destroy()
+            self._win = None
+
+
 class AudioToVideoApp(ctk.CTk):
     """Ventana principal de la aplicación."""
 
@@ -307,6 +351,91 @@ class AudioToVideoApp(ctk.CTk):
         self._var_naming_autonumber = tk.BooleanVar(value=True)
         row = self._check_row(frame, "Numeración automática (01, 02…)",
                               self._var_naming_autonumber, row)
+
+        # ── Sección: Performance ──
+        row = self._section_label(frame, "⚡  Performance", row)
+
+        inner_perf = ctk.CTkFrame(frame, fg_color="transparent")
+        inner_perf.grid(row=row, column=0, sticky="ew", padx=12, pady=4)
+        inner_perf.grid_columnconfigure(1, weight=1)
+        inner_perf.grid_columnconfigure(4, weight=1)
+
+        # CPU Mode
+        ctk.CTkLabel(
+            inner_perf, text="CPU:", text_color=C_MUTED,
+            font=ctk.CTkFont(size=11), width=40, anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        self._var_cpu_mode = tk.StringVar(value="Medium")
+        ctk.CTkOptionMenu(
+            inner_perf,
+            values=["Low", "Medium", "High", "Max"],
+            variable=self._var_cpu_mode,
+            fg_color=C_ACCENT,
+            button_color=C_BTN_SECONDARY,
+            width=100,
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 2))
+        _cpu_btn = ctk.CTkButton(
+            inner_perf, text="?", width=22, height=22,
+            fg_color=C_ACCENT, hover_color=C_BTN_SECONDARY,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            corner_radius=11,
+        )
+        _cpu_btn.grid(row=0, column=2, padx=(0, 10))
+        _Tooltip(
+            _cpu_btn,
+            "Controla cuántos núcleos del procesador usa FFmpeg.\n\n"
+            "• Low   (25%)  →  El sistema sigue libre, encoding lento.\n"
+            "• Medium (50%) →  Balance recomendado para uso diario.\n"
+            "• High  (75%)  →  Más rápido, el sistema puede sentirse pesado.\n"
+            "• Max  (100%)  →  Usa todos los núcleos. Máxima velocidad.",
+        )
+
+        # Encode Preset
+        ctk.CTkLabel(
+            inner_perf, text="Preset:", text_color=C_MUTED,
+            font=ctk.CTkFont(size=11), width=50, anchor="w",
+        ).grid(row=0, column=3, sticky="w")
+        self._var_encode_preset = tk.StringVar(value="slow")
+        ctk.CTkOptionMenu(
+            inner_perf,
+            values=["ultrafast", "superfast", "veryfast",
+                    "faster", "fast", "medium", "slow", "slower", "veryslow"],
+            variable=self._var_encode_preset,
+            fg_color=C_ACCENT,
+            button_color=C_BTN_SECONDARY,
+            width=100,
+        ).grid(row=0, column=4, sticky="ew", padx=(4, 2))
+        _preset_btn = ctk.CTkButton(
+            inner_perf, text="?", width=22, height=22,
+            fg_color=C_ACCENT, hover_color=C_BTN_SECONDARY,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            corner_radius=11,
+        )
+        _preset_btn.grid(row=0, column=5, padx=(0, 0))
+        _Tooltip(
+            _preset_btn,
+            "Velocidad de encoding vs calidad/tamaño del archivo.\n\n"
+            "Más rápido = archivo más grande, encode ágil.\n"
+            "Más lento  = archivo más pequeño, mejor calidad.\n\n"
+            "• ultrafast / superfast → Solo para pruebas rápidas.\n"
+            "• fast / medium         → Buena calidad, uso general.\n"
+            "• slow                  → Calidad óptima (recomendado).\n"
+            "• veryslow              → Máxima compresión, muy lento.",
+        )
+        row += 1
+
+        # Info de threads disponibles
+        import os as _os
+        cpu_total = _os.cpu_count() or 2
+        ctk.CTkLabel(
+            frame,
+            text=f"CPU detectados: {cpu_total} núcleos",
+            text_color=C_MUTED,
+            font=ctk.CTkFont(size=10),
+            anchor="w",
+        ).grid(row=row, column=0, sticky="w", padx=14, pady=(0, 6))
+        row += 1
+
     # --- Right panel --------------------------------------------------
 
     def _build_right_panel(self, parent: ctk.CTkFrame) -> None:
@@ -858,6 +987,9 @@ class AudioToVideoApp(ctk.CTk):
             "naming_prefix": self._var_naming_prefix.get(),
             "naming_custom_list": custom_names,
             "naming_auto_number": self._var_naming_autonumber.get(),
+            # Performance
+            "cpu_mode": self._var_cpu_mode.get(),
+            "encode_preset": self._var_encode_preset.get(),
         })
 
     def _load_settings_to_ui(self) -> None:
@@ -888,6 +1020,10 @@ class AudioToVideoApp(ctk.CTk):
             self._txt_naming_list.insert("1.0", "\n".join(custom_names))
         self._var_naming_autonumber.set(s.get("naming_auto_number", True))
         self._on_naming_mode_change(self._var_naming_mode.get())
+
+        # Performance
+        self._var_cpu_mode.set(s.get("cpu_mode", "Medium"))
+        self._var_encode_preset.set(s.get("encode_preset", "slow"))
 
         # Cargar preview si hay imagen
         img = s.get("background_image", "")
