@@ -233,7 +233,7 @@ class AudioToVideoApp(ctk.CTk):
         self.minsize(*self.MIN_SIZE)
         self.state("zoomed")
         self.configure(fg_color=C_BG)
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.protocol("WM_D`ELETE_WINDOW", self._on_close)
         # Icono de la ventana (title bar + taskbar)
         ico = _BUNDLE_DIR / "logoAtV.ico"
         if ico.is_file():
