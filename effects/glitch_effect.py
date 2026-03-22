@@ -1,15 +1,21 @@
 """
-GlitchEffect — Efecto de glitch digital eficiente con enable/disable per-frame.
+GlitchEffect — Efecto de glitch digital con patrones rotativos.
 
-Usa la opción `enable` de FFmpeg para activar/desactivar filtros por frame:
+Usa `enable` de FFmpeg para activar/desactivar filtros por frame:
   - enable='lte(mod(n,speed),pulse)' → filtro activo solo durante el pulso
-  - El 97% del tiempo ambos filtros son passthrough puro (costo = 0)
+  - El 97% del tiempo todos los filtros son passthrough puro (costo ≈ 0)
 
-Filtros activos durante el pulso:
-  - rgbashift: desplaza canales R y B en sentidos opuestos → efecto cromático
-  - eq: bump de contraste/brillo → sensación de interferencia
+4 patrones de glitch rotan por ciclo para evitar repetición:
+  0. Diagonal estándar (rh+rv desplazados)
+  1. Horizontal fuerte (solo rh/bh, 1.4× intensidad)
+  2. Vertical (solo rv/bv)
+  3. Diagonal inverso suave (dirección opuesta, 0.7× intensidad)
 
-Sin split, sin blend, sin evaluaciones per-pixel → rendimiento constante.
+Cada ciclo de `speed` frames activa un patrón diferente vía:
+  enable='pulse_trigger * eq(mod(floor(n/speed), 4), k)'
+
+Solo 1 de los 4 rgbashift procesa píxeles por pulso; los otros 3
+son passthrough. El eq es compartido para todos los pulsos.
 """
 
 from effects.base_effect import BaseEffect
@@ -44,23 +50,38 @@ class GlitchEffect(BaseEffect):
         speed     = max(10, int(self.params["speed"]))
         pulse     = max(1, min(int(self.params["pulse"]), speed - 1))
 
-        # RGB shift: canales R y B se desplazan en sentidos opuestos.
-        rh = intensity
-        bh = -intensity
-        rv = intensity // 2
-        bv = -(intensity // 2)
+        I = intensity
 
-        # Leve flicker de contraste/brillo.
+        # 4 patrones con dirección e intensidad variada
+        # (rh, rv, bh, bv) — rotan cada ciclo de speed frames
+        patterns = [
+            ( I,             max(1, I//2),  -I,             -max(1, I//2)),  # diagonal
+            ( int(I * 1.4),  0,             -int(I * 1.4),  0),             # horizontal fuerte
+            ( 0,             I,              0,             -I),             # vertical
+            (-int(I * 0.7),  max(1, I//2),   int(I * 0.7), -max(1, I//2)), # reverso suave
+        ]
+
+        # Trigger base: solo durante el pulso (~3% de frames)
+        pulse_trigger = f"lte(mod(n\\,{speed})\\,{pulse})"
+
+        # Cada patrón se activa en su ciclo correspondiente
+        # cycle = floor(n/speed), pattern_idx = mod(cycle, 4)
+        parts = []
+        for k, (rh, rv, bh, bv) in enumerate(patterns):
+            trigger = (
+                f"{pulse_trigger}"
+                f"*eq(mod(floor(n/{speed})\\,{len(patterns)})\\,{k})"
+            )
+            parts.append(
+                f"rgbashift=rh={rh}:rv={rv}:bh={bh}:bv={bv}:enable='{trigger}'"
+            )
+
+        # Eq compartido: leve flicker durante cualquier pulso
         contrast   = 1.0 + intensity * 0.008
         brightness = intensity * 0.003
-
-        # enable='expr' → cuando false, el filtro es passthrough puro (0 costo).
-        # Solo ~pulse/speed fracción de frames son procesados (~3%).
-        trigger = f"lte(mod(n\\,{speed})\\,{pulse})"
-
-        return (
-            f"{label_in}"
-            f"rgbashift=rh={rh}:rv={rv}:bh={bh}:bv={bv}:enable='{trigger}',"
-            f"eq=contrast={contrast:.4f}:brightness={brightness:.4f}:enable='{trigger}'"
-            f"{label_out}"
+        parts.append(
+            f"eq=contrast={contrast:.4f}:brightness={brightness:.4f}"
+            f":enable='{pulse_trigger}'"
         )
+
+        return f"{label_in}" + ",".join(parts) + f"{label_out}"
