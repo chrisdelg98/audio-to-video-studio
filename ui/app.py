@@ -339,7 +339,7 @@ class AudioToVideoApp(ctk.CTk):
         ar = 0
         self._var_zoom_max = tk.DoubleVar(value=1.02)
         ar = self._slider_row(c, "Zoom máximo:", self._var_zoom_max, 1.0, 1.2, ar,
-                              fmt="{:.3f}")
+                              fmt="{:.3f}", number_of_steps=200)
         self._var_zoom_speed = tk.IntVar(value=300)
         ar = self._slider_row(c, "Velocidad zoom:", self._var_zoom_speed, 100, 800, ar,
                               fmt="{:.0f}")
@@ -964,6 +964,7 @@ class AudioToVideoApp(ctk.CTk):
         row: int,
         fmt: str = "{:.2f}",
         tooltip_text: str = "",
+        number_of_steps: int | None = None,
     ) -> int:
         inner = ctk.CTkFrame(parent, fg_color="transparent")
         inner.grid(row=row, column=0, sticky="ew", padx=12, pady=(8, 8))
@@ -984,13 +985,14 @@ class AudioToVideoApp(ctk.CTk):
             except ValueError:
                 pass
 
-        ctk.CTkSlider(
-            inner,
-            from_=from_,
-            to=to,
-            variable=var,
-            command=_update,
-        ).grid(row=0, column=1, sticky="ew", padx=4)
+        slider_kwargs: dict = dict(
+            from_=from_, to=to, variable=var, command=_update,
+        )
+        if number_of_steps is not None:
+            slider_kwargs["number_of_steps"] = number_of_steps
+        ctk.CTkSlider(inner, **slider_kwargs).grid(
+            row=0, column=1, sticky="ew", padx=4
+        )
 
         if tooltip_text:
             _info_btn = ctk.CTkButton(
