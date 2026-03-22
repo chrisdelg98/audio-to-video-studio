@@ -380,12 +380,6 @@ class AudioToVideoApp(ctk.CTk):
         # ── Parámetros ──
         c, row = self._collapsible_section(frame, "Parámetros", row, default_open=False, fa_icon=FA_GEAR)
         ar = 0
-        self._var_zoom_max = tk.DoubleVar(value=1.02)
-        ar = self._slider_row(c, "Zoom máximo:", self._var_zoom_max, 1.0, 1.2, ar,
-                              fmt="{:.3f}", number_of_steps=200)
-        self._var_zoom_speed = tk.IntVar(value=300)
-        ar = self._slider_row(c, "Velocidad zoom:", self._var_zoom_speed, 100, 800, ar,
-                              fmt="{:.0f}")
         self._var_fade_in = tk.DoubleVar(value=2.0)
         ar = self._slider_row(c, "Fade in (s):", self._var_fade_in, 0, 10, ar, fmt="{:.1f}")
         self._var_fade_out = tk.DoubleVar(value=2.0)
@@ -413,6 +407,27 @@ class AudioToVideoApp(ctk.CTk):
         self._var_overlay = tk.BooleanVar(value=False)
         self._var_normalize = tk.BooleanVar(value=False)
         ar = self._check_row(c, "Zoom dinámico", self._var_zoom, ar)
+
+        # Sub-frame zoom: sliders de zoom máximo y velocidad
+        self._zoom_settings_frame = ctk.CTkFrame(c, fg_color="transparent")
+        self._zoom_settings_frame.grid(row=ar, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._zoom_settings_frame.grid_columnconfigure(0, weight=1)
+        self._var_zoom_max = tk.DoubleVar(value=1.02)
+        self._var_zoom_speed = tk.IntVar(value=300)
+        ar_z = 0
+        ar_z = self._slider_row(self._zoom_settings_frame, "Zoom máximo:",
+                                self._var_zoom_max, 1.0, 1.1, ar_z,
+                                fmt="{:.3f}", number_of_steps=200)
+        ar_z = self._slider_row(self._zoom_settings_frame, "Velocidad zoom:",
+                                self._var_zoom_speed, 100, 700, ar_z, fmt="{:.0f}")
+        if not self._var_zoom.get():
+            self._zoom_settings_frame.grid_remove()
+        self._var_zoom.trace_add("write", lambda *_: (
+            self._zoom_settings_frame.grid() if self._var_zoom.get()
+            else self._zoom_settings_frame.grid_remove()
+        ))
+        ar += 1
+
         ar = self._check_row(c, "Glitch effect (video)", self._var_glitch, ar)
 
         # Sub-frame glitch: sliders de intensidad y velocidad
