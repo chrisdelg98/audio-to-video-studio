@@ -37,6 +37,7 @@ from config.settings_manager import SettingsManager
 from core.runner import JobResult, Runner
 from core.utils import get_audio_files
 from core.validator import ValidationResult, validate_environment
+from effects.text_overlay_effect import available_fonts
 
 
 # ── Tema ────────────────────────────────────────────────────────────────────
@@ -439,6 +440,20 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkEntry(self._text_overlay_frame, textvariable=self._var_text_content,
                      placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
             row=tof, column=0, sticky="ew", padx=10, pady=(2, 6))
+        tof += 1
+
+        # Fuente
+        font_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
+        font_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        font_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(font_f, text="Fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        _fonts = available_fonts() or ["Arial"]
+        self._var_text_font = tk.StringVar(value=_fonts[0])
+        ctk.CTkOptionMenu(font_f, variable=self._var_text_font, values=_fonts,
+                          width=160, height=28,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(
+            row=0, column=1, sticky="w", padx=4)
         tof += 1
 
         # Posición
@@ -1415,6 +1430,7 @@ class AudioToVideoApp(ctk.CTk):
             "text_position": self._var_text_position.get(),
             "text_margin": int(self._var_text_margin.get()),
             "text_font_size": int(self._var_text_font_size.get()),
+            "text_font": self._var_text_font.get(),
             "text_glitch_intensity": int(self._var_text_glitch_intensity.get()),
             "text_glitch_speed": round(self._var_text_glitch_speed.get(), 1),
             # UI
@@ -1468,6 +1484,7 @@ class AudioToVideoApp(ctk.CTk):
         self._var_text_position.set(s.get("text_position", "Bottom"))
         self._var_text_margin.set(s.get("text_margin", 40))
         self._var_text_font_size.set(s.get("text_font_size", 36))
+        self._var_text_font.set(s.get("text_font", "Arial"))
         self._var_text_glitch_intensity.set(s.get("text_glitch_intensity", 3))
         self._var_text_glitch_speed.set(s.get("text_glitch_speed", 4.0))
         self._toggle_text_overlay_widgets()

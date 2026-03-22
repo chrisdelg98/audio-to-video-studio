@@ -10,21 +10,41 @@ Configuración de posición:
   - Top    → y = margen desde arriba
   - Middle → y = (h - text_h) / 2
   - Bottom → y = h - text_h - margen   (recomendado para subtítulos)
+
+Las fuentes se cargan desde la carpeta 'fonts/' del proyecto usando rutas
+relativas, lo que evita el problema de ':' en rutas de Windows con drawtext.
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from effects.base_effect import BaseEffect
 
+# Carpeta de fuentes local (relativa al directorio de trabajo)
+_FONTS_DIR = Path("fonts")
 
-# Fuente por defecto según OS (ruta con '/' para evitar escaping de drawtext)
-if sys.platform == "win32":
-    _DEFAULT_FONT = "C:/Windows/Fonts/arial.ttf"
-else:
-    _DEFAULT_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+def available_fonts() -> list[str]:
+    """Retorna lista de nombres de fuentes .ttf/.otf disponibles en fonts/."""
+    if not _FONTS_DIR.is_dir():
+        return []
+    fonts = sorted(
+        f.stem
+        for f in _FONTS_DIR.iterdir()
+        if f.suffix.lower() in (".ttf", ".otf")
+    )
+    return fonts
+
+
+def _resolve_font(font_name: str) -> str:
+    """Resuelve nombre de fuente a ruta relativa para drawtext fontfile=."""
+    for ext in (".ttf", ".otf"):
+        p = _FONTS_DIR / f"{font_name}{ext}"
+        if p.exists():
+            # Ruta relativa con '/' — sin letra de disco, sin ':'
+            return str(p).replace("\\", "/")
+    return ""
 
 
 class TextOverlayEffect(BaseEffect):
@@ -36,12 +56,9 @@ class TextOverlayEffect(BaseEffect):
         self.position: str = settings.get("text_position", "Bottom")   # Top / Middle / Bottom
         self.margin: int = int(settings.get("text_margin", 40))
         self.font_size: int = int(settings.get("text_font_size", 36))
+        self.font_name: str = settings.get("text_font", "Arial")
         self.glitch_intensity: int = int(settings.get("text_glitch_intensity", 3))
         self.glitch_speed: float = float(settings.get("text_glitch_speed", 4.0))
-
-        # Resolver fuente: usar ruta directa para evitar fontconfig
-        font_path = Path(_DEFAULT_FONT)
-        self.fontfile: str = str(font_path).replace("\\", "/") if font_path.exists() else ""
 
     # ------------------------------------------------------------------
 
@@ -73,8 +90,9 @@ class TextOverlayEffect(BaseEffect):
 
         x_expr = "(w-text_w)/2"
 
-        # fontfile directo → evita fontconfig (no funciona en Windows sin config)
-        ff = f":fontfile='{self.fontfile}'" if self.fontfile else ""
+        # Ruta relativa a la fuente local (sin ':' → compatible con drawtext)
+        font_path = _resolve_font(self.font_name)
+        ff = f":fontfile={font_path}" if font_path else ""
 
         layers: list[str] = []
 
