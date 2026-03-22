@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from config.settings_manager import SettingsManager
 from core.runner import JobResult, Runner
@@ -513,6 +513,30 @@ class AudioToVideoApp(ctk.CTk):
             row=0, column=1, sticky="w", padx=4)
         tof += 1
 
+        # Color del texto
+        _TEXT_COLORS = ["Blanco", "Gris claro", "Gris", "Gris oscuro", "Negro"]
+        col_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
+        col_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        col_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(col_f, text="Color:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        self._var_text_color = tk.StringVar(value="Blanco")
+        self._text_color_preview = ctk.CTkLabel(
+            col_f, text="", width=16, height=16, corner_radius=8,
+            fg_color="#FFFFFF")
+        self._text_color_preview.grid(row=0, column=2, padx=(6, 0))
+        _color_hex_map = {
+            "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+            "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+        }
+        def _update_color_preview(name: str) -> None:
+            self._text_color_preview.configure(fg_color=_color_hex_map.get(name, "#FFFFFF"))
+        ctk.CTkOptionMenu(col_f, variable=self._var_text_color, values=_TEXT_COLORS,
+                          width=140, height=28, command=_update_color_preview,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(
+            row=0, column=1, sticky="w", padx=4)
+        tof += 1
+
         # Posición
         pos_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
         pos_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
@@ -584,6 +608,16 @@ class AudioToVideoApp(ctk.CTk):
             row=0, column=1, sticky="ew", padx=4)
 
         self._text_overlay_frame.grid_remove()
+
+        # Refrescar preview al cambiar cualquier parámetro de texto overlay
+        _refresh = lambda *_: self._update_preview_overlay()
+        self._var_text_overlay.trace_add("write", _refresh)
+        self._var_text_content.trace_add("write", _refresh)
+        self._var_text_position.trace_add("write", _refresh)
+        self._var_text_margin.trace_add("write", _refresh)
+        self._var_text_font_size.trace_add("write", _refresh)
+        self._var_text_font.trace_add("write", _refresh)
+        self._var_text_color.trace_add("write", _refresh)
 
         # ── Presets ──
         c, row = self._collapsible_section(frame, "Presets", row, default_open=False, fa_icon=FA_SLIDERS)
@@ -802,7 +836,7 @@ class AudioToVideoApp(ctk.CTk):
 
         # Preview imagen
         preview_frame = ctk.CTkFrame(
-            frame, fg_color=C_CARD, corner_radius=6, height=280,
+            frame, fg_color=C_CARD, corner_radius=6, height=360,
             border_width=1, border_color=C_BORDER,
         )
         preview_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0))
@@ -817,6 +851,7 @@ class AudioToVideoApp(ctk.CTk):
             font=ctk.CTkFont(size=12),
         )
         self._lbl_preview.grid(row=0, column=0, sticky="nsew")
+        self._preview_img_path: str = ""  # ruta original para re-renderizar overlay
 
         # Info de audios detectados (pegado justo debajo del preview)
         self._lbl_audio_count = ctk.CTkLabel(
@@ -1260,8 +1295,8 @@ class AudioToVideoApp(ctk.CTk):
 
     def _on_naming_mode_change(self, mode: str) -> None:
         """Muestra u oculta el campo de prefijo y/o la lista según el modo elegido."""
-        needs_prefix = mode in ("Prefix", "Prefix + Custom List")
-        needs_list = mode in ("Custom List", "Prefix + Custom List")
+        needs_prefix = mode in ("Prefijo", "Prefijo + Lista personalizada")
+        needs_list = mode in ("Lista personalizada", "Prefijo + Lista personalizada")
 
         if needs_prefix:
             self._naming_prefix_frame.grid()
@@ -1401,14 +1436,88 @@ class AudioToVideoApp(ctk.CTk):
                                              text_color=C_ERROR)
 
     def _load_preview(self, path: str) -> None:
+        self._preview_img_path = path
+        self._update_preview_overlay()
+
+    def _update_preview_overlay(self) -> None:
+        """Re-renderiza el preview con overlay de texto si está activo."""
+        path = getattr(self, "_preview_img_path", "")
+        if not path:
+            return
         try:
             img = Image.open(path)
-            img.thumbnail((500, 270))
+            img.thumbnail((500, 340))
+
+            # Dibujar overlay de texto si está activado
+            if (hasattr(self, "_var_text_overlay")
+                    and self._var_text_overlay.get()
+                    and hasattr(self, "_var_text_content")
+                    and self._var_text_content.get().strip()):
+                self._draw_text_on_preview(img)
+
             ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
             self._lbl_preview.configure(image=ctk_img, text="")
             self._lbl_preview.image = ctk_img  # evitar GC
         except Exception as exc:
             self._lbl_preview.configure(image=None, text=f"No se pudo cargar: {exc}")
+
+    def _draw_text_on_preview(self, img: Image.Image) -> None:
+        """Dibuja el texto overlay sobre la imagen de preview."""
+        draw = ImageDraw.Draw(img)
+        text = self._var_text_content.get().strip()
+        w, h = img.size
+
+        # Escala proporcional: el usuario configura para 1920px, el thumb es ~500px
+        scale = w / 1920.0
+        fs = max(8, int(self._var_text_font_size.get() * scale))
+
+        # Intentar cargar la fuente seleccionada
+        font_name = self._var_text_font.get()
+        font = None
+        for ext in (".ttf", ".otf"):
+            fp = Path("fonts") / f"{font_name}{ext}"
+            if fp.exists():
+                try:
+                    font = ImageFont.truetype(str(fp), fs)
+                except Exception:
+                    pass
+                break
+        if font is None:
+            try:
+                font = ImageFont.truetype("arial.ttf", fs)
+            except Exception:
+                font = ImageFont.load_default()
+
+        # Medir texto
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+        # Posición X centrada
+        x = (w - tw) // 2
+
+        # Posición Y según configuración
+        margin = int(self._var_text_margin.get() * scale)
+        pos = self._var_text_position.get()
+        if pos == "Top":
+            y = margin
+        elif pos == "Middle":
+            y = (h - th) // 2
+        else:  # Bottom
+            y = h - th - margin
+
+        # Color del texto
+        _hex_map = {
+            "Blanco": "#FFFFFF", "Gris muy claro": "#D0D0D0",
+            "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+        }
+        color_name = self._var_text_color.get() if hasattr(self, "_var_text_color") else "Blanco"
+        fill = _hex_map.get(color_name, "#FFFFFF")
+
+        # Sombra
+        sc = "#FFFFFF" if color_name in ("Negro", "Gris oscuro") else "#000000"
+        sh = max(1, int(2 * scale))
+        draw.text((x + sh, y + sh), text, font=font, fill=sc + "B3")  # sombra 70%
+        draw.text((x, y), text, font=font, fill=fill)
 
     # ──────────────────────────────────────────────────────────────────
     # ACCIONES PRINCIPALES
@@ -1677,6 +1786,7 @@ class AudioToVideoApp(ctk.CTk):
             "text_margin": int(self._var_text_margin.get()),
             "text_font_size": int(self._var_text_font_size.get()),
             "text_font": self._var_text_font.get(),
+            "text_color": self._var_text_color.get(),
             "text_glitch_intensity": int(self._var_text_glitch_intensity.get()),
             "text_glitch_speed": round(self._var_text_glitch_speed.get(), 1),
             # UI
@@ -1731,6 +1841,11 @@ class AudioToVideoApp(ctk.CTk):
         self._var_text_margin.set(s.get("text_margin", 40))
         self._var_text_font_size.set(s.get("text_font_size", 36))
         self._var_text_font.set(s.get("text_font", "Arial"))
+        self._var_text_color.set(s.get("text_color", "Blanco"))
+        self._text_color_preview.configure(fg_color={
+            "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+            "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+        }.get(s.get("text_color", "Blanco"), "#FFFFFF"))
         self._var_text_glitch_intensity.set(s.get("text_glitch_intensity", 3))
         self._var_text_glitch_speed.set(s.get("text_glitch_speed", 4.0))
         self._toggle_text_overlay_widgets()

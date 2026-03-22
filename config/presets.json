@@ -1,13 +1,13 @@
 {
   "Default": {
-    "zoom_max": 1.01,
-    "zoom_speed": 500,
+    "zoom_max": 1.04,
+    "zoom_speed": 600,
     "fade_in": 3.0,
     "fade_out": 3.0,
     "resolution": "1080p",
     "enable_zoom": true,
     "enable_glitch": true,
-    "glitch_intensity": 1,
+    "glitch_intensity": 4,
     "glitch_speed": 300,
     "glitch_pulse": 6,
     "enable_overlay": false,
@@ -25,12 +25,13 @@
     "text_content": "Atmos Zone",
     "text_position": "Bottom",
     "text_margin": 40,
-    "text_font_size": 20,
+    "text_font_size": 21,
     "text_glitch_intensity": 3,
     "text_glitch_speed": 1.0,
     "theme": "Dark",
     "font_size": "Large",
     "naming_mode": "Default",
-    "text_font": "RockSalt-Regular"
+    "text_font": "RockSalt-Regular",
+    "text_color": "Gris claro"
   }
 }

@@ -47,6 +47,16 @@ def _resolve_font(font_name: str) -> str:
     return ""
 
 
+# Mapeo nombre → hex FFmpeg (sin #)
+_COLOR_MAP: dict[str, str] = {
+    "Blanco": "FFFFFF",
+    "Gris claro": "D0D0D0",
+    "Gris": "808080",
+    "Gris oscuro": "404040",
+    "Negro": "000000",
+}
+
+
 class TextOverlayEffect(BaseEffect):
     """Dibuja texto con animación glitch usando el filtro drawtext de FFmpeg."""
 
@@ -57,6 +67,7 @@ class TextOverlayEffect(BaseEffect):
         self.margin: int = int(settings.get("text_margin", 40))
         self.font_size: int = int(settings.get("text_font_size", 36))
         self.font_name: str = settings.get("text_font", "Arial")
+        self.text_color: str = _COLOR_MAP.get(settings.get("text_color", "Blanco"), "FFFFFF")
         self.glitch_intensity: int = int(settings.get("text_glitch_intensity", 3))
         self.glitch_speed: float = float(settings.get("text_glitch_speed", 4.0))
 
@@ -108,11 +119,14 @@ class TextOverlayEffect(BaseEffect):
                 f":x={x_expr}+{gi}*abs(sin(t*{gs:.1f})):y={y_expr}"
             )
 
-        # Texto blanco principal (siempre encima)
+        # Texto principal (siempre encima)
+        fc = self.text_color
+        # Shadow: si el texto es oscuro, usar sombra blanca; si claro, sombra negra
+        sc = "white" if fc in ("000000", "404040") else "black"
         layers.append(
-            f"drawtext=text='{safe}'{ff}:fontcolor=white:fontsize={fs}"
+            f"drawtext=text='{safe}'{ff}:fontcolor=0x{fc}:fontsize={fs}"
             f":x={x_expr}:y={y_expr}"
-            f":shadowcolor=black@0.7:shadowx=2:shadowy=2"
+            f":shadowcolor={sc}@0.7:shadowx=2:shadowy=2"
         )
 
         chain = ",".join(layers)
