@@ -10,9 +10,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-# Ruta base del proyecto (dos niveles arriba de este archivo)
-BASE_DIR = Path(__file__).resolve().parent.parent
-CONFIG_DIR = BASE_DIR / "config"
+from core.utils import get_app_dir
+
+# Carpeta escribible (junto al .exe o raíz del proyecto en dev)
+_APP_DIR = get_app_dir()
+CONFIG_DIR = _APP_DIR / "config"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
 PRESETS_FILE = CONFIG_DIR / "presets.json"
 

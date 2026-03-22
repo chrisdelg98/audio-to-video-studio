@@ -36,12 +36,15 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config.settings_manager import SettingsManager
 from core.runner import JobResult, Runner
-from core.utils import get_audio_files
+from core.utils import get_audio_files, get_bundle_dir
+from core.ffmpeg_setup import ensure_ffmpeg
 from core.validator import ValidationResult, validate_environment
 from effects.text_overlay_effect import available_fonts
 
+_BUNDLE_DIR = get_bundle_dir()
+
 # ── Font Awesome ────────────────────────────────────────────────────────────
-_FA_FONT_PATH = str(Path(__file__).resolve().parent.parent / "fonts" / "Font Awesome 6 Free-Solid-900.otf")
+_FA_FONT_PATH = str(_BUNDLE_DIR / "fonts" / "Font Awesome 6 Free-Solid-900.otf")
 _FA_FAMILY = "Font Awesome 6 Free Solid"  # Family name inside the .otf
 
 def _load_font_awesome() -> None:
@@ -122,7 +125,7 @@ _LIGHT_PALETTE: dict[str, str] = {
     "INPUT": "#f4f6ff", "LOG": "#111128",
 }
 
-_FONT_SIZE_SCALE = {"Small": 0.82, "Medium": 1.0, "Large": 1.22}
+_FONT_SIZE_SCALE = {"Small": 1.0, "Medium": 1.22, "Large": 1.5}
 
 
 def _apply_theme(mode: str) -> None:
@@ -194,6 +197,8 @@ class AudioToVideoApp(ctk.CTk):
     MIN_SIZE = (1100, 700)
 
     def __init__(self) -> None:
+        # Desactivar manipulación de título antes de que CTk la aplique
+        self._deactivate_windows_window_header_manipulation = True
         super().__init__()
 
         self.settings = SettingsManager()
@@ -226,9 +231,13 @@ class AudioToVideoApp(ctk.CTk):
         self.title(self.WINDOW_TITLE)
         self.geometry(self.WINDOW_SIZE)
         self.minsize(*self.MIN_SIZE)
+        self.state("zoomed")
         self.configure(fg_color=C_BG)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.after(0, lambda: self.state("zoomed"))
+        # Icono de la ventana (title bar + taskbar)
+        ico = _BUNDLE_DIR / "logoAtV.ico"
+        if ico.is_file():
+            self.after(10, lambda: self.iconbitmap(str(ico)))
 
     # ──────────────────────────────────────────────────────────────────
     # BUILD UI
@@ -310,9 +319,10 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkFrame(ctrl, width=1, height=18, fg_color=C_BORDER).pack(side="left", padx=5, pady=4)
 
         # Botones tamaño de fuente
+        self._font_btns: dict[str, ctk.CTkButton] = {}
         for _label, _size in (("A⁻", "Small"), ("A", "Medium"), ("A⁺", "Large")):
             _active = (self._font_scale == _FONT_SIZE_SCALE[_size])
-            ctk.CTkButton(
+            btn = ctk.CTkButton(
                 ctrl,
                 text=_label,
                 width=30, height=26,
@@ -323,7 +333,9 @@ class AudioToVideoApp(ctk.CTk):
                 font=ctk.CTkFont(size=12 if _label == "A" else (10 if _label == "A⁻" else 14)),
                 corner_radius=4,
                 command=lambda s=_size: self._on_font_size(s),
-            ).pack(side="left", padx=2, pady=4)
+            )
+            btn.pack(side="left", padx=2, pady=4)
+            self._font_btns[_size] = btn
 
         # Separador inferior del header
         ctk.CTkFrame(header, height=1, fg_color=C_BORDER, corner_radius=0).grid(
@@ -1243,6 +1255,13 @@ class AudioToVideoApp(ctk.CTk):
         self._collect_settings()
         self._font_scale = _FONT_SIZE_SCALE.get(size, 1.0)
         self.settings.update({"font_size": size})
+        # Actualizar aspecto de botones de tamaño
+        for s, btn in self._font_btns.items():
+            active = (s == size)
+            btn.configure(
+                fg_color=C_ACCENT if active else "transparent",
+                text_color=C_TEXT if active else C_TEXT_DIM,
+            )
         if hasattr(self, "_scroll_frame"):
             self._scroll_frame.destroy()
         self._build_left_panel(self._main_panel)
@@ -1476,7 +1495,7 @@ class AudioToVideoApp(ctk.CTk):
         font_name = self._var_text_font.get()
         font = None
         for ext in (".ttf", ".otf"):
-            fp = Path("fonts") / f"{font_name}{ext}"
+            fp = _BUNDLE_DIR / "fonts" / f"{font_name}{ext}"
             if fp.exists():
                 try:
                     font = ImageFont.truetype(str(fp), fs)
@@ -1676,6 +1695,12 @@ class AudioToVideoApp(ctk.CTk):
     # ──────────────────────────────────────────────────────────────────
 
     def _run_validation(self) -> None:
+        # Asegurar FFmpeg disponible (busca junto al exe, luego PATH, luego descarga)
+        self._log("Verificando FFmpeg…")
+        ffmpeg_dir = ensure_ffmpeg(on_progress=lambda msg: self._log(msg))
+        if ffmpeg_dir is None:
+            self._log("✘ No se pudo localizar ni instalar FFmpeg.")
+
         result = validate_environment()
         for msg in result.messages:
             self._log(msg)

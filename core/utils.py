@@ -12,7 +12,24 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
+
+
+def get_bundle_dir() -> Path:
+    """Directorio de recursos empaquetados (_MEIPASS) o raíz del proyecto."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent
+
+
+def get_app_dir() -> Path:
+    """Directorio del ejecutable (frozen) o raíz del proyecto (dev).
+
+    Usar para archivos escribibles como config/settings.json."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
 
 
 SUPPORTED_AUDIO = {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"}

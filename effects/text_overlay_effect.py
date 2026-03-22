@@ -19,10 +19,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core.utils import get_bundle_dir
 from effects.base_effect import BaseEffect
 
-# Carpeta de fuentes local (relativa al directorio de trabajo)
-_FONTS_DIR = Path("fonts")
+# Carpeta de fuentes (dentro del bundle o raíz del proyecto)
+_FONTS_DIR = get_bundle_dir() / "fonts"
 
 
 def available_fonts() -> list[str]:
@@ -38,12 +39,12 @@ def available_fonts() -> list[str]:
 
 
 def _resolve_font(font_name: str) -> str:
-    """Resuelve nombre de fuente a ruta relativa para drawtext fontfile=."""
+    """Resuelve nombre de fuente a ruta compatible con drawtext fontfile=."""
     for ext in (".ttf", ".otf"):
         p = _FONTS_DIR / f"{font_name}{ext}"
         if p.exists():
-            # Ruta relativa con '/' — sin letra de disco, sin ':'
-            return str(p).replace("\\", "/")
+            # FFmpeg drawtext necesita '/' y ':' escapado como '\\:'
+            return str(p).replace("\\", "/").replace(":", "\\\\:")
     return ""
 
 
