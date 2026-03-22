@@ -33,11 +33,15 @@ class NamingMode(str, Enum):
 
 # Mapeo de etiquetas UI → clave interna (acepta ambas formas)
 _LABEL_TO_MODE: dict[str, NamingMode] = {
-    # Etiquetas de la UI (dropdown)
+    # Etiquetas de la UI (dropdown) — inglés
     "Default": NamingMode.DEFAULT,
     "Prefix": NamingMode.PREFIX,
     "Custom List": NamingMode.CUSTOM,
     "Prefix + Custom List": NamingMode.PREFIX_CUSTOM,
+    # Etiquetas de la UI (dropdown) — español
+    "Prefijo": NamingMode.PREFIX,
+    "Lista personalizada": NamingMode.CUSTOM,
+    "Prefijo + Lista personalizada": NamingMode.PREFIX_CUSTOM,
     # Claves internas (para compatibilidad con JSON guardado antes)
     "default": NamingMode.DEFAULT,
     "prefix": NamingMode.PREFIX,

@@ -11,11 +11,18 @@ Gestiona:
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
+
+# Ocultar consola de FFmpeg en modo windowed (PyInstaller --windowed)
+_STARTUPINFO = None
+if os.name == "nt":
+    _STARTUPINFO = subprocess.STARTUPINFO()
+    _STARTUPINFO.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
 from core.ffmpeg_builder import FFmpegBuilder
 from core.naming_manager import NamingManager
@@ -248,6 +255,7 @@ class Runner:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                startupinfo=_STARTUPINFO,
             )
             self._current_proc = proc
 

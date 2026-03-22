@@ -15,6 +15,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+_STARTUPINFO = None
+if os.name == "nt":
+    _STARTUPINFO = subprocess.STARTUPINFO()
+    _STARTUPINFO.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
 
 def get_bundle_dir() -> Path:
     """Directorio de recursos empaquetados (_MEIPASS) o raíz del proyecto."""
@@ -51,7 +56,8 @@ def get_audio_duration(file_path: str | Path) -> float:
         str(file_path),
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                               startupinfo=_STARTUPINFO)
         if result.returncode != 0:
             raise RuntimeError(f"ffprobe error: {result.stderr.strip()}")
         data = json.loads(result.stdout)

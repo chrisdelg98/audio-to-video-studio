@@ -5,10 +5,16 @@ Comprueba que Python, FFmpeg y ffprobe están disponibles en PATH.
 Retorna resultados estructurados para que la UI pueda informar al usuario.
 """
 
+import os
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
+
+_STARTUPINFO = None
+if os.name == "nt":
+    _STARTUPINFO = subprocess.STARTUPINFO()
+    _STARTUPINFO.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
 
 @dataclass
@@ -32,6 +38,7 @@ def _run_version(cmd: str) -> str:
             capture_output=True,
             text=True,
             timeout=10,
+            startupinfo=_STARTUPINFO,
         )
         first_line = (result.stdout or result.stderr or "").splitlines()
         return first_line[0] if first_line else "versión desconocida"

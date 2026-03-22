@@ -1527,7 +1527,7 @@ class AudioToVideoApp(ctk.CTk):
 
         # Color del texto
         _hex_map = {
-            "Blanco": "#FFFFFF", "Gris muy claro": "#D0D0D0",
+            "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
             "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
         }
         color_name = self._var_text_color.get() if hasattr(self, "_var_text_color") else "Blanco"
@@ -1601,8 +1601,12 @@ class AudioToVideoApp(ctk.CTk):
                     output_path=output,
                     duration=dur,
                 )
-                import subprocess
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                import subprocess, os
+                _si = None
+                if os.name == "nt":
+                    _si = subprocess.STARTUPINFO()
+                    _si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, startupinfo=_si)
                 if r.returncode == 0:
                     self._queue_log(f"✔ Preview guardado: {output}")
                 else:
@@ -1743,7 +1747,8 @@ class AudioToVideoApp(ctk.CTk):
 
         # ── Validación de nombres de salida ──
         naming_mode = self._var_naming_mode.get()
-        if naming_mode in ("Custom List", "Prefix + Custom List"):
+        if naming_mode in ("Custom List", "Prefix + Custom List",
+                           "Lista personalizada", "Prefijo + Lista personalizada"):
             names_raw = self._txt_naming_list.get("1.0", "end").strip()
             if not names_raw:
                 errors.append("• La lista de nombres personalizados está vacía.")
