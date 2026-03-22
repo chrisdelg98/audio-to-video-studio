@@ -531,6 +531,7 @@ class AudioToVideoApp(ctk.CTk):
         }
         def _update_color_preview(name: str) -> None:
             self._text_color_preview.configure(fg_color=_color_hex_map.get(name, "#FFFFFF"))
+            self._update_preview_overlay()
         ctk.CTkOptionMenu(col_f, variable=self._var_text_color, values=_TEXT_COLORS,
                           width=140, height=28, command=_update_color_preview,
                           font=ctk.CTkFont(size=self._fs(11))).grid(
