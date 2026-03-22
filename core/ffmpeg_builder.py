@@ -310,9 +310,10 @@ class FFmpegBuilder:
                 "-crf", str(crf),
             ]
 
+        audio_bitrate = str(self.settings.get("audio_bitrate", "320k"))
         cmd += [
             "-c:a", "aac",
-            "-b:a", "192k",
+            "-b:a", audio_bitrate,
             "-movflags", "+faststart",
             "-pix_fmt", "yuv420p",
             output_path,

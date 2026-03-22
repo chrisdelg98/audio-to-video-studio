@@ -38,6 +38,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "overlay_path": "",
     "overlay_opacity": 0.5,
     "crf": 18,
+    "audio_bitrate": "320k",
     # Output Naming
     "naming_prefix": "",
     "naming_custom_list": [],
