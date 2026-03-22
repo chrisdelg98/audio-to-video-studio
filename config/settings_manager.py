@@ -2,7 +2,7 @@
 Settings Manager — Gestión de configuración persistente en JSON.
 
 Guarda y carga la configuración del usuario desde config/settings.json.
-Incluye soporte para presets: lofi, ambient, jazz.
+Presets personalizados almacenados en config/presets.json.
 """
 
 import json
@@ -14,22 +14,23 @@ from typing import Any
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR = BASE_DIR / "config"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
+PRESETS_FILE = CONFIG_DIR / "presets.json"
 
 # Configuración por defecto
 DEFAULT_SETTINGS: dict[str, Any] = {
     "audio_folder": "",
     "background_image": "",
     "output_folder": "",
-    "zoom_max": 1.02,
-    "zoom_speed": 300,
+    "zoom_max": 1.01,
+    "zoom_speed": 500,
     "fade_in": 2,
     "fade_out": 2,
     "resolution": "1080p",
     "enable_zoom": True,
     "enable_glitch": False,
-    "glitch_intensity": 4,
-    "glitch_speed": 90,
-    "glitch_pulse": 3,
+    "glitch_intensity": 1,
+    "glitch_speed": 300,
+    "glitch_pulse": 6,
     "enable_overlay": False,
     "normalize_audio": False,
     "overlay_path": "",
@@ -56,42 +57,46 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "font_size": "Medium",
 }
 
-# Presets de configuración
-PRESETS: dict[str, dict[str, Any]] = {
-    "lofi": {
-        "zoom_max": 1.03,
+# Preset semilla — se crea si presets.json no existe
+_SEED_PRESETS: dict[str, dict[str, Any]] = {
+    "Default": {
+        "zoom_max": 1.01,
         "zoom_speed": 500,
-        "fade_in": 3,
-        "fade_out": 3,
-        "enable_zoom": True,
-        "enable_glitch": False,
-        "enable_overlay": False,
-        "normalize_audio": True,
-        "crf": 20,
-    },
-    "ambient": {
-        "zoom_max": 1.02,
-        "zoom_speed": 800,
-        "fade_in": 5,
-        "fade_out": 5,
-        "enable_zoom": True,
-        "enable_glitch": False,
-        "enable_overlay": True,
-        "normalize_audio": False,
-        "crf": 18,
-    },
-    "jazz": {
-        "zoom_max": 1.05,
-        "zoom_speed": 200,
-        "fade_in": 2,
-        "fade_out": 2,
+        "fade_in": 2.0,
+        "fade_out": 2.0,
+        "resolution": "1080p",
         "enable_zoom": True,
         "enable_glitch": True,
+        "glitch_intensity": 1,
+        "glitch_speed": 300,
+        "glitch_pulse": 6,
         "enable_overlay": False,
         "normalize_audio": False,
-        "crf": 18,
+        "overlay_path": "Atmos Zone",
+        "overlay_opacity": 0.5,
+        "crf": 20,
+        "naming_prefix": "",
+        "naming_custom_list": [],
+        "naming_auto_number": True,
+        "cpu_mode": "Max",
+        "encode_preset": "slow",
+        "gpu_encoding": True,
+        "enable_text_overlay": True,
+        "text_content": "Atmos Zone",
+        "text_position": "Bottom",
+        "text_margin": 40,
+        "text_font_size": 20,
+        "text_glitch_intensity": 3,
+        "text_glitch_speed": 1.0,
+        "theme": "Dark",
+        "font_size": "Large",
+        "naming_mode": "Default",
+        "text_font": "RockSalt-Regular",
     },
 }
+
+# Keys que NO se guardan en presets (son rutas de archivo específicas del proyecto)
+_PRESET_EXCLUDED_KEYS = {"audio_folder", "background_image", "output_folder"}
 
 
 class SettingsManager:
@@ -100,10 +105,12 @@ class SettingsManager:
     def __init__(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self._settings: dict[str, Any] = dict(DEFAULT_SETTINGS)
+        self._presets: dict[str, dict[str, Any]] = {}
         self.load()
+        self._load_presets()
 
     # ------------------------------------------------------------------
-    # Carga / Guardado
+    # Carga / Guardado de Settings
     # ------------------------------------------------------------------
 
     def load(self) -> None:
@@ -112,7 +119,6 @@ class SettingsManager:
             try:
                 with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                     stored = json.load(f)
-                # Mezcla para preservar claves nuevas en DEFAULT_SETTINGS
                 self._settings = {**DEFAULT_SETTINGS, **stored}
             except (json.JSONDecodeError, OSError):
                 self._settings = dict(DEFAULT_SETTINGS)
@@ -142,15 +148,66 @@ class SettingsManager:
         return dict(self._settings)
 
     # ------------------------------------------------------------------
-    # Presets
+    # Presets — persistencia
     # ------------------------------------------------------------------
 
-    def apply_preset(self, name: str) -> None:
-        """Aplica un preset predefinido (lofi, ambient, jazz)."""
-        if name not in PRESETS:
-            raise ValueError(f"Preset desconocido: '{name}'. Disponibles: {list(PRESETS)}")
-        self._settings.update(PRESETS[name])
+    def _load_presets(self) -> None:
+        """Carga presets desde presets.json; si no existe, crea con preset semilla."""
+        if PRESETS_FILE.exists():
+            try:
+                with open(PRESETS_FILE, "r", encoding="utf-8") as f:
+                    self._presets = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                self._presets = dict(_SEED_PRESETS)
+                self._save_presets()
+        else:
+            self._presets = dict(_SEED_PRESETS)
+            self._save_presets()
 
-    @staticmethod
-    def available_presets() -> list[str]:
-        return list(PRESETS.keys())
+    def _save_presets(self) -> None:
+        """Persiste presets en presets.json."""
+        try:
+            with open(PRESETS_FILE, "w", encoding="utf-8") as f:
+                json.dump(self._presets, f, indent=2, ensure_ascii=False)
+        except OSError as exc:
+            raise RuntimeError(f"No se pudo guardar presets: {exc}") from exc
+
+    # ------------------------------------------------------------------
+    # Presets — API pública
+    # ------------------------------------------------------------------
+
+    def available_presets(self) -> list[str]:
+        """Retorna lista de nombres de presets en orden de inserción."""
+        return list(self._presets.keys())
+
+    def apply_preset(self, name: str) -> None:
+        """Aplica un preset a la configuración actual."""
+        if name not in self._presets:
+            raise ValueError(f"Preset desconocido: '{name}'")
+        self._settings.update(self._presets[name])
+
+    def save_preset(self, name: str, settings: dict[str, Any]) -> None:
+        """Guarda (o reemplaza) un preset con todas las configuraciones (excepto rutas)."""
+        filtered = {k: v for k, v in settings.items() if k not in _PRESET_EXCLUDED_KEYS}
+        self._presets[name] = filtered
+        self._save_presets()
+
+    def delete_preset(self, name: str) -> None:
+        """Elimina un preset."""
+        if name not in self._presets:
+            raise ValueError(f"Preset '{name}' no existe.")
+        del self._presets[name]
+        self._save_presets()
+
+    def rename_preset(self, old_name: str, new_name: str) -> None:
+        """Renombra un preset."""
+        if old_name not in self._presets:
+            raise ValueError(f"Preset '{old_name}' no existe.")
+        if new_name in self._presets:
+            raise ValueError(f"Ya existe un preset con el nombre '{new_name}'.")
+        # Preservar orden: reconstruir dict
+        new_presets: dict[str, dict[str, Any]] = {}
+        for k, v in self._presets.items():
+            new_presets[new_name if k == old_name else k] = v
+        self._presets = new_presets
+        self._save_presets()

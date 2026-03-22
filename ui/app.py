@@ -22,6 +22,7 @@ Principios:
 
 from __future__ import annotations
 
+import ctypes
 import os
 import threading
 import tkinter as tk
@@ -38,6 +39,40 @@ from core.runner import JobResult, Runner
 from core.utils import get_audio_files
 from core.validator import ValidationResult, validate_environment
 from effects.text_overlay_effect import available_fonts
+
+# ── Font Awesome ────────────────────────────────────────────────────────────
+_FA_FONT_PATH = str(Path(__file__).resolve().parent.parent / "fonts" / "Font Awesome 6 Free-Solid-900.otf")
+_FA_FAMILY = "Font Awesome 6 Free Solid"  # Family name inside the .otf
+
+def _load_font_awesome() -> None:
+    """Registra Font Awesome como fuente del sistema (solo Windows)."""
+    if os.name == "nt" and Path(_FA_FONT_PATH).exists():
+        FR_PRIVATE = 0x10
+        ctypes.windll.gdi32.AddFontResourceExW(_FA_FONT_PATH, FR_PRIVATE, 0)
+
+_load_font_awesome()
+
+# Iconos Font Awesome (codepoints Unicode)
+FA_SAVE   = "\uf0c7"   # floppy-disk
+FA_EDIT   = "\uf044"   # pen-to-square
+FA_TRASH  = "\uf2ed"   # trash-can
+FA_PLUS   = "\uf067"   # plus
+FA_PLAY   = "\uf04b"   # play
+FA_FILM    = "\uf008"   # film
+FA_SUN     = "\uf185"   # sun
+FA_MOON    = "\uf186"   # moon
+FA_FOLDER  = "\uf07c"   # folder-open
+FA_EXPAND  = "\uf065"   # up-right-and-down-left-from-center
+FA_GEAR    = "\uf013"   # gear
+FA_WAND    = "\uf0d0"   # wand-magic
+FA_FONT_IC = "\uf031"   # font (icon)
+FA_SLIDERS = "\uf1de"   # sliders
+FA_TAG     = "\uf02b"   # tag
+FA_LIST    = "\uf46d"   # clipboard-list
+FA_STOP    = "\uf04d"   # stop
+FA_EYE     = "\uf06e"   # eye
+FA_WRENCH  = "\uf0ad"   # wrench
+FA_BOLT    = "\uf0e7"   # bolt (rendimiento)
 
 
 # ── Tema ────────────────────────────────────────────────────────────────────
@@ -229,12 +264,19 @@ class AudioToVideoApp(ctk.CTk):
             row=0, column=0, padx=(14, 0), pady=8, sticky="ns"
         )
 
+        _title_frame = ctk.CTkFrame(header, fg_color="transparent")
+        _title_frame.grid(row=0, column=1, padx=(8, 0), sticky="w")
         ctk.CTkLabel(
-            header,
-            text="🎬  Audio to Video Studio",
+            _title_frame, text=FA_FILM,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=16),
+            text_color=C_TEXT,
+        ).pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(
+            _title_frame,
+            text="Audio to Video Studio",
             font=ctk.CTkFont(size=15, weight="bold"),
             text_color=C_TEXT,
-        ).grid(row=0, column=1, padx=(8, 0), sticky="w")
+        ).pack(side="left")
 
         self._lbl_status = ctk.CTkLabel(
             header,
@@ -251,14 +293,14 @@ class AudioToVideoApp(ctk.CTk):
         )
         ctrl.grid(row=0, column=3, padx=(4, 14))
 
-        # Botón tema 🌙 / ☀️
-        _theme_icon = "☀️" if self._current_theme == "Dark" else "🌙"
+        # Botón tema (FA sun / moon)
+        _theme_icon = FA_SUN if self._current_theme == "Dark" else FA_MOON
         self._btn_theme = ctk.CTkButton(
             ctrl, text=_theme_icon, width=30, height=26,
             fg_color="transparent",
             hover_color=C_HOVER,
             text_color=C_TEXT,
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(family=_FA_FAMILY, size=14),
             corner_radius=4,
             command=self._toggle_theme,
         )
@@ -311,7 +353,7 @@ class AudioToVideoApp(ctk.CTk):
         row = 0
 
         # ── Archivos (abierto por defecto) ──
-        c, row = self._collapsible_section(frame, "📁  Archivos", row, default_open=True)
+        c, row = self._collapsible_section(frame, "Archivos", row, default_open=True, fa_icon=FA_FOLDER)
         ar = 0
         self._var_audio_folder = tk.StringVar()
         ar = self._file_row(c, "Carpeta de audios:", self._var_audio_folder,
@@ -324,7 +366,7 @@ class AudioToVideoApp(ctk.CTk):
                             self._browse_output, ar)
 
         # ── Resolución ──
-        c, row = self._collapsible_section(frame, "📐  Resolución", row, default_open=False)
+        c, row = self._collapsible_section(frame, "Resolución", row, default_open=False, fa_icon=FA_EXPAND)
         self._var_resolution = tk.StringVar(value="1080p")
         res_frame = ctk.CTkFrame(c, fg_color="transparent")
         res_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=4)
@@ -336,7 +378,7 @@ class AudioToVideoApp(ctk.CTk):
                            value="4K").pack(side="left", padx=8)
 
         # ── Parámetros ──
-        c, row = self._collapsible_section(frame, "⚙️  Parámetros", row, default_open=False)
+        c, row = self._collapsible_section(frame, "Parámetros", row, default_open=False, fa_icon=FA_GEAR)
         ar = 0
         self._var_zoom_max = tk.DoubleVar(value=1.02)
         ar = self._slider_row(c, "Zoom máximo:", self._var_zoom_max, 1.0, 1.2, ar,
@@ -364,7 +406,7 @@ class AudioToVideoApp(ctk.CTk):
         )
 
         # ── Efectos visuales ──
-        c, row = self._collapsible_section(frame, "✨  Efectos visuales", row, default_open=False)
+        c, row = self._collapsible_section(frame, "Efectos visuales", row, default_open=False, fa_icon=FA_WAND)
         ar = 0
         self._var_zoom = tk.BooleanVar(value=True)
         self._var_glitch = tk.BooleanVar(value=False)
@@ -416,7 +458,7 @@ class AudioToVideoApp(ctk.CTk):
         self._overlay_frame.grid_remove()
 
         # ── Texto overlay ──
-        c, row = self._collapsible_section(frame, "🔤  Texto overlay", row, default_open=False)
+        c, row = self._collapsible_section(frame, "Texto overlay", row, default_open=False, fa_icon=FA_FONT_IC)
         ar = 0
         self._var_text_overlay = tk.BooleanVar(value=False)
         ar = self._check_row(c, "Activar texto overlay", self._var_text_overlay,
@@ -529,23 +571,38 @@ class AudioToVideoApp(ctk.CTk):
         self._text_overlay_frame.grid_remove()
 
         # ── Presets ──
-        c, row = self._collapsible_section(frame, "🎛️ Presets", row, default_open=False)
-        preset_frame = ctk.CTkFrame(c, fg_color="transparent")
-        preset_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=6)
-        for preset in SettingsManager.available_presets():
-            ctk.CTkButton(
-                preset_frame,
-                text=preset.capitalize(),
-                width=80,
-                fg_color=C_BTN_SECONDARY,
-                hover_color=C_HOVER,
-                text_color=C_TEXT,
-                corner_radius=4,
-                command=lambda p=preset: self._apply_preset(p),
-            ).pack(side="left", padx=4)
+        c, row = self._collapsible_section(frame, "Presets", row, default_open=False, fa_icon=FA_SLIDERS)
+        self._preset_container = ctk.CTkFrame(c, fg_color="transparent")
+        self._preset_container.grid(row=0, column=0, sticky="ew", padx=6, pady=2)
+        self._preset_container.grid_columnconfigure(0, weight=1)
+
+        # Tiles grid
+        self._preset_tiles_frame = ctk.CTkFrame(
+            self._preset_container, fg_color="transparent",
+        )
+        self._preset_tiles_frame.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+
+        # "+ Nuevo preset" button
+        _plus_frame = ctk.CTkFrame(self._preset_container, fg_color=C_BTN_SECONDARY, corner_radius=6)
+        _plus_frame.grid(row=1, column=0, sticky="ew", padx=6)
+        _plus_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            _plus_frame, text=FA_PLUS, width=24,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+            text_color=C_TEXT,
+        ).grid(row=0, column=0, padx=(10, 0), pady=6)
+        ctk.CTkButton(
+            _plus_frame, text="Nuevo preset", height=30,
+            fg_color="transparent", hover_color=C_HOVER,
+            text_color=C_TEXT, corner_radius=6, anchor="w",
+            font=ctk.CTkFont(size=self._fs(11)),
+            command=self._create_new_preset,
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=2)
+
+        self._rebuild_preset_tiles()
 
         # ── Output Naming ──
-        c, row = self._collapsible_section(frame, "🏷️ Output Naming", row, default_open=False)
+        c, row = self._collapsible_section(frame, "Nombre de salida", row, default_open=False, fa_icon=FA_TAG)
         ar = 0
         inner_mode = ctk.CTkFrame(c, fg_color="transparent")
         inner_mode.grid(row=ar, column=0, sticky="ew", padx=12, pady=4)
@@ -557,7 +614,7 @@ class AudioToVideoApp(ctk.CTk):
         self._var_naming_mode = tk.StringVar(value="Default")
         ctk.CTkOptionMenu(
             inner_mode,
-            values=["Default", "Prefix", "Custom List", "Prefix + Custom List"],
+            values=["Default", "Prefijo", "Lista personalizada", "Prefijo + Lista personalizada"],
             variable=self._var_naming_mode,
             command=self._on_naming_mode_change,
             fg_color=C_CARD,
@@ -608,8 +665,8 @@ class AudioToVideoApp(ctk.CTk):
         ar = self._check_row(c, "Numeración automática (01, 02…)",
                              self._var_naming_autonumber, ar)
 
-        # ── Performance ──
-        c, row = self._collapsible_section(frame, "⚡  Performance", row, default_open=False)
+        # ── Rendimiento ──
+        c, row = self._collapsible_section(frame, "Rendimiento", row, default_open=False, fa_icon=FA_BOLT)
         inner_perf = ctk.CTkFrame(c, fg_color="transparent")
         inner_perf.grid(row=0, column=0, sticky="ew", padx=12, pady=4)
         inner_perf.grid_columnconfigure(1, weight=1)
@@ -727,14 +784,13 @@ class AudioToVideoApp(ctk.CTk):
         frame = ctk.CTkFrame(parent, fg_color=C_PANEL, corner_radius=8)
         frame.grid(row=0, column=1, sticky="nsew")
         frame.grid_columnconfigure(0, weight=1)
-        frame.grid_rowconfigure(1, weight=1)
 
         # Preview imagen
         preview_frame = ctk.CTkFrame(
-            frame, fg_color=C_CARD, corner_radius=6, height=180,
+            frame, fg_color=C_CARD, corner_radius=6, height=280,
             border_width=1, border_color=C_BORDER,
         )
-        preview_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+        preview_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0))
         preview_frame.grid_propagate(False)
         preview_frame.grid_columnconfigure(0, weight=1)
         preview_frame.grid_rowconfigure(0, weight=1)
@@ -747,7 +803,7 @@ class AudioToVideoApp(ctk.CTk):
         )
         self._lbl_preview.grid(row=0, column=0, sticky="nsew")
 
-        # Info de audios detectados
+        # Info de audios detectados (pegado justo debajo del preview)
         self._lbl_audio_count = ctk.CTkLabel(
             frame,
             text="Audios: —",
@@ -757,9 +813,18 @@ class AudioToVideoApp(ctk.CTk):
         self._lbl_audio_count.grid(row=1, column=0, sticky="w", padx=14, pady=(2, 0))
 
         # Logs
-        log_label = ctk.CTkLabel(frame, text="📋  Logs", font=ctk.CTkFont(size=self._fs(13), weight="bold"),
-                                 text_color=C_TEXT)
-        log_label.grid(row=2, column=0, sticky="w", padx=12, pady=(8, 2))
+        _logs_hdr = ctk.CTkFrame(frame, fg_color="transparent")
+        _logs_hdr.grid(row=2, column=0, sticky="w", padx=12, pady=(8, 2))
+        ctk.CTkLabel(
+            _logs_hdr, text=FA_LIST,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(13)),
+            text_color=C_TEXT,
+        ).pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(
+            _logs_hdr, text="Logs",
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+            text_color=C_TEXT,
+        ).pack(side="left")
 
         self._log_text = ctk.CTkTextbox(
             frame,
@@ -800,73 +865,104 @@ class AudioToVideoApp(ctk.CTk):
         footer.grid_propagate(False)
         footer.grid_columnconfigure(4, weight=1)
 
+        _gen_frame = ctk.CTkFrame(footer, fg_color=C_BTN_PRIMARY, corner_radius=6)
+        _gen_frame.grid(row=0, column=0, padx=12, pady=14)
+        ctk.CTkLabel(
+            _gen_frame, text=FA_PLAY, width=20,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+            text_color="#ffffff",
+        ).pack(side="left", padx=(10, 0), pady=6)
         self._btn_generate = ctk.CTkButton(
-            footer,
-            text="▶  Generar videos",
-            fg_color=C_BTN_PRIMARY,
+            _gen_frame,
+            text="Generar videos",
+            fg_color="transparent",
             hover_color=C_ACCENT_H,
             text_color="#ffffff",
             font=ctk.CTkFont(size=self._fs(13), weight="bold"),
             corner_radius=6,
             height=36,
-            width=160,
             command=self._on_generate,
         )
-        self._btn_generate.grid(row=0, column=0, padx=12, pady=14)
+        self._btn_generate.pack(side="left", padx=(2, 6), pady=4)
 
+        _can_frame = ctk.CTkFrame(footer, fg_color=C_BTN_SECONDARY, corner_radius=6)
+        _can_frame.grid(row=0, column=1, padx=4, pady=14)
+        ctk.CTkLabel(
+            _can_frame, text=FA_STOP, width=20,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+            text_color=C_TEXT_DIM,
+        ).pack(side="left", padx=(10, 0), pady=6)
         self._btn_cancel = ctk.CTkButton(
-            footer,
-            text="⏹  Cancelar",
-            fg_color=C_BTN_SECONDARY,
+            _can_frame,
+            text="Cancelar",
+            fg_color="transparent",
             hover_color=C_HOVER,
             text_color=C_TEXT,
             corner_radius=6,
             height=36,
-            width=120,
             state="disabled",
             command=self._on_cancel,
         )
-        self._btn_cancel.grid(row=0, column=1, padx=4, pady=14)
+        self._btn_cancel.pack(side="left", padx=(2, 6), pady=4)
 
+        _prev_frame = ctk.CTkFrame(footer, fg_color=C_BTN_SECONDARY, corner_radius=6)
+        _prev_frame.grid(row=0, column=2, padx=4, pady=14)
+        ctk.CTkLabel(
+            _prev_frame, text=FA_EYE, width=20,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+            text_color=C_TEXT,
+        ).pack(side="left", padx=(10, 0), pady=6)
         self._btn_preview = ctk.CTkButton(
-            footer,
-            text="👁  Preview efecto",
-            fg_color=C_BTN_SECONDARY,
-            hover_color=C_HOVER,
-            text_color=C_TEXT,
-            corner_radius=6,
-            height=36,
-            width=140,
-            command=self._on_preview,
-        )
-        self._btn_preview.grid(row=0, column=2, padx=4, pady=14)
-
-        self._btn_test = ctk.CTkButton(
-            footer,
-            text="🔧  Probar FFmpeg",
-            fg_color=C_BTN_SECONDARY,
-            hover_color=C_HOVER,
-            text_color=C_TEXT,
-            corner_radius=6,
-            height=36,
-            width=140,
-            command=self._on_test_ffmpeg,
-        )
-        self._btn_test.grid(row=0, column=3, padx=4, pady=14)
-
-        ctk.CTkButton(
-            footer,
-            text="💾  Guardar config",
+            _prev_frame,
+            text="Preview efecto",
             fg_color="transparent",
             hover_color=C_HOVER,
-            border_width=1,
-            border_color=C_BORDER,
             text_color=C_TEXT,
             corner_radius=6,
             height=36,
-            width=130,
+            command=self._on_preview,
+        )
+        self._btn_preview.pack(side="left", padx=(2, 6), pady=4)
+
+        _test_frame = ctk.CTkFrame(footer, fg_color=C_BTN_SECONDARY, corner_radius=6)
+        _test_frame.grid(row=0, column=3, padx=4, pady=14)
+        ctk.CTkLabel(
+            _test_frame, text=FA_WRENCH, width=20,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+            text_color=C_TEXT,
+        ).pack(side="left", padx=(10, 0), pady=6)
+        self._btn_test = ctk.CTkButton(
+            _test_frame,
+            text="Probar FFmpeg",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            text_color=C_TEXT,
+            corner_radius=6,
+            height=36,
+            command=self._on_test_ffmpeg,
+        )
+        self._btn_test.pack(side="left", padx=(2, 6), pady=4)
+
+        _save_frame = ctk.CTkFrame(
+            footer, fg_color="transparent", corner_radius=6,
+            border_width=1, border_color=C_BORDER,
+        )
+        _save_frame.grid(row=0, column=5, padx=(4, 12), pady=14, sticky="e")
+        ctk.CTkLabel(
+            _save_frame, text=FA_SAVE, width=20,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+            text_color=C_TEXT,
+        ).pack(side="left", padx=(10, 0), pady=6)
+        ctk.CTkButton(
+            _save_frame,
+            text="Guardar config",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            text_color=C_TEXT,
+            corner_radius=6,
+            height=36,
             command=self._save_settings,
-        ).grid(row=0, column=5, padx=(4, 12), pady=14, sticky="e")
+        ).pack(side="left", padx=(2, 6), pady=4)
 
     # ──────────────────────────────────────────────────────────────────
     # HELPERS DE CONSTRUCCIÓN DE WIDGETS
@@ -891,23 +987,48 @@ class AudioToVideoApp(ctk.CTk):
         title: str,
         row: int,
         default_open: bool = True,
+        fa_icon: str | None = None,
     ) -> tuple[ctk.CTkFrame, int]:
         """Crea una sección colapsable con tarjeta. Retorna (content_frame, siguiente_row)."""
         _open = [default_open]
         _title = title
+        _fa_lbl = None
 
-        btn = ctk.CTkButton(
-            parent,
-            text=f"{'\u25bc' if default_open else '\u25b6'}  {title}",
-            anchor="w",
-            fg_color="transparent",
-            hover_color=C_HOVER,
-            text_color=C_TEXT,
-            font=ctk.CTkFont(size=self._fs(12), weight="bold"),
-            height=34,
-            corner_radius=6,
-        )
-        btn.grid(row=row, column=0, sticky="ew", padx=8, pady=(14, 2))
+        if fa_icon:
+            _hdr = ctk.CTkFrame(parent, fg_color="transparent")
+            _hdr.grid(row=row, column=0, sticky="ew", padx=8, pady=(2, 0))
+            _hdr.grid_columnconfigure(1, weight=1)
+            _fa_lbl = ctk.CTkLabel(
+                _hdr, text=fa_icon, width=22,
+                font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(13)),
+                text_color=C_TEXT,
+            )
+            _fa_lbl.grid(row=0, column=0, padx=(6, 0))
+            btn = ctk.CTkButton(
+                _hdr,
+                text=f"{'\u25bc' if default_open else '\u25b6'}  {title}",
+                anchor="w",
+                fg_color="transparent",
+                hover_color=C_HOVER,
+                text_color=C_TEXT,
+                font=ctk.CTkFont(size=self._fs(12), weight="bold"),
+                height=34,
+                corner_radius=6,
+            )
+            btn.grid(row=0, column=1, sticky="ew")
+        else:
+            btn = ctk.CTkButton(
+                parent,
+                text=f"{'\u25bc' if default_open else '\u25b6'}  {title}",
+                anchor="w",
+                fg_color="transparent",
+                hover_color=C_HOVER,
+                text_color=C_TEXT,
+                font=ctk.CTkFont(size=self._fs(12), weight="bold"),
+                height=34,
+                corner_radius=6,
+            )
+            btn.grid(row=row, column=0, sticky="ew", padx=8, pady=(2, 0))
 
         card = ctk.CTkFrame(
             parent,
@@ -917,15 +1038,12 @@ class AudioToVideoApp(ctk.CTk):
             border_color=C_BORDER,
         )
         card.grid_columnconfigure(0, weight=1)
-        card.grid(row=row + 1, column=0, sticky="ew", padx=8, pady=(0, 4))
-        # Internal top/bottom padding achieved via a spacer row
-        ctk.CTkFrame(card, height=14, fg_color="transparent").grid(row=0, column=0, sticky="ew")
-        # Actual content will be placed in rows starting at 1 inside card
-        # We wrap with an inner frame so callers get a clean row-0 content area
+        card.grid(row=row + 1, column=0, sticky="ew", padx=8, pady=(0, 0))
+        ctk.CTkFrame(card, height=8, fg_color="transparent").grid(row=0, column=0, sticky="ew")
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.grid(row=1, column=0, sticky="ew")
         inner.grid_columnconfigure(0, weight=1)
-        ctk.CTkFrame(card, height=14, fg_color="transparent").grid(row=2, column=0, sticky="ew")
+        ctk.CTkFrame(card, height=8, fg_color="transparent").grid(row=2, column=0, sticky="ew")
 
         def _toggle() -> None:
             if _open[0]:
@@ -940,6 +1058,8 @@ class AudioToVideoApp(ctk.CTk):
         if not default_open:
             card.grid_remove()
         btn.configure(command=_toggle)
+        if _fa_lbl:
+            _fa_lbl.bind("<Button-1>", lambda e: _toggle())
         return inner, row + 2
 
     def _file_row(
@@ -1143,6 +1263,117 @@ class AudioToVideoApp(ctk.CTk):
         self._load_settings_to_ui()
         self._log(f"🎛 Preset '{name}' aplicado.")
 
+    # ------------------------------------------------------------------
+    # Preset management — tiles
+    # ------------------------------------------------------------------
+
+    def _rebuild_preset_tiles(self) -> None:
+        """Reconstruye los tiles de presets en grid de 2 columnas."""
+        for w in self._preset_tiles_frame.winfo_children():
+            w.destroy()
+        self._preset_tiles_frame.grid_columnconfigure(0, weight=1)
+        self._preset_tiles_frame.grid_columnconfigure(1, weight=1)
+
+        names = self.settings.available_presets()
+        for i, name in enumerate(names):
+            r, col = divmod(i, 2)
+            tile = ctk.CTkFrame(
+                self._preset_tiles_frame, fg_color=C_BTN_SECONDARY,
+                corner_radius=8, border_width=1, border_color=C_BORDER,
+            )
+            tile.grid(row=r, column=col, sticky="ew", padx=4, pady=4)
+            tile.grid_columnconfigure(0, weight=1)
+
+            # Nombre del preset — clic para cargar
+            name_row = ctk.CTkFrame(tile, fg_color="transparent")
+            name_row.grid(row=0, column=0, sticky="ew", padx=(6, 0), pady=(6, 0))
+            name_row.grid_columnconfigure(1, weight=1)
+            ctk.CTkLabel(
+                name_row, text=FA_PLAY, width=20,
+                font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(10)),
+                text_color=C_TEXT_DIM,
+            ).grid(row=0, column=0, padx=(2, 0))
+            ctk.CTkButton(
+                name_row, text=name, anchor="w", height=32,
+                fg_color="transparent", hover_color=C_HOVER,
+                text_color=C_TEXT, corner_radius=6,
+                font=ctk.CTkFont(size=self._fs(12), weight="bold"),
+                command=lambda n=name: self._apply_preset(n),
+            ).grid(row=0, column=1, sticky="ew")
+
+            # Botones de acción — Font Awesome icons, grandes y separados
+            actions = ctk.CTkFrame(tile, fg_color="transparent")
+            actions.grid(row=1, column=0, sticky="e", padx=6, pady=(2, 6))
+
+            _fa_btn_font = ctk.CTkFont(family=_FA_FAMILY, size=self._fs(13))
+            for icon, color, hover, cmd in [
+                (FA_SAVE, C_BTN_OK, "#3aad6a", lambda n=name: self._overwrite_preset(n)),
+                (FA_EDIT, C_ACCENT, C_ACCENT_H, lambda n=name: self._rename_preset(n)),
+                (FA_TRASH, C_BTN_DANGER, "#e05050", lambda n=name: self._delete_preset(n)),
+            ]:
+                ctk.CTkButton(
+                    actions, text=icon, width=36, height=32,
+                    fg_color=color, hover_color=hover,
+                    text_color="#ffffff", corner_radius=6,
+                    font=_fa_btn_font,
+                    command=cmd,
+                ).pack(side="left", padx=4)
+
+    def _create_new_preset(self) -> None:
+        """Crea un nuevo preset con las configuraciones actuales."""
+        dialog = ctk.CTkInputDialog(
+            text="Nombre del nuevo preset:", title="Nuevo Preset",
+        )
+        name = dialog.get_input()
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        if name in self.settings.available_presets():
+            messagebox.showwarning("Nombre duplicado", f"Ya existe un preset '{name}'.")
+            return
+        self._collect_settings()
+        self.settings.save_preset(name, self.settings.all())
+        self._rebuild_preset_tiles()
+        self._log(f"✅ Preset '{name}' creado.")
+
+    def _overwrite_preset(self, name: str) -> None:
+        """Sobrescribe un preset existente con las configuraciones actuales."""
+        if not messagebox.askyesno(
+            "Sobrescribir preset",
+            f"¿Reemplazar '{name}' con la configuración actual?",
+        ):
+            return
+        self._collect_settings()
+        self.settings.save_preset(name, self.settings.all())
+        self._log(f"💾 Preset '{name}' actualizado.")
+
+    def _delete_preset(self, name: str) -> None:
+        """Elimina un preset."""
+        if not messagebox.askyesno("Eliminar preset", f"¿Eliminar el preset '{name}'?"):
+            return
+        try:
+            self.settings.delete_preset(name)
+            self._rebuild_preset_tiles()
+            self._log(f"🗑️ Preset '{name}' eliminado.")
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
+    def _rename_preset(self, old_name: str) -> None:
+        """Renombra un preset."""
+        dialog = ctk.CTkInputDialog(
+            text=f"Nuevo nombre para '{old_name}':", title="Renombrar Preset",
+        )
+        new_name = dialog.get_input()
+        if not new_name or not new_name.strip():
+            return
+        new_name = new_name.strip()
+        try:
+            self.settings.rename_preset(old_name, new_name)
+            self._rebuild_preset_tiles()
+            self._log(f"✏️ Preset '{old_name}' → '{new_name}'.")
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+
     def _update_audio_count(self, folder: str) -> None:
         try:
             files = get_audio_files(folder)
@@ -1157,7 +1388,7 @@ class AudioToVideoApp(ctk.CTk):
     def _load_preview(self, path: str) -> None:
         try:
             img = Image.open(path)
-            img.thumbnail((400, 175))
+            img.thumbnail((500, 270))
             ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
             self._lbl_preview.configure(image=ctk_img, text="")
             self._lbl_preview.image = ctk_img  # evitar GC
