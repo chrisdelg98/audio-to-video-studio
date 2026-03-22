@@ -97,17 +97,15 @@ class TextOverlayEffect(BaseEffect):
         layers: list[str] = []
 
         if gi > 0:
-            # Fantasma cian (desplazado a la izquierda según oscilación)
+            # Fantasma cian (#00FFFF) — desplazado a la izquierda
             layers.append(
-                f"drawtext=text='{safe}'{ff}:fontcolor=cyan@0.5:fontsize={fs}"
+                f"drawtext=text='{safe}'{ff}:fontcolor=0x00FFFF@0.85:fontsize={fs}"
                 f":x={x_expr}-{gi}*abs(sin(t*{gs:.1f})):y={y_expr}"
-                f":shadowcolor=black@0.3:shadowx=1:shadowy=1"
             )
-            # Fantasma rojo (desplazado a la derecha)
+            # Fantasma magenta (#FF00FF) — desplazado a la derecha
             layers.append(
-                f"drawtext=text='{safe}'{ff}:fontcolor=red@0.5:fontsize={fs}"
+                f"drawtext=text='{safe}'{ff}:fontcolor=0xFF00FF@0.85:fontsize={fs}"
                 f":x={x_expr}+{gi}*abs(sin(t*{gs:.1f})):y={y_expr}"
-                f":shadowcolor=black@0.3:shadowx=1:shadowy=1"
             )
 
         # Texto blanco principal (siempre encima)
