@@ -1197,17 +1197,18 @@ class AudioToVideoApp(ctk.CTk):
         frame.grid_columnconfigure(0, weight=1)
 
         # Preview imagen
-        preview_frame = ctk.CTkFrame(
+        self._preview_frame = ctk.CTkFrame(
             frame, fg_color=C_CARD, corner_radius=6, height=360,
             border_width=1, border_color=C_BORDER,
         )
-        preview_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0))
-        preview_frame.grid_propagate(False)
-        preview_frame.grid_columnconfigure(0, weight=1)
-        preview_frame.grid_rowconfigure(0, weight=1)
+        self._preview_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0))
+        self._preview_frame.grid_propagate(False)
+        self._preview_frame.grid_columnconfigure(0, weight=1)
+        self._preview_frame.grid_rowconfigure(0, weight=1)
+        self._preview_frame.grid_rowconfigure(1, weight=0)
 
         self._lbl_preview = ctk.CTkLabel(
-            preview_frame,
+            self._preview_frame,
             text="Sin imagen seleccionada",
             text_color=C_MUTED,
             font=ctk.CTkFont(size=12),
@@ -1215,12 +1216,25 @@ class AudioToVideoApp(ctk.CTk):
         self._lbl_preview.grid(row=0, column=0, sticky="nsew")
         self._preview_img_path: str = ""  # ruta original para re-renderizar overlay
 
+        # Filmstrip de miniaturas (solo modo multi-imagen, horizontal scrollable)
+        self._thumb_strip = ctk.CTkScrollableFrame(
+            self._preview_frame,
+            orientation="horizontal",
+            height=42,
+            fg_color=C_BG,
+            scrollbar_button_color=C_BORDER,
+            scrollbar_button_hover_color=C_HOVER,
+        )
+        self._thumb_strip.grid(row=1, column=0, sticky="ew")
+        self._thumb_strip.grid_remove()
+        self._thumb_strip_imgs: list[ctk.CTkImage] = []
+
         # Mostrar imagen de fondo por defecto si existe (sin asignarla como selección)
         _default_bg = _BUNDLE_DIR / "defaultbg.png"
         if _default_bg.is_file():
             try:
                 _img = Image.open(str(_default_bg))
-                _img.thumbnail((500, 340))
+                _img = AudioToVideoApp._crop_img_to_16_9(_img)
                 _ctk_img = ctk.CTkImage(light_image=_img, dark_image=_img, size=_img.size)
                 self._lbl_preview.configure(image=_ctk_img, text="")
                 self._lbl_preview.image = _ctk_img
@@ -1675,6 +1689,7 @@ class AudioToVideoApp(ctk.CTk):
             single = self._var_image.get()
             if single and Path(single).is_file():
                 self._load_preview(single)
+        self._rebuild_thumb_strip()
         # Refresh count display
         audio = self._var_audio_folder.get()
         if audio and Path(audio).is_dir():
@@ -1686,6 +1701,7 @@ class AudioToVideoApp(ctk.CTk):
             self._var_images_folder.set(path)
             self._image_assignment = {}  # reset assignment when folder changes
             self._load_preview_from_images_folder()
+            self._rebuild_thumb_strip()
             audio = self._var_audio_folder.get()
             if audio and Path(audio).is_dir():
                 self._update_audio_count(audio)
@@ -1698,6 +1714,43 @@ class AudioToVideoApp(ctk.CTk):
         imgs = get_image_files(folder)
         if imgs:
             self._load_preview(str(imgs[0]))
+
+    def _rebuild_thumb_strip(self) -> None:
+        """Repobla el filmstrip de miniaturas con las imágenes de la carpeta activa."""
+        for w in self._thumb_strip.winfo_children():
+            w.destroy()
+        self._thumb_strip_imgs.clear()
+        if not self._var_multi_image.get():
+            self._thumb_strip.grid_remove()
+            return
+        folder = self._var_images_folder.get()
+        if not folder or not Path(folder).is_dir():
+            self._thumb_strip.grid_remove()
+            return
+        imgs = get_image_files(folder)
+        if not imgs:
+            self._thumb_strip.grid_remove()
+            return
+        TW, TH = 56, 32  # 16:9 thumbnail size
+        for i, img_path in enumerate(imgs):
+            try:
+                thumb = Image.open(str(img_path))
+                thumb = self._crop_img_to_16_9(thumb, TW, TH)
+                ctk_thumb = ctk.CTkImage(light_image=thumb, dark_image=thumb, size=(TW, TH))
+                self._thumb_strip_imgs.append(ctk_thumb)
+                btn = ctk.CTkButton(
+                    self._thumb_strip,
+                    image=ctk_thumb, text="",
+                    width=TW + 4, height=TH + 4,
+                    fg_color=C_CARD, hover_color=C_HOVER,
+                    border_width=1, border_color=C_BORDER,
+                    corner_radius=3,
+                    command=lambda p=str(img_path): self._load_preview(p),
+                )
+                btn.grid(row=0, column=i, padx=2, pady=2)
+            except Exception:
+                pass
+        self._thumb_strip.grid()
 
     def _open_image_assignment(self) -> None:
         audio_folder = self._var_audio_folder.get()
@@ -1770,6 +1823,8 @@ class AudioToVideoApp(ctk.CTk):
                     )
                 except Exception:
                     pass
+        # Reconstruir el filmstrip con las imágenes actuales de la carpeta
+        self._rebuild_thumb_strip()
 
     def _toggle_overlay_widgets(self) -> None:
         if self._var_overlay.get():
@@ -1939,6 +1994,19 @@ class AudioToVideoApp(ctk.CTk):
         self._preview_img_path = path
         self._update_preview_overlay()
 
+    @staticmethod
+    def _crop_img_to_16_9(img: Image.Image, target_w: int = 480,
+                          target_h: int = 270) -> Image.Image:
+        """Crop + resize a 16:9 replicando el scale-to-fill + center-crop de FFmpeg."""
+        src_w, src_h = img.size
+        scale = max(target_w / src_w, target_h / src_h)
+        new_w = max(target_w, round(src_w * scale))
+        new_h = max(target_h, round(src_h * scale))
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        left = (new_w - target_w) // 2
+        top = (new_h - target_h) // 2
+        return img.crop((left, top, left + target_w, top + target_h))
+
     def _update_preview_overlay(self) -> None:
         """Re-renderiza el preview con overlay de texto si está activo."""
         path = getattr(self, "_preview_img_path", "")
@@ -1946,7 +2014,7 @@ class AudioToVideoApp(ctk.CTk):
             return
         try:
             img = Image.open(path)
-            img.thumbnail((500, 340))
+            img = self._crop_img_to_16_9(img)  # replica el crop real de FFmpeg
 
             # Dibujar overlay de texto si está activado
             if (hasattr(self, "_var_text_overlay")
