@@ -61,6 +61,20 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Multi-image
     "multi_image": False,
     "images_folder": "",
+    # Slideshow mode
+    "sl_images_folder": "",
+    "sl_audio_file": "",
+    "sl_output_folder": "",
+    "sl_output_name": "slideshow",
+    "sl_duration": 5.0,
+    "sl_transition": "Crossfade",
+    "sl_resolution": "1080p",
+    "sl_crf": 18,
+    "sl_cpu_mode": "Medium",
+    "sl_encode_preset": "slow",
+    "sl_gpu_encoding": False,
+    "sl_enable_zoom": False,
+    "sl_zoom_max": 1.05,
 }
 
 # Preset semilla — se crea si presets.json no existe
@@ -102,7 +116,11 @@ _SEED_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 # Keys que NO se guardan en presets (son rutas de archivo específicas del proyecto)
-_PRESET_EXCLUDED_KEYS = {"audio_folder", "background_image", "output_folder", "images_folder", "multi_image"}
+_PRESET_EXCLUDED_KEYS = {
+    "audio_folder", "background_image", "output_folder", "images_folder", "multi_image",
+    # Slideshow paths (project-specific)
+    "sl_images_folder", "sl_audio_file", "sl_output_folder",
+}
 
 
 class SettingsManager:

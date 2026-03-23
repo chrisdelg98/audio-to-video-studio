@@ -36,6 +36,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config.settings_manager import SettingsManager
 from core.runner import JobResult, Runner
+from core.slideshow_runner import SlideshowRunner
 from core.utils import get_audio_files, get_image_files, get_bundle_dir
 from core.ffmpeg_setup import ensure_ffmpeg
 from core.validator import ValidationResult, validate_environment
@@ -76,6 +77,7 @@ FA_STOP    = "\uf04d"   # stop
 FA_EYE     = "\uf06e"   # eye
 FA_WRENCH  = "\uf0ad"   # wrench
 FA_BOLT    = "\uf0e7"   # bolt (rendimiento)
+FA_IMAGES  = "\uf302"   # images (slideshow)
 
 
 # ── Tema ────────────────────────────────────────────────────────────────────
@@ -480,6 +482,8 @@ class AudioToVideoApp(ctk.CTk):
         self._image_assignment: dict[str, Path] = {}
         self._used_names: set[str] = set()
         self._last_run_names: list[str] = []
+        self._current_mode: str = "Audio → Video"
+        self._slideshow_runner: SlideshowRunner | None = None
         self._log_queue: list[str] = []
         self._log_lock = threading.Lock()
 
@@ -626,17 +630,36 @@ class AudioToVideoApp(ctk.CTk):
         main.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
         main.grid_columnconfigure(0, weight=3, minsize=380)  # 60%
         main.grid_columnconfigure(1, weight=2, minsize=300)  # 40%
-        main.grid_rowconfigure(0, weight=1)
+        main.grid_rowconfigure(0, weight=0)  # mode switcher strip
+        main.grid_rowconfigure(1, weight=1)  # panels
         self._main_panel = main
+
+        # ── Selector de modo ────────────────────────────────────────
+        self._mode_switcher = ctk.CTkSegmentedButton(
+            main,
+            values=["Audio \u2192 Video", "Slideshow"],
+            command=self._switch_mode,
+            fg_color=C_CARD,
+            selected_color=C_ACCENT,
+            selected_hover_color=C_ACCENT_H,
+            unselected_color=C_BTN_SECONDARY,
+            unselected_hover_color=C_HOVER,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(12), weight="bold"),
+            height=30,
+        )
+        self._mode_switcher.set("Audio \u2192 Video")
+        self._mode_switcher.grid(row=0, column=0, columnspan=2, sticky="ew", padx=0, pady=(0, 4))
 
         self._build_left_panel(main)
         self._build_right_panel(main)
+        self._build_slideshow_left_panel(main)
 
     # --- Left panel ---------------------------------------------------
 
     def _build_left_panel(self, parent: ctk.CTkFrame) -> None:
         frame = ctk.CTkScrollableFrame(parent, fg_color=C_PANEL, corner_radius=8)
-        frame.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        frame.grid(row=1, column=0, sticky="nsew", padx=(0, 4))
         frame.grid_columnconfigure(0, weight=1)
         self._scroll_frame = frame
         row = 0
@@ -1193,7 +1216,7 @@ class AudioToVideoApp(ctk.CTk):
 
     def _build_right_panel(self, parent: ctk.CTkFrame) -> None:
         frame = ctk.CTkFrame(parent, fg_color=C_PANEL, corner_radius=8)
-        frame.grid(row=0, column=1, sticky="nsew")
+        frame.grid(row=1, column=1, sticky="nsew")
         frame.grid_columnconfigure(0, weight=1)
 
         # Preview imagen
@@ -1297,6 +1320,186 @@ class AudioToVideoApp(ctk.CTk):
         self._progress_file.grid(row=7, column=0, sticky="ew", padx=10, pady=(0, 6))
         self._progress_file.stop()
 
+    # --- Slideshow left panel -----------------------------------------
+
+    def _build_slideshow_left_panel(self, parent: ctk.CTkFrame) -> None:
+        """Panel izquierdo del modo Slideshow (separado, comparte panel derecho)."""
+        from core.slideshow_builder import TRANSITION_CHOICES
+        frame = ctk.CTkScrollableFrame(parent, fg_color=C_PANEL, corner_radius=8)
+        frame.grid(row=1, column=0, sticky="nsew", padx=(0, 4))
+        frame.grid_columnconfigure(0, weight=1)
+        self._sl_scroll_frame = frame
+        frame.grid_remove()  # hidden until mode is switched
+        row = 0
+
+        # ── Archivos ────────────────────────────────────────────────
+        c, row = self._collapsible_section(
+            frame, "Archivos", row, default_open=True, fa_icon=FA_FOLDER)
+        ar = 0
+
+        self._var_sl_images_folder = tk.StringVar()
+        ar = self._file_row(c, "Carpeta de im\u00e1genes:", self._var_sl_images_folder,
+                            self._sl_browse_images_folder, ar)
+
+        # Audio opcional
+        self._var_sl_audio_enabled = tk.BooleanVar(value=False)
+        ar = self._check_row(c, "Incluir audio (opcional)", self._var_sl_audio_enabled,
+                             ar, command=self._sl_toggle_audio)
+        self._sl_audio_wrapper = ctk.CTkFrame(c, fg_color="transparent")
+        self._sl_audio_wrapper.grid(row=ar, column=0, sticky="ew")
+        self._sl_audio_wrapper.grid_columnconfigure(0, weight=1)
+        self._var_sl_audio_file = tk.StringVar()
+        self._file_row(self._sl_audio_wrapper, "Archivo de audio:", self._var_sl_audio_file,
+                       self._sl_browse_audio_file, 0)
+        self._sl_audio_wrapper.grid_remove()
+        ar += 1
+
+        self._var_sl_output_folder = tk.StringVar()
+        ar = self._file_row(c, "Carpeta de salida:", self._var_sl_output_folder,
+                            self._sl_browse_output_folder, ar)
+
+        # Nombre del archivo
+        _nm_inner = ctk.CTkFrame(c, fg_color="transparent")
+        _nm_inner.grid(row=ar, column=0, sticky="ew", padx=12, pady=(0, 8))
+        _nm_inner.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_nm_inner, text="Nombre del archivo:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
+            row=0, column=0, sticky="w", padx=(0, 8))
+        self._var_sl_output_name = tk.StringVar(value="slideshow")
+        ctk.CTkEntry(_nm_inner, textvariable=self._var_sl_output_name, height=30).grid(
+            row=0, column=1, sticky="ew")
+        ctk.CTkLabel(_nm_inner, text=".mp4", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=2, padx=(4, 0))
+        ar += 1
+
+        ctk.CTkButton(
+            c, text="\u21bb  Recargar im\u00e1genes",
+            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
+            border_width=1, border_color="#3a3a55",
+            text_color=C_TEXT_DIM, height=28,
+            command=self._sl_reload,
+        ).grid(row=ar, column=0, padx=12, pady=(0, 8), sticky="w")
+        ar += 1
+
+        self._sl_lbl_count = ctk.CTkLabel(
+            c, text="\u266b Im\u00e1genes: \u2014",
+            font=ctk.CTkFont(size=self._fs(11)), text_color=C_MUTED,
+            justify="left", anchor="w",
+        )
+        self._sl_lbl_count.grid(row=ar, column=0, sticky="w", padx=14, pady=(0, 6))
+        ar += 1
+
+        # ── Secuencia ───────────────────────────────────────────────
+        c, row = self._collapsible_section(
+            frame, "Secuencia", row, default_open=True, fa_icon=FA_IMAGES)
+        ar2 = 0
+
+        self._var_sl_duration = tk.DoubleVar(value=5.0)
+        ar2 = self._slider_row(
+            c, "Dur. por imagen:", self._var_sl_duration,
+            3.0, 30.0, ar2, fmt="{:.0f} s",
+            tooltip_text="Segundos que se muestra cada imagen (3–30 s)",
+            number_of_steps=27,
+        )
+
+        _tr_row = ctk.CTkFrame(c, fg_color="transparent")
+        _tr_row.grid(row=ar2, column=0, sticky="ew", padx=12, pady=(4, 10))
+        _tr_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_tr_row, text="Transici\u00f3n:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(
+            row=0, column=0, sticky="w")
+        self._var_sl_transition = tk.StringVar(value="Crossfade")
+        ctk.CTkComboBox(
+            _tr_row,
+            values=TRANSITION_CHOICES,
+            variable=self._var_sl_transition,
+            state="readonly",
+            fg_color=C_INPUT,
+            button_color=C_ACCENT,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)),
+            height=30,
+        ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+
+        # ── Resoluci\u00f3n ────────────────────────────────────────────────
+        c, row = self._collapsible_section(
+            frame, "Resoluci\u00f3n", row, default_open=False, fa_icon=FA_EXPAND)
+        ar3 = 0
+        self._var_sl_resolution = tk.StringVar(value="1080p")
+        _res_frame = ctk.CTkFrame(c, fg_color="transparent")
+        _res_frame.grid(row=ar3, column=0, sticky="ew", padx=12, pady=4)
+        for _res in ("720p", "1080p", "4K"):
+            ctk.CTkRadioButton(
+                _res_frame, text=_res,
+                variable=self._var_sl_resolution, value=_res,
+                font=ctk.CTkFont(size=self._fs(11)), text_color=C_TEXT,
+            ).pack(side="left", padx=6)
+        ar3 += 1
+        self._var_sl_crf = tk.IntVar(value=18)
+        self._slider_row(c, "Calidad (CRF):", self._var_sl_crf,
+                         0, 51, ar3, fmt="{:.0f}",
+                         tooltip_text="0=m\u00e1xima calidad, 18=alta, 28=media, 51=m\u00ednima")
+
+        # ── Efectos ─────────────────────────────────────────────────
+        c, row = self._collapsible_section(
+            frame, "Efectos", row, default_open=False, fa_icon=FA_WAND)
+        ar4 = 0
+        self._var_sl_zoom = tk.BooleanVar(value=False)
+        ar4 = self._check_row(c, "Zoom suave por imagen", self._var_sl_zoom, ar4,
+                              command=self._sl_toggle_zoom)
+        self._sl_zoom_wrapper = ctk.CTkFrame(c, fg_color="transparent")
+        self._sl_zoom_wrapper.grid(row=ar4, column=0, sticky="ew")
+        self._sl_zoom_wrapper.grid_columnconfigure(0, weight=1)
+        self._var_sl_zoom_max = tk.DoubleVar(value=1.05)
+        self._slider_row(self._sl_zoom_wrapper, "Zoom m\u00e1x:", self._var_sl_zoom_max,
+                         1.01, 1.15, 0, fmt="{:.3f}",
+                         tooltip_text="Factor de zoom m\u00e1ximo al final de cada imagen")
+        self._sl_zoom_wrapper.grid_remove()
+        ar4 += 1
+
+        # ── Rendimiento ─────────────────────────────────────────────
+        c, row = self._collapsible_section(
+            frame, "Rendimiento", row, default_open=False, fa_icon=FA_BOLT)
+        ar5 = 0
+
+        _cpu_inner = ctk.CTkFrame(c, fg_color="transparent")
+        _cpu_inner.grid(row=ar5, column=0, sticky="ew", padx=12, pady=(8, 4))
+        ctk.CTkLabel(_cpu_inner, text="CPU:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=80, anchor="w").pack(side="left")
+        self._var_sl_cpu_mode = tk.StringVar(value="Medium")
+        for _m in ("Low", "Medium", "High", "Max"):
+            ctk.CTkRadioButton(
+                _cpu_inner, text=_m, variable=self._var_sl_cpu_mode, value=_m,
+                font=ctk.CTkFont(size=self._fs(11)), text_color=C_TEXT,
+            ).pack(side="left", padx=4)
+        ar5 += 1
+
+        _pre_inner = ctk.CTkFrame(c, fg_color="transparent")
+        _pre_inner.grid(row=ar5, column=0, sticky="ew", padx=12, pady=(0, 8))
+        _pre_inner.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_pre_inner, text="Preset:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=80, anchor="w").grid(
+            row=0, column=0, sticky="w")
+        self._var_sl_encode_preset = tk.StringVar(value="slow")
+        ctk.CTkComboBox(
+            _pre_inner,
+            values=["ultrafast", "superfast", "veryfast", "faster", "fast",
+                    "medium", "slow", "slower", "veryslow"],
+            variable=self._var_sl_encode_preset,
+            state="readonly",
+            fg_color=C_INPUT,
+            button_color=C_ACCENT,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)),
+            height=30,
+        ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        ar5 += 1
+
+        self._var_sl_gpu_encoding = tk.BooleanVar(value=False)
+        self._check_row(c, "Usar GPU (NVENC)", self._var_sl_gpu_encoding, ar5)
+
     # --- Footer -------------------------------------------------------
 
     def _build_footer(self) -> None:
@@ -1347,6 +1550,7 @@ class AudioToVideoApp(ctk.CTk):
 
         _prev_frame = ctk.CTkFrame(footer, fg_color=C_BTN_SECONDARY, corner_radius=6)
         _prev_frame.grid(row=0, column=2, padx=4, pady=14)
+        self._prev_frame = _prev_frame
         ctk.CTkLabel(
             _prev_frame, text=FA_EYE, width=20,
             font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
@@ -1642,9 +1846,212 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_scroll_frame"):
             self._scroll_frame.destroy()
         self._build_left_panel(self._main_panel)
+        # Rebuild slideshow panel too
+        if hasattr(self, "_sl_scroll_frame"):
+            self._sl_scroll_frame.destroy()
+        self._build_slideshow_left_panel(self._main_panel)
+        if self._current_mode != "Audio \u2192 Video":
+            self._sl_scroll_frame.grid()
+            self._scroll_frame.grid_remove()
         self._load_settings_to_ui()
         if hasattr(self, "_log_text"):
             self._log_text.configure(font=ctk.CTkFont(family="Consolas", size=self._fs(11)))
+
+    # ──────────────────────────────────────────────────────────────────
+    # MODO SLIDESHOW — switch + acciones
+    # ──────────────────────────────────────────────────────────────────
+
+    def _switch_mode(self, mode: str) -> None:
+        """Alterna entre los paneles Audio→Video y Slideshow."""
+        self._current_mode = mode
+        if mode == "Audio \u2192 Video":
+            self._scroll_frame.grid()
+            if hasattr(self, "_sl_scroll_frame"):
+                self._sl_scroll_frame.grid_remove()
+            self._btn_generate.configure(
+                text="Generar videos", command=self._on_generate)
+            self._prev_frame.grid()
+        else:  # Slideshow
+            self._scroll_frame.grid_remove()
+            if hasattr(self, "_sl_scroll_frame"):
+                self._sl_scroll_frame.grid()
+            self._btn_generate.configure(
+                text="  Generar slideshow", command=self._on_generate_slideshow)
+            self._prev_frame.grid_remove()
+            # Cargar preview desde carpeta de slideshow si existe
+            if hasattr(self, "_var_sl_images_folder"):
+                folder = self._var_sl_images_folder.get()
+                if folder and Path(folder).is_dir():
+                    imgs = get_image_files(folder)
+                    if imgs:
+                        self._load_preview(str(imgs[0]))
+                    self._rebuild_thumb_strip_sl()
+
+    def _sl_browse_images_folder(self) -> None:
+        path = filedialog.askdirectory(title="Seleccionar carpeta de im\u00e1genes")
+        if path:
+            self._var_sl_images_folder.set(path)
+            self._sl_update_count()
+            self._rebuild_thumb_strip_sl()
+            imgs = get_image_files(path)
+            if imgs:
+                self._load_preview(str(imgs[0]))
+
+    def _sl_browse_audio_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleccionar archivo de audio",
+            filetypes=[("Audio", "*.mp3 *.wav *.flac *.aac *.ogg *.m4a"), ("Todos", "*.*")],
+        )
+        if path:
+            self._var_sl_audio_file.set(path)
+
+    def _sl_browse_output_folder(self) -> None:
+        path = filedialog.askdirectory(title="Seleccionar carpeta de salida")
+        if path:
+            self._var_sl_output_folder.set(path)
+
+    def _sl_toggle_audio(self) -> None:
+        if self._var_sl_audio_enabled.get():
+            self._sl_audio_wrapper.grid()
+        else:
+            self._sl_audio_wrapper.grid_remove()
+
+    def _sl_toggle_zoom(self) -> None:
+        if self._var_sl_zoom.get():
+            self._sl_zoom_wrapper.grid()
+        else:
+            self._sl_zoom_wrapper.grid_remove()
+
+    def _sl_update_count(self) -> None:
+        if not hasattr(self, "_sl_lbl_count"):
+            return
+        folder = self._var_sl_images_folder.get()
+        if folder and Path(folder).is_dir():
+            try:
+                n = len(get_image_files(folder))
+                self._sl_lbl_count.configure(
+                    text=f"\u25a3 Im\u00e1genes detectadas: {n} archivo(s)",
+                    text_color=C_SUCCESS if n else C_WARN,
+                )
+            except Exception:
+                pass
+        else:
+            self._sl_lbl_count.configure(text="\u266b Im\u00e1genes: \u2014", text_color=C_MUTED)
+
+    def _sl_reload(self) -> None:
+        self._sl_update_count()
+        self._rebuild_thumb_strip_sl()
+        imgs_folder = self._var_sl_images_folder.get()
+        if imgs_folder and Path(imgs_folder).is_dir():
+            imgs = get_image_files(imgs_folder)
+            if imgs:
+                self._load_preview(str(imgs[0]))
+
+    def _rebuild_thumb_strip_sl(self) -> None:
+        """Repobla el filmstrip con imágenes de la carpeta de slideshow."""
+        if not hasattr(self, "_thumb_strip"):
+            return
+        for w in self._thumb_strip.winfo_children():
+            w.destroy()
+        self._thumb_strip_imgs.clear()
+        folder = self._var_sl_images_folder.get() if hasattr(self, "_var_sl_images_folder") else ""
+        if not folder or not Path(folder).is_dir():
+            self._thumb_strip.grid_remove()
+            return
+        imgs = get_image_files(folder)
+        if not imgs:
+            self._thumb_strip.grid_remove()
+            return
+        TW, TH = 56, 32
+        for i, img_path in enumerate(imgs):
+            try:
+                thumb = Image.open(str(img_path))
+                thumb = self._crop_img_to_16_9(thumb, TW, TH)
+                ctk_thumb = ctk.CTkImage(light_image=thumb, dark_image=thumb, size=(TW, TH))
+                self._thumb_strip_imgs.append(ctk_thumb)
+                btn = ctk.CTkButton(
+                    self._thumb_strip,
+                    image=ctk_thumb, text="",
+                    width=TW + 4, height=TH + 4,
+                    fg_color=C_CARD, hover_color=C_HOVER,
+                    border_width=1, border_color=C_BORDER,
+                    corner_radius=3,
+                    command=lambda p=str(img_path): self._load_preview(p),
+                )
+                btn.grid(row=0, column=i, padx=2, pady=2)
+            except Exception:
+                pass
+        self._thumb_strip.grid()
+
+    def _validate_slideshow_inputs(self) -> bool:
+        errors: list[str] = []
+        folder = self._var_sl_images_folder.get()
+        if not folder or not Path(folder).is_dir():
+            errors.append("• Selecciona una carpeta de im\u00e1genes v\u00e1lida.")
+        else:
+            imgs = get_image_files(folder)
+            if len(imgs) < 2:
+                errors.append("• Se necesitan al menos 2 im\u00e1genes para generar un slideshow.")
+        out_folder = self._var_sl_output_folder.get()
+        if not out_folder:
+            errors.append("• Selecciona una carpeta de salida.")
+        out_name = self._var_sl_output_name.get().strip()
+        if not out_name:
+            errors.append("• Ingresa un nombre para el archivo de salida.")
+        if self._var_sl_audio_enabled.get():
+            af = self._var_sl_audio_file.get()
+            if not af or not Path(af).is_file():
+                errors.append("• Selecciona un archivo de audio v\u00e1lido.")
+        if errors:
+            messagebox.showerror("Campos requeridos", "\n".join(errors))
+            return False
+        return True
+
+    def _collect_slideshow_settings(self) -> None:
+        self.settings.update({
+            "sl_images_folder": self._var_sl_images_folder.get(),
+            "sl_audio_file": self._var_sl_audio_file.get()
+                if self._var_sl_audio_enabled.get() else "",
+            "sl_output_folder": self._var_sl_output_folder.get(),
+            "sl_output_name": self._var_sl_output_name.get().strip() or "slideshow",
+            "sl_duration": round(self._var_sl_duration.get(), 1),
+            "sl_transition": self._var_sl_transition.get(),
+            "sl_resolution": self._var_sl_resolution.get(),
+            "sl_crf": int(self._var_sl_crf.get()),
+            "sl_cpu_mode": self._var_sl_cpu_mode.get(),
+            "sl_encode_preset": self._var_sl_encode_preset.get(),
+            "sl_gpu_encoding": self._var_sl_gpu_encoding.get(),
+            "sl_enable_zoom": self._var_sl_zoom.get(),
+            "sl_zoom_max": round(self._var_sl_zoom_max.get(), 3),
+        })
+
+    def _on_generate_slideshow(self) -> None:
+        if not self._validate_slideshow_inputs():
+            return
+
+        self._collect_slideshow_settings()
+        self._set_processing_state(True)
+        self._clear_log()
+
+        imgs = get_image_files(self._var_sl_images_folder.get())
+        audio_path: Path | None = None
+        if self._var_sl_audio_enabled.get():
+            af = self._var_sl_audio_file.get()
+            if af and Path(af).is_file():
+                audio_path = Path(af)
+
+        out_name = self._var_sl_output_name.get().strip() or "slideshow"
+        out_path = Path(self._var_sl_output_folder.get()) / f"{out_name}.mp4"
+
+        self._slideshow_runner = SlideshowRunner(
+            settings=self.settings.all(),
+            on_log=self._queue_log,
+            on_finished=self._on_slideshow_finished,
+        )
+        self._slideshow_runner.start(imgs, audio_path, out_path)
+
+    def _on_slideshow_finished(self, success: bool) -> None:
+        self.after(0, self._set_processing_state, False)
 
     # ──────────────────────────────────────────────────────────────────
     # ACCIONES DE UI
@@ -2147,6 +2554,8 @@ class AudioToVideoApp(ctk.CTk):
     def _on_cancel(self) -> None:
         if self._runner:
             self._runner.cancel()
+        if self._slideshow_runner:
+            self._slideshow_runner.cancel()
         self._btn_cancel.configure(state="disabled")
 
     def _on_preview(self) -> None:
@@ -2431,6 +2840,9 @@ class AudioToVideoApp(ctk.CTk):
                 "Medium",
             ),
         })
+        # Save slideshow settings if panel exists
+        if hasattr(self, "_var_sl_images_folder"):
+            self._collect_slideshow_settings()
 
     def _load_settings_to_ui(self) -> None:
         """Carga la configuración guardada en los widgets de la UI."""
@@ -2508,6 +2920,23 @@ class AudioToVideoApp(ctk.CTk):
         if audio and Path(audio).is_dir():
             self._update_audio_count(audio)
 
+        # Slideshow settings
+        if hasattr(self, "_var_sl_images_folder"):
+            self._var_sl_images_folder.set(s.get("sl_images_folder", ""))
+            self._var_sl_audio_file.set(s.get("sl_audio_file", ""))
+            self._var_sl_output_folder.set(s.get("sl_output_folder", ""))
+            self._var_sl_output_name.set(s.get("sl_output_name", "slideshow"))
+            self._var_sl_duration.set(s.get("sl_duration", 5.0))
+            self._var_sl_transition.set(s.get("sl_transition", "Crossfade"))
+            self._var_sl_resolution.set(s.get("sl_resolution", "1080p"))
+            self._var_sl_crf.set(s.get("sl_crf", 18))
+            self._var_sl_cpu_mode.set(s.get("sl_cpu_mode", "Medium"))
+            self._var_sl_encode_preset.set(s.get("sl_encode_preset", "slow"))
+            self._var_sl_gpu_encoding.set(s.get("sl_gpu_encoding", False))
+            self._var_sl_zoom.set(s.get("sl_enable_zoom", False))
+            self._var_sl_zoom_max.set(s.get("sl_zoom_max", 1.05))
+            self._sl_update_count()
+
     def _save_settings(self) -> None:
         self._collect_settings()
         try:
@@ -2528,7 +2957,9 @@ class AudioToVideoApp(ctk.CTk):
         else:
             self._btn_generate.configure(state="normal")
             self._btn_cancel.configure(state="disabled")
-            self._btn_preview.configure(state="normal")
+            # Preview sólo disponible en modo Audio→Video
+            if self._current_mode == "Audio \u2192 Video":
+                self._btn_preview.configure(state="normal")
             self._progress_file.stop()
             self._progress_file.set(0)
             self._lbl_progress_file.configure(text="")
@@ -2538,13 +2969,20 @@ class AudioToVideoApp(ctk.CTk):
     # ──────────────────────────────────────────────────────────────────
 
     def _on_close(self) -> None:
-        if self._runner and self._runner.is_running():
+        running = (
+            (self._runner and self._runner.is_running())
+            or (self._slideshow_runner and self._slideshow_runner.is_running())
+        )
+        if running:
             if not messagebox.askyesno(
                 "Salir",
-                "Hay un proceso en ejecución. ¿Deseas cancelarlo y salir?",
+                "Hay un proceso en ejecuci\u00f3n. \u00bfDeseas cancelarlo y salir?",
             ):
                 return
-            self._runner.cancel()
+            if self._runner:
+                self._runner.cancel()
+            if self._slideshow_runner:
+                self._slideshow_runner.cancel()
 
         self._collect_settings()
         try:
