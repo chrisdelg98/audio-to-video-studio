@@ -36,7 +36,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config.settings_manager import SettingsManager
 from core.runner import JobResult, Runner
-from core.utils import get_audio_files, get_bundle_dir
+from core.utils import get_audio_files, get_image_files, get_bundle_dir
 from core.ffmpeg_setup import ensure_ffmpeg
 from core.validator import ValidationResult, validate_environment
 from effects.text_overlay_effect import available_fonts
@@ -189,6 +189,280 @@ class _Tooltip:
             self._win = None
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# DIÁLOGO DE ASIGNACIÓN MULTI-IMAGEN
+# ──────────────────────────────────────────────────────────────────────────────
+
+class ImageAssignmentDialog(ctk.CTkToplevel):
+    """Modal que permite asignar una imagen de fondo a cada archivo de audio."""
+
+    def __init__(
+        self,
+        parent: ctk.CTk,
+        audio_files: list[Path],
+        image_files: list[Path],
+        current_assignment: dict[str, Path],
+    ) -> None:
+        super().__init__(parent)
+        self.title("Asignación de imágenes por audio")
+        self.resizable(False, False)
+        self.grab_set()
+
+        self._audio_files = audio_files
+        self._image_files = image_files
+        self._image_names = [f.name for f in image_files]
+        self.result: dict[str, Path] | None = None
+
+        # Build initial assignment: use current or round-robin
+        self._vars: dict[str, tk.StringVar] = {}
+        for i, af in enumerate(audio_files):
+            img_path = current_assignment.get(af.name)
+            if img_path and img_path.name in self._image_names:
+                val = img_path.name
+            else:
+                val = image_files[i % len(image_files)].name
+            self._vars[af.name] = tk.StringVar(value=val)
+
+        self._build()
+        self.after(50, self._center)
+
+    def _center(self) -> None:
+        self.update_idletasks()
+        pw = self.master.winfo_width()
+        ph = self.master.winfo_height()
+        px = self.master.winfo_x()
+        py = self.master.winfo_y()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        x = px + (pw - w) // 2
+        y = py + (ph - h) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def _build(self) -> None:
+        self.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self, text="Asignar imagen a cada audio",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=C_TEXT,
+        ).grid(row=0, column=0, padx=16, pady=(14, 4), sticky="w")
+
+        ctk.CTkLabel(
+            self,
+            text="Puedes cambiar la imagen para cada audio individualmente.\n"
+                 "Usa 'Reset auto' para volver a la distribución round-robin.",
+            font=ctk.CTkFont(size=11),
+            text_color=C_MUTED,
+            justify="left",
+        ).grid(row=1, column=0, padx=16, pady=(0, 8), sticky="w")
+
+        # Scrollable list
+        scroll = ctk.CTkScrollableFrame(self, width=560, height=320, fg_color=C_CARD)
+        scroll.grid(row=2, column=0, padx=12, pady=(0, 8), sticky="ew")
+        scroll.grid_columnconfigure(0, weight=1)
+        scroll.grid_columnconfigure(1, weight=0)
+
+        ctk.CTkLabel(scroll, text="Audio", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=C_MUTED, anchor="w").grid(row=0, column=0, sticky="w", padx=8, pady=(4, 2))
+        ctk.CTkLabel(scroll, text="Imagen", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=C_MUTED, anchor="w").grid(row=0, column=1, sticky="w", padx=8, pady=(4, 2))
+
+        for row_idx, af in enumerate(self._audio_files, start=1):
+            ctk.CTkLabel(
+                scroll, text=af.name, font=ctk.CTkFont(size=11),
+                text_color=C_TEXT, anchor="w",
+            ).grid(row=row_idx, column=0, sticky="ew", padx=8, pady=2)
+            ctk.CTkOptionMenu(
+                scroll,
+                values=self._image_names,
+                variable=self._vars[af.name],
+                width=200,
+                fg_color=C_CARD,
+                button_color=C_ACCENT,
+                text_color=C_TEXT,
+                font=ctk.CTkFont(size=11),
+            ).grid(row=row_idx, column=1, sticky="w", padx=8, pady=2)
+
+        # Buttons row
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="ew")
+        btn_row.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkButton(
+            btn_row, text="Reset auto",
+            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
+            text_color=C_TEXT, width=110, height=32,
+            command=self._reset_auto,
+        ).grid(row=0, column=0, padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row, text="Cancelar",
+            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
+            text_color=C_TEXT, width=90, height=32,
+            command=self.destroy,
+        ).grid(row=0, column=2, padx=(8, 4))
+
+        ctk.CTkButton(
+            btn_row, text="Confirmar",
+            fg_color=C_BTN_PRIMARY, hover_color=C_ACCENT_H,
+            text_color="#ffffff", width=100, height=32,
+            command=self._confirm,
+        ).grid(row=0, column=3, padx=(4, 0))
+
+    def _reset_auto(self) -> None:
+        for i, af in enumerate(self._audio_files):
+            self._vars[af.name].set(self._image_files[i % len(self._image_files)].name)
+
+    def _confirm(self) -> None:
+        name_to_path = {f.name: f for f in self._image_files}
+        self.result = {
+            af.name: name_to_path[self._vars[af.name].get()]
+            for af in self._audio_files
+        }
+        self.destroy()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DIÁLOGO DE LISTA DE NOMBRES PERSONALIZADOS
+# ──────────────────────────────────────────────────────────────────────────────
+
+class NamesListDialog(ctk.CTkToplevel):
+    """Modal para editar la lista de nombres personalizados de canciones."""
+
+    _USED_PREFIX = "\u25a0 "  # ■ + space
+
+    def __init__(self, parent: ctk.CTk, current_names: list[str],
+                 used_names: set[str] | None = None) -> None:
+        super().__init__(parent)
+        self.title("Lista de nombres personalizados")
+        self.resizable(False, False)
+        self.grab_set()
+        self.result: list[str] | None = None
+        self._used_names = used_names or set()
+        # Prepend \u25a0 to names that are in used set
+        self._current = [
+            (self._USED_PREFIX + n if n in self._used_names else n)
+            for n in current_names
+        ]
+        self._build()
+        self.after(50, self._center)
+
+    def _center(self) -> None:
+        self.update_idletasks()
+        pw = self.master.winfo_width()
+        ph = self.master.winfo_height()
+        px = self.master.winfo_x()
+        py = self.master.winfo_y()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+
+    def _build(self) -> None:
+        self.grid_columnconfigure(0, weight=1)
+
+        # Header
+        ctk.CTkLabel(
+            self, text="Nombres personalizados",
+            font=ctk.CTkFont(size=14, weight="bold"), text_color=C_TEXT,
+        ).grid(row=0, column=0, padx=16, pady=(14, 2), sticky="w")
+
+        self._lbl_count = ctk.CTkLabel(
+            self, text=self._count_text(),
+            font=ctk.CTkFont(size=11), text_color=C_MUTED,
+        )
+        self._lbl_count.grid(row=1, column=0, padx=16, pady=(0, 8), sticky="w")
+
+        # Textbox
+        self._txt = ctk.CTkTextbox(
+            self, width=520, height=380,
+            fg_color=C_INPUT, text_color=C_TEXT,
+            font=ctk.CTkFont(family="Consolas", size=12),
+        )
+        self._txt.grid(row=2, column=0, padx=12, pady=(0, 6), sticky="nsew")
+        if self._current:
+            self._txt.insert("1.0", "\n".join(self._current))
+        self._apply_used_tags()
+        self._txt.bind("<KeyRelease>", self._on_text_change)
+
+        # Buttons
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="ew")
+        btn_row.grid_columnconfigure(2, weight=1)
+
+        ctk.CTkButton(
+            btn_row, text="Limpiar todo",
+            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
+            border_width=1, border_color=C_BORDER,
+            text_color=C_TEXT, width=110, height=32,
+            command=self._clear_all,
+        ).grid(row=0, column=0, padx=(0, 4))
+
+        ctk.CTkButton(
+            btn_row, text="Limpiar usados",
+            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
+            border_width=1, border_color="#3a3a55",
+            text_color=C_TEXT_DIM, width=120, height=32,
+            command=self._clear_used,
+        ).grid(row=0, column=1, padx=(0, 4))
+
+        ctk.CTkButton(
+            btn_row, text="Cancelar",
+            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
+            border_width=1, border_color=C_BORDER,
+            text_color=C_TEXT, width=90, height=32,
+            command=self.destroy,
+        ).grid(row=0, column=3, padx=(8, 4))
+
+        ctk.CTkButton(
+            btn_row, text="Confirmar",
+            fg_color=C_BTN_PRIMARY, hover_color=C_ACCENT_H,
+            text_color="#ffffff", width=100, height=32,
+            command=self._confirm,
+        ).grid(row=0, column=4, padx=(4, 0))
+
+    def _apply_used_tags(self) -> None:
+        """Aplica color muted a las l\xedneas marcadas con \u25a0."""
+        tb = self._txt._textbox
+        tb.tag_configure("used_line", foreground="#4a4a6a")
+        tb.tag_remove("used_line", "1.0", "end")
+        lines = self._txt.get("1.0", "end").splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith(self._USED_PREFIX):
+                tb.tag_add("used_line", f"{i + 1}.0", f"{i + 1}.end")
+
+    def _count_text(self) -> str:
+        lines = self._txt.get("1.0", "end").splitlines() if hasattr(self, "_txt") else self._current
+        total = sum(1 for l in lines if l.strip())
+        used = sum(1 for l in lines if l.strip().startswith(self._USED_PREFIX))
+        base = f"{total} nombre{'s' if total != 1 else ''} en la lista"
+        return base + (f"  ({used} usados)" if used else "")
+
+    def _on_text_change(self, _event: object = None) -> None:
+        self._apply_used_tags()
+        self._lbl_count.configure(text=self._count_text())
+
+    def _clear_all(self) -> None:
+        self._txt.delete("1.0", "end")
+        self._lbl_count.configure(text=self._count_text())
+
+    def _clear_used(self) -> None:
+        lines = self._txt.get("1.0", "end").splitlines()
+        clean = [l for l in lines if not l.strip().startswith(self._USED_PREFIX)]
+        self._txt.delete("1.0", "end")
+        if clean:
+            self._txt.insert("1.0", "\n".join(clean))
+        self._lbl_count.configure(text=self._count_text())
+
+    def _confirm(self) -> None:
+        p = self._USED_PREFIX
+        self.result = [
+            (l.strip()[len(p):] if l.strip().startswith(p) else l.strip())
+            for l in self._txt.get("1.0", "end").splitlines()
+            if l.strip() and l.strip() != p.strip()
+        ]
+        self.destroy()
+
+
 class AudioToVideoApp(ctk.CTk):
     """Ventana principal de la aplicación."""
 
@@ -203,6 +477,9 @@ class AudioToVideoApp(ctk.CTk):
 
         self.settings = SettingsManager()
         self._runner: Runner | None = None
+        self._image_assignment: dict[str, Path] = {}
+        self._used_names: set[str] = set()
+        self._last_run_names: list[str] = []
         self._log_queue: list[str] = []
         self._log_lock = threading.Lock()
 
@@ -370,12 +647,60 @@ class AudioToVideoApp(ctk.CTk):
         self._var_audio_folder = tk.StringVar()
         ar = self._file_row(c, "Carpeta de audios:", self._var_audio_folder,
                             self._browse_audio_folder, ar)
+
+        # Single-image wrapper (shown by default)
+        self._single_image_wrapper = ctk.CTkFrame(c, fg_color="transparent")
+        self._single_image_wrapper.grid(row=ar, column=0, sticky="ew")
+        self._single_image_wrapper.grid_columnconfigure(0, weight=1)
         self._var_image = tk.StringVar()
-        ar = self._file_row(c, "Imagen de fondo:", self._var_image,
-                            self._browse_image, ar)
+        self._file_row(self._single_image_wrapper, "Imagen de fondo:", self._var_image,
+                       self._browse_image, 0)
+        ar += 1
+
+        # Multi-image checkbox
+        self._var_multi_image = tk.BooleanVar(value=False)
+        ar = self._check_row(c, "Múltiples imágenes de fondo", self._var_multi_image,
+                             ar, command=self._toggle_multi_image)
+
+        # Multi-image wrapper (hidden by default)
+        self._multi_image_wrapper = ctk.CTkFrame(c, fg_color="transparent")
+        self._multi_image_wrapper.grid(row=ar, column=0, sticky="ew")
+        self._multi_image_wrapper.grid_columnconfigure(0, weight=1)
+        self._var_images_folder = tk.StringVar()
+        self._file_row(self._multi_image_wrapper, "Carpeta de imágenes:", self._var_images_folder,
+                       self._browse_images_folder, 0)
+        self._btn_assign_images = ctk.CTkButton(
+            self._multi_image_wrapper,
+            text="Ver / editar asignación  \u25b6",
+            fg_color=C_BTN_SECONDARY,
+            hover_color=C_HOVER,
+            border_width=1, border_color="#3a3a55",
+            text_color=C_TEXT,
+            height=30,
+            font=ctk.CTkFont(size=self._fs(11)),
+            command=self._open_image_assignment,
+        )
+        self._btn_assign_images.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
+        self._multi_image_wrapper.grid_remove()
+        ar += 1
+
         self._var_output = tk.StringVar()
         ar = self._file_row(c, "Carpeta de salida:", self._var_output,
                             self._browse_output, ar)
+
+        # Botón Recargar (revalida carpetas y conteos)
+        ctk.CTkButton(
+            c,
+            text="\u21bb  Recargar carpetas",
+            fg_color=C_BTN_SECONDARY,
+            hover_color=C_HOVER,
+            border_width=1, border_color="#3a3a55",
+            text_color=C_TEXT,
+            height=28,
+            font=ctk.CTkFont(size=self._fs(11)),
+            command=self._reload_folders,
+        ).grid(row=ar, column=0, sticky="ew", padx=12, pady=(0, 8))
+        ar += 1
 
         # ── Resolución ──
         c, row = self._collapsible_section(frame, "Resolución", row, default_open=False, fa_icon=FA_EXPAND)
@@ -705,21 +1030,45 @@ class AudioToVideoApp(ctk.CTk):
         self._naming_list_frame = ctk.CTkFrame(c, fg_color="transparent")
         self._naming_list_frame.grid(row=ar, column=0, sticky="ew", padx=12, pady=(4, 0))
         self._naming_list_frame.grid_columnconfigure(0, weight=1)
+
+        # Header row: label + count
+        _nl_hdr = ctk.CTkFrame(self._naming_list_frame, fg_color="transparent")
+        _nl_hdr.grid(row=0, column=0, sticky="ew", pady=(0, 2))
+        _nl_hdr.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            self._naming_list_frame,
+            _nl_hdr,
             text="Nombres personalizados (uno por línea):",
             text_color=C_MUTED,
             font=ctk.CTkFont(size=self._fs(11)),
             anchor="w",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 2))
+        ).grid(row=0, column=0, sticky="w")
+        self._lbl_names_count = ctk.CTkLabel(
+            _nl_hdr, text="0 nombres",
+            text_color=C_TEXT_DIM,
+            font=ctk.CTkFont(size=self._fs(10)),
+        )
+        self._lbl_names_count.grid(row=0, column=1, sticky="e", padx=(4, 0))
+
         self._txt_naming_list = ctk.CTkTextbox(
             self._naming_list_frame,
-            height=90,
+            height=80,
             fg_color=C_INPUT,
             text_color=C_TEXT,
             font=ctk.CTkFont(family="Consolas", size=self._fs(11)),
         )
         self._txt_naming_list.grid(row=1, column=0, sticky="ew")
+        self._txt_naming_list.bind("<KeyRelease>", lambda *_: self._refresh_names_count())
+
+        ctk.CTkButton(
+            self._naming_list_frame,
+            text="Ver / editar lista  \u25b6",
+            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
+            border_width=1, border_color="#3a3a55",
+            text_color=C_TEXT, height=28,
+            font=ctk.CTkFont(size=self._fs(11)),
+            command=self._open_names_list_dialog,
+        ).grid(row=2, column=0, sticky="ew", pady=(6, 0))
+
         self._naming_list_frame.grid_remove()
         ar += 1
 
@@ -866,12 +1215,26 @@ class AudioToVideoApp(ctk.CTk):
         self._lbl_preview.grid(row=0, column=0, sticky="nsew")
         self._preview_img_path: str = ""  # ruta original para re-renderizar overlay
 
+        # Mostrar imagen de fondo por defecto si existe (sin asignarla como selección)
+        _default_bg = _BUNDLE_DIR / "defaultbg.png"
+        if _default_bg.is_file():
+            try:
+                _img = Image.open(str(_default_bg))
+                _img.thumbnail((500, 340))
+                _ctk_img = ctk.CTkImage(light_image=_img, dark_image=_img, size=_img.size)
+                self._lbl_preview.configure(image=_ctk_img, text="")
+                self._lbl_preview.image = _ctk_img
+            except Exception:
+                pass
+
         # Info de audios detectados (pegado justo debajo del preview)
         self._lbl_audio_count = ctk.CTkLabel(
             frame,
-            text="Audios: —",
+            text="Audios: \u2014",
             font=ctk.CTkFont(size=self._fs(11)),
             text_color=C_MUTED,
+            justify="left",
+            anchor="w",
         )
         self._lbl_audio_count.grid(row=1, column=0, sticky="w", padx=14, pady=(2, 0))
 
@@ -1301,6 +1664,113 @@ class AudioToVideoApp(ctk.CTk):
         if path:
             self._var_overlay_path.set(path)
 
+    def _toggle_multi_image(self) -> None:
+        if self._var_multi_image.get():
+            self._single_image_wrapper.grid_remove()
+            self._multi_image_wrapper.grid()
+            self._load_preview_from_images_folder()
+        else:
+            self._multi_image_wrapper.grid_remove()
+            self._single_image_wrapper.grid()
+            single = self._var_image.get()
+            if single and Path(single).is_file():
+                self._load_preview(single)
+        # Refresh count display
+        audio = self._var_audio_folder.get()
+        if audio and Path(audio).is_dir():
+            self._update_audio_count(audio)
+
+    def _browse_images_folder(self) -> None:
+        path = filedialog.askdirectory(title="Seleccionar carpeta de imágenes")
+        if path:
+            self._var_images_folder.set(path)
+            self._image_assignment = {}  # reset assignment when folder changes
+            self._load_preview_from_images_folder()
+            audio = self._var_audio_folder.get()
+            if audio and Path(audio).is_dir():
+                self._update_audio_count(audio)
+
+    def _load_preview_from_images_folder(self) -> None:
+        """Carga el preview con la primera imagen de la carpeta de imágenes."""
+        folder = self._var_images_folder.get()
+        if not folder or not Path(folder).is_dir():
+            return
+        imgs = get_image_files(folder)
+        if imgs:
+            self._load_preview(str(imgs[0]))
+
+    def _open_image_assignment(self) -> None:
+        audio_folder = self._var_audio_folder.get()
+        images_folder = self._var_images_folder.get()
+        if not audio_folder or not Path(audio_folder).is_dir():
+            messagebox.showwarning("Asignación", "Selecciona primero una carpeta de audios válida.")
+            return
+        if not images_folder or not Path(images_folder).is_dir():
+            messagebox.showwarning("Asignación", "Selecciona primero una carpeta de imágenes válida.")
+            return
+        audio_files = get_audio_files(audio_folder)
+        image_files = get_image_files(images_folder)
+        if not audio_files:
+            messagebox.showwarning("Asignación", "No se encontraron audios en la carpeta seleccionada.")
+            return
+        if not image_files:
+            messagebox.showwarning("Asignación", "No se encontraron imágenes en la carpeta seleccionada.")
+            return
+        current = getattr(self, "_image_assignment", {})
+        dlg = ImageAssignmentDialog(self, audio_files, image_files, current)
+        self.wait_window(dlg)
+        if dlg.result is not None:
+            self._image_assignment = dlg.result
+            self._log(f"✅ Asignación guardada: {len(dlg.result)} audio(s).")
+
+    def _open_names_list_dialog(self) -> None:
+        _p = NamesListDialog._USED_PREFIX
+        raw = [l.strip() for l in self._txt_naming_list.get("1.0", "end").splitlines() if l.strip()]
+        # Strip ■ prefix to get clean names for passing as current_names
+        current = [(n[len(_p):] if n.startswith(_p) else n) for n in raw]
+        dlg = NamesListDialog(self, current, used_names=self._used_names)
+        self.wait_window(dlg)
+        if dlg.result is not None:
+            self._txt_naming_list.delete("1.0", "end")
+            if dlg.result:
+                self._txt_naming_list.insert("1.0", "\n".join(dlg.result))
+            self._refresh_names_count()
+
+    def _refresh_names_count(self) -> None:
+        if not hasattr(self, "_lbl_names_count"):
+            return
+        _p = NamesListDialog._USED_PREFIX
+        raw = [l.strip() for l in self._txt_naming_list.get("1.0", "end").splitlines() if l.strip()]
+        clean_names = [(n[len(_p):] if n.startswith(_p) else n) for n in raw]
+        n = len(clean_names)
+        used = sum(1 for name in clean_names if name in self._used_names)
+        label = f"{n} nombre{'s' if n != 1 else ''}"
+        if used:
+            label += f" ({used} usados)"
+        self._lbl_names_count.configure(text=label)
+
+    def _reload_folders(self) -> None:
+        """Revalida carpetas y actualiza conteos de audios e imágenes."""
+        audio = self._var_audio_folder.get()
+        if audio and Path(audio).is_dir():
+            self._update_audio_count(audio)
+        elif hasattr(self, "_lbl_audio_count"):
+            self._lbl_audio_count.configure(text="Audios: —", text_color=C_MUTED)
+        # Si multi-imagen, recontar imágenes (ya incluido en _update_audio_count)
+        # Si no hay carpeta de audio pero sí de imágenes en modo multi, actualizar igual
+        if (getattr(self, "_var_multi_image", None) and self._var_multi_image.get()
+                and not (audio and Path(audio).is_dir())):
+            imgs_folder = self._var_images_folder.get()
+            if imgs_folder and Path(imgs_folder).is_dir():
+                try:
+                    n_imgs = len(get_image_files(imgs_folder))
+                    self._lbl_audio_count.configure(
+                        text=f"Audios: —  |  Imágenes: {n_imgs}",
+                        text_color=C_MUTED,
+                    )
+                except Exception:
+                    pass
+
     def _toggle_overlay_widgets(self) -> None:
         if self._var_overlay.get():
             self._overlay_frame.grid()
@@ -1447,8 +1917,18 @@ class AudioToVideoApp(ctk.CTk):
     def _update_audio_count(self, folder: str) -> None:
         try:
             files = get_audio_files(folder)
+            text = f"\u266b Audios detectados: {len(files)} archivo(s)"
+            # Añadir conteo de imágenes en segunda línea si modo multi activo
+            if getattr(self, "_var_multi_image", None) and self._var_multi_image.get():
+                imgs_folder = self._var_images_folder.get()
+                if imgs_folder and Path(imgs_folder).is_dir():
+                    try:
+                        n_imgs = len(get_image_files(imgs_folder))
+                        text += f"\n\u25a3 Im\xe1genes detectadas: {n_imgs} archivo(s)"
+                    except Exception:
+                        pass
             self._lbl_audio_count.configure(
-                text=f"Audios detectados: {len(files)} archivo(s)",
+                text=text,
                 text_color=C_SUCCESS if files else C_WARN,
             )
         except Exception:
@@ -1551,6 +2031,36 @@ class AudioToVideoApp(ctk.CTk):
         self._set_processing_state(True)
         self._clear_log()
 
+        # Capture custom names that will be consumed in this run (for used-tracking)
+        naming_mode = self._var_naming_mode.get()
+        if naming_mode in ("Lista personalizada", "Prefijo + Lista personalizada",
+                           "Custom List", "Prefix + Custom List"):
+            try:
+                n_audios = len(get_audio_files(self._var_audio_folder.get()))
+                raw_names = [l.strip() for l in self._txt_naming_list.get("1.0", "end").splitlines() if l.strip()]
+                _p = NamesListDialog._USED_PREFIX
+                clean = [(n[len(_p):] if n.startswith(_p) else n) for n in raw_names]
+                self._last_run_names = clean[:n_audios]
+            except Exception:
+                self._last_run_names = []
+        else:
+            self._last_run_names = []
+
+        # Build per-audio image assignment if multi-image mode is active
+        image_path = self._var_image.get()
+        image_assignment = None
+        if self._var_multi_image.get():
+            audio_files = get_audio_files(self._var_audio_folder.get())
+            img_files = get_image_files(self._var_images_folder.get())
+            assignment = getattr(self, "_image_assignment", {})
+            if not assignment:
+                assignment = {
+                    a.name: img_files[i % len(img_files)]
+                    for i, a in enumerate(audio_files)
+                }
+            image_assignment = assignment
+            image_path = str(img_files[0]) if img_files else ""
+
         runner = Runner(
             settings=self.settings.all(),
             on_log=self._queue_log,
@@ -1561,8 +2071,9 @@ class AudioToVideoApp(ctk.CTk):
         self._runner = runner
         runner.start(
             audio_folder=self._var_audio_folder.get(),
-            image_path=self._var_image.get(),
+            image_path=image_path,
             output_folder=self._var_output.get(),
+            image_assignment=image_assignment,
         )
 
     def _on_cancel(self) -> None:
@@ -1571,7 +2082,15 @@ class AudioToVideoApp(ctk.CTk):
         self._btn_cancel.configure(state="disabled")
 
     def _on_preview(self) -> None:
-        if not self._var_image.get() or not self._var_audio_folder.get():
+        # Resolve image path: single or first from folder
+        preview_image = self._var_image.get()
+        if self._var_multi_image.get():
+            imgs_folder = self._var_images_folder.get()
+            if imgs_folder and Path(imgs_folder).is_dir():
+                imgs = get_image_files(imgs_folder)
+                preview_image = str(imgs[0]) if imgs else ""
+
+        if not preview_image or not self._var_audio_folder.get():
             messagebox.showwarning(
                 "Preview",
                 "Selecciona una carpeta de audios y una imagen de fondo primero.",
@@ -1597,7 +2116,7 @@ class AudioToVideoApp(ctk.CTk):
                 builder = FFmpegBuilder(self.settings.all())
                 cmd = builder.build_preview_command(
                     audio_path=files[0],
-                    image_path=self._var_image.get(),
+                    image_path=preview_image,
                     output_path=output,
                     duration=dur,
                 )
@@ -1660,7 +2179,13 @@ class AudioToVideoApp(ctk.CTk):
         pass  # El log ya se emite desde el runner
 
     def _on_finished(self, results: list[JobResult]) -> None:
-        self.after(0, self._set_processing_state, False)
+        self.after(0, self._on_finished_ui, results)
+
+    def _on_finished_ui(self, results: list[JobResult]) -> None:
+        self._set_processing_state(False)
+        if self._last_run_names:
+            self._used_names.update(self._last_run_names)
+            self._last_run_names = []
 
     # ──────────────────────────────────────────────────────────────────
     # LOGS (thread-safe via cola)
@@ -1728,9 +2253,18 @@ class AudioToVideoApp(ctk.CTk):
         if not audio_folder or not Path(audio_folder).is_dir():
             errors.append("• Carpeta de audios no válida.")
 
-        image_path = self._var_image.get()
-        if not image_path or not Path(image_path).is_file():
-            errors.append("• Imagen de fondo no válida.")
+        if not self._var_multi_image.get():
+            image_path = self._var_image.get()
+            if not image_path or not Path(image_path).is_file():
+                errors.append("• Imagen de fondo no válida.")
+        else:
+            images_folder = self._var_images_folder.get()
+            if not images_folder or not Path(images_folder).is_dir():
+                errors.append("• Carpeta de imágenes no válida.")
+            else:
+                imgs = get_image_files(images_folder)
+                if not imgs:
+                    errors.append("• La carpeta de imágenes no contiene imágenes válidas.")
 
         output_folder = self._var_output.get()
         if not output_folder:
@@ -1786,6 +2320,8 @@ class AudioToVideoApp(ctk.CTk):
             "audio_folder": self._var_audio_folder.get(),
             "background_image": self._var_image.get(),
             "output_folder": self._var_output.get(),
+            "multi_image": self._var_multi_image.get(),
+            "images_folder": self._var_images_folder.get(),
             "zoom_max": round(self._var_zoom_max.get(), 4),
             "zoom_speed": int(self._var_zoom_speed.get()),
             "fade_in": round(self._var_fade_in.get(), 2),
@@ -1834,6 +2370,10 @@ class AudioToVideoApp(ctk.CTk):
         self._var_audio_folder.set(s.get("audio_folder", ""))
         self._var_image.set(s.get("background_image", ""))
         self._var_output.set(s.get("output_folder", ""))
+        self._var_multi_image.set(s.get("multi_image", False))
+        self._var_images_folder.set(s.get("images_folder", ""))
+        self._image_assignment = {}
+        self._toggle_multi_image()
         self._var_zoom_max.set(s.get("zoom_max", 1.02))
         self._var_zoom_speed.set(s.get("zoom_speed", 300))
         self._var_fade_in.set(s.get("fade_in", 2.0))
@@ -1857,6 +2397,7 @@ class AudioToVideoApp(ctk.CTk):
         self._txt_naming_list.delete("1.0", "end")
         if custom_names:
             self._txt_naming_list.insert("1.0", "\n".join(custom_names))
+        self._refresh_names_count()
         self._var_naming_autonumber.set(s.get("naming_auto_number", True))
         self._on_naming_mode_change(self._var_naming_mode.get())
 
@@ -1882,10 +2423,17 @@ class AudioToVideoApp(ctk.CTk):
         self._toggle_text_overlay_widgets()
         # theme/font_size se cargan en __init__ antes de construir la UI
 
-        # Cargar preview si hay imagen
-        img = s.get("background_image", "")
-        if img and Path(img).is_file():
-            self._load_preview(img)
+        # Cargar preview: imagen única o primera imagen de la carpeta si modo multi
+        if s.get("multi_image", False):
+            imgs_folder = s.get("images_folder", "")
+            if imgs_folder and Path(imgs_folder).is_dir():
+                imgs = get_image_files(imgs_folder)
+                if imgs:
+                    self._load_preview(str(imgs[0]))
+        else:
+            img = s.get("background_image", "")
+            if img and Path(img).is_file():
+                self._load_preview(img)
 
         # Actualizar conteo de audios
         audio = s.get("audio_folder", "")

@@ -83,6 +83,17 @@ def get_audio_files(folder: str | Path) -> list[Path]:
     return files
 
 
+def get_image_files(folder: str | Path) -> list[Path]:
+    """
+    Retorna una lista ordenada de archivos de imagen soportados dentro de una carpeta.
+    """
+    folder = Path(folder)
+    return [
+        f for f in sorted(folder.iterdir())
+        if f.is_file() and f.suffix.lower() in SUPPORTED_IMAGE
+    ]
+
+
 def is_valid_image(path: str | Path) -> bool:
     """Verifica si el archivo es una imagen con extensión soportada."""
     return Path(path).suffix.lower() in SUPPORTED_IMAGE

@@ -58,6 +58,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # UI
     "theme": "Dark",
     "font_size": "Medium",
+    # Multi-image
+    "multi_image": False,
+    "images_folder": "",
 }
 
 # Preset semilla — se crea si presets.json no existe
@@ -99,7 +102,7 @@ _SEED_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 # Keys que NO se guardan en presets (son rutas de archivo específicas del proyecto)
-_PRESET_EXCLUDED_KEYS = {"audio_folder", "background_image", "output_folder"}
+_PRESET_EXCLUDED_KEYS = {"audio_folder", "background_image", "output_folder", "images_folder", "multi_image"}
 
 
 class SettingsManager:

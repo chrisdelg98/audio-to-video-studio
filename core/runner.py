@@ -92,6 +92,7 @@ class Runner:
         audio_folder: str | Path,
         image_path: str | Path,
         output_folder: str | Path,
+        image_assignment: dict | None = None,
     ) -> None:
         """Inicia el procesamiento en un hilo de fondo."""
         if self._thread and self._thread.is_alive():
@@ -99,9 +100,10 @@ class Runner:
             return
 
         self._cancel_event.clear()
+        img = Path(image_path) if image_path else None
         self._thread = threading.Thread(
             target=self._process_all,
-            args=(Path(audio_folder), Path(image_path), Path(output_folder)),
+            args=(Path(audio_folder), img, Path(output_folder), image_assignment),
             daemon=True,
         )
         self._thread.start()
@@ -126,8 +128,9 @@ class Runner:
     def _process_all(
         self,
         audio_folder: Path,
-        image_path: Path,
+        image_path: Path | None,
         output_folder: Path,
+        image_assignment: dict | None = None,
     ) -> None:
         """Lógica principal de procesamiento (ejecutada en hilo secundario)."""
         results: list[JobResult] = []
@@ -184,7 +187,10 @@ class Runner:
             self.on_log(f"  → Output: {output_path.name}")
 
             try:
-                self._process_one(job, image_path, output_folder, total)
+                img = image_assignment.get(audio_path.name) if image_assignment else image_path
+                if img is None:
+                    img = image_path
+                self._process_one(job, img, output_folder, total)
             except Exception as exc:
                 job.success = False
                 job.error = str(exc)
