@@ -1,0 +1,51 @@
+{
+  "current_theme": "Dark",
+  "themes": {
+    "Dark": {
+      "C_BG":             "#010409",
+      "C_PANEL":          "#010409",
+      "C_CARD":           "#0d1117",
+      "C_BORDER":         "#262C36",
+      "C_ACCENT":         "#3b82f6",
+      "C_ACCENT_H":       "#2563eb",
+      "C_ACCENT_SLIDE":   "#7c3bf6",
+      "C_ACCENT_SLIDE_H": "#6b2fe0",
+      "C_BTN_PRIMARY":    "#3b82f6",
+      "C_BTN_SECONDARY":  "#010409",
+      "C_BTN_OK":         "#2d8f5a",
+      "C_BTN_DANGER":     "#d64040",
+      "C_TEXT":           "#eaeaf8",
+      "C_TEXT_DIM":       "#7a7aa0",
+      "C_MUTED":          "#505070",
+      "C_HOVER":          "#1a1a30",
+      "C_SUCCESS":        "#40c880",
+      "C_ERROR":          "#e05050",
+      "C_WARN":           "#e8a030",
+      "C_INPUT":          "#010409",
+      "C_LOG":            "#010409"
+    },
+    "Light": {
+      "C_BG":             "#f0f2f8",
+      "C_PANEL":          "#e6e9f4",
+      "C_CARD":           "#ffffff",
+      "C_BORDER":         "#cdd2e8",
+      "C_ACCENT":         "#4361ee",
+      "C_ACCENT_H":       "#3451d1",
+      "C_ACCENT_SLIDE":   "#7c3bf6",
+      "C_ACCENT_SLIDE_H": "#6b2fe0",
+      "C_BTN_PRIMARY":    "#4361ee",
+      "C_BTN_SECONDARY":  "#dde2f0",
+      "C_BTN_OK":         "#2d8f5a",
+      "C_BTN_DANGER":     "#d64040",
+      "C_TEXT":           "#18182e",
+      "C_TEXT_DIM":       "#50507a",
+      "C_MUTED":          "#8888aa",
+      "C_HOVER":          "#dde2f0",
+      "C_SUCCESS":        "#2d8f5a",
+      "C_ERROR":          "#c83030",
+      "C_WARN":           "#b87020",
+      "C_INPUT":          "#f4f6ff",
+      "C_LOG":            "#111128"
+    }
+  }
+}
