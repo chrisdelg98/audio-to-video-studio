@@ -21,11 +21,18 @@ from effects.text_overlay_effect import TextOverlayEffect
 from effects.zoom_effect import ZoomEffect
 
 
-# Resoluciones soportadas
+# Resoluciones soportadas (horizontal)
 RESOLUTIONS: dict[str, tuple[int, int]] = {
     "720p": (1280, 720),
     "1080p": (1920, 1080),
     "4K": (3840, 2160),
+}
+
+# Resoluciones verticales 9:16 para Shorts
+RESOLUTIONS_VERTICAL: dict[str, tuple[int, int]] = {
+    "720p": (720, 1280),
+    "1080p": (1080, 1920),
+    "4K": (2160, 3840),
 }
 
 # FPS por defecto
@@ -379,6 +386,114 @@ class FFmpegBuilder:
 
         filter_string = ";".join(parts)
         return filter_string, current_label
+
+    def build_short_cmd(
+        self,
+        audio_path: str | Path,
+        image_path: str | Path,
+        output_path: str | Path,
+        start_s: float,
+        duration_s: float,
+    ) -> list[str]:
+        """Build an FFmpeg command for a vertical Short (9:16).
+
+        Uses sho_* settings keys; seeks into audio at start_s and renders
+        duration_s seconds over a looped still image.
+        """
+        s = self.settings
+        res_key = s.get("sho_resolution", "1080p")
+        w, h = RESOLUTIONS_VERTICAL.get(res_key, (1080, 1920))
+        crf = int(s.get("sho_crf", 18))
+        encode_preset = s.get("sho_encode_preset", "slow")
+        if encode_preset not in ENCODE_PRESETS:
+            encode_preset = "slow"
+        use_gpu = bool(s.get("sho_gpu_encoding", False))
+        cpu_mode = s.get("sho_cpu_mode", "Medium")
+        threads = calc_threads(cpu_mode)
+        normalize = bool(s.get("sho_normalize_audio", False))
+        fade_in = min(float(s.get("sho_fade_in", 0.5)), duration_s / 3)
+        fade_out = min(float(s.get("sho_fade_out", 0.5)), duration_s / 3)
+
+        # Map sho_* effect keys to standard keys for _build_effects
+        short_settings: dict = {
+            **s,
+            "enable_zoom":           bool(s.get("sho_enable_zoom", True)),
+            "zoom_max":              float(s.get("sho_zoom_max", 1.02)),
+            "zoom_speed":            int(s.get("sho_zoom_speed", 300)),
+            "enable_glitch":         bool(s.get("sho_enable_glitch", False)),
+            "glitch_intensity":      int(s.get("sho_glitch_intensity", 4)),
+            "glitch_speed":          int(s.get("sho_glitch_speed", 90)),
+            "glitch_pulse":          int(s.get("sho_glitch_pulse", 3)),
+            "enable_overlay":        False,
+            "enable_text_overlay":   bool(s.get("sho_enable_text_overlay", False)),
+            "text_content":          s.get("sho_text_content", ""),
+            "text_position":         s.get("sho_text_position", "Bottom"),
+            "text_margin":           int(s.get("sho_text_margin", 40)),
+            "text_font_size":        int(s.get("sho_text_font_size", 36)),
+            "text_font":             s.get("sho_text_font", "Arial"),
+            "text_color":            s.get("sho_text_color", "Blanco"),
+            "text_glitch_intensity": int(s.get("sho_text_glitch_intensity", 3)),
+            "text_glitch_speed":     float(s.get("sho_text_glitch_speed", 4.0)),
+            "gpu_encoding":          use_gpu,
+        }
+
+        # Temporary builder for vertical dimensions + remapped effects
+        eff_builder = FFmpegBuilder.__new__(FFmpegBuilder)
+        eff_builder.settings = short_settings
+        eff_builder.width, eff_builder.height, eff_builder.fps = w, h, DEFAULT_FPS
+        effects = eff_builder._build_effects()
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-threads", str(threads),
+            "-filter_threads", str(threads),
+            "-filter_complex_threads", str(threads),
+        ]
+        if use_gpu:
+            cmd += ["-hwaccel", "auto"]
+
+        cmd += ["-loop", "1", "-i", str(image_path)]            # input 0: image (looped)
+        cmd += ["-ss", f"{start_s:.3f}", "-i", str(audio_path)]  # input 1: audio seek
+        cmd += ["-t", f"{duration_s:.3f}"]
+
+        filter_complex, final_label = eff_builder._build_filter_complex(
+            effects, duration_s, None
+        )
+        audio_filter = FFmpegBuilder._build_audio_filter(
+            duration_s, fade_in, fade_out, normalize
+        )
+
+        cmd += ["-filter_complex", filter_complex]
+        cmd += ["-map", final_label, "-map", "1:a"]
+        if audio_filter:
+            cmd += ["-af", audio_filter]
+
+        if use_gpu:
+            nvenc_preset = _NVENC_PRESET_MAP.get(encode_preset, "p5")
+            cmd += [
+                "-c:v", "h264_nvenc", "-preset", nvenc_preset, "-tune", "hq",
+                "-rc", "vbr", "-cq", str(crf),
+                "-b:v", "8M", "-maxrate", "12M", "-bufsize", "16M",
+                "-profile:v", "high", "-bf", "2", "-g", "250",
+                "-spatial-aq", "1", "-temporal-aq", "1", "-aq-strength", "8",
+                "-rc-lookahead", "16", "-threads", str(threads),
+            ]
+        else:
+            cmd += [
+                "-c:v", "libx264",
+                "-threads", str(threads),
+                "-preset", encode_preset,
+                "-crf", str(crf),
+            ]
+
+        audio_bitrate = str(s.get("audio_bitrate", "320k"))
+        cmd += [
+            "-c:a", "aac", "-b:a", audio_bitrate,
+            "-movflags", "+faststart",
+            "-pix_fmt", "yuv420p",
+            str(output_path),
+        ]
+        return cmd
 
     @staticmethod
     def _build_audio_filter(

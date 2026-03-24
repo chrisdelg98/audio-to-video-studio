@@ -26,6 +26,7 @@ from pathlib import Path
 
 class NamingMode(str, Enum):
     DEFAULT = "default"
+    NAME = "name"
     PREFIX = "prefix"
     CUSTOM = "custom"
     PREFIX_CUSTOM = "prefix_custom"
@@ -39,11 +40,13 @@ _LABEL_TO_MODE: dict[str, NamingMode] = {
     "Custom List": NamingMode.CUSTOM,
     "Prefix + Custom List": NamingMode.PREFIX_CUSTOM,
     # Etiquetas de la UI (dropdown) — español
+    "Nombre": NamingMode.NAME,
     "Prefijo": NamingMode.PREFIX,
     "Lista personalizada": NamingMode.CUSTOM,
     "Prefijo + Lista personalizada": NamingMode.PREFIX_CUSTOM,
     # Claves internas (para compatibilidad con JSON guardado antes)
     "default": NamingMode.DEFAULT,
+    "name": NamingMode.NAME,
     "prefix": NamingMode.PREFIX,
     "custom": NamingMode.CUSTOM,
     "prefix_custom": NamingMode.PREFIX_CUSTOM,
@@ -209,6 +212,8 @@ class NamingManager:
 
         if mode == NamingMode.DEFAULT:
             return stem
+        elif mode == NamingMode.NAME:
+            return self.prefix  # fixed name for all outputs
         elif mode == NamingMode.PREFIX:
             return f"{self.prefix}{stem}"
         elif mode == NamingMode.CUSTOM:

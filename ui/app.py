@@ -37,9 +37,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config.settings_manager import SettingsManager
 from config.theme_manager import ThemeManager as _ThemeManager
-from core.runner import JobResult, Runner
+from core.runner import JobResult, Runner, ShortsJobResult, ShortsRunner
+from core.shorts_splitter import distribute_fragments, suggest_quantity, validate_request
 from core.slideshow_runner import SlideshowRunner
-from core.utils import get_audio_files, get_image_files, get_bundle_dir
+from core.naming_manager import NamingManager as _NamingManager
+from core.utils import get_audio_files, get_audio_duration, get_image_files, get_bundle_dir
 from core.ffmpeg_setup import ensure_ffmpeg
 from core.validator import ValidationResult, validate_environment
 from effects.text_overlay_effect import available_fonts
@@ -100,8 +102,10 @@ C_CARD          = "#131313"   # Card / surface container low
 C_BORDER        = "#484848"   # UI Outline (ghost border)
 C_ACCENT        = "#7CA8FF"   # Primary Electric — modo ATV
 C_ACCENT_H      = "#9FC0FF"   # Accent hover +10%
-C_ACCENT_SLIDE  = "#6366F1"   # Indigo — modo Slideshow
-C_ACCENT_SLIDE_H= "#4F46E5"   # Indigo hover
+C_ACCENT_SLIDE  = "#8587F8"   # Indigo — modo Slideshow
+C_ACCENT_SLIDE_H= "#6760EC"   # Indigo hover
+C_ACCENT_SHORTS = "#F97316"   # Orange — modo Shorts
+C_ACCENT_SHORTS_H="#FB923C"   # Orange hover
 C_BTN_PRIMARY   = "#7CA8FF"   # Generate / primary CTA (light blue)
 C_BTN_PRIMARY_TEXT = "#002C65" # Text on primary CTA (dark navy)
 C_BTN_SECONDARY = "#0E0E0E"   # Secondary button bg (ghost)
@@ -147,6 +151,7 @@ def _apply_theme(mode: str) -> None:
     """Actualiza las variables globales de color leyendo desde ThemeManager."""
     global C_BG, C_PANEL, C_CARD, C_BORDER, C_ACCENT, C_ACCENT_H
     global C_ACCENT_SLIDE, C_ACCENT_SLIDE_H
+    global C_ACCENT_SHORTS, C_ACCENT_SHORTS_H
     global C_BTN_PRIMARY, C_BTN_PRIMARY_TEXT, C_BTN_SECONDARY, C_BTN_OK, C_BTN_DANGER
     global C_TEXT, C_TEXT_DIM, C_MUTED, C_HOVER
     global C_SUCCESS, C_ERROR, C_WARN, C_INPUT, C_LOG, C_LOG_TEXT
@@ -154,6 +159,8 @@ def _apply_theme(mode: str) -> None:
     C_BG = t["C_BG"]; C_PANEL = t["C_PANEL"]; C_CARD = t["C_CARD"]; C_BORDER = t["C_BORDER"]
     C_ACCENT = t["C_ACCENT"]; C_ACCENT_H = t["C_ACCENT_H"]
     C_ACCENT_SLIDE = t["C_ACCENT_SLIDE"]; C_ACCENT_SLIDE_H = t["C_ACCENT_SLIDE_H"]
+    # Shorts accent is fixed (not exposed in ThemeManager yet)
+    C_ACCENT_SHORTS = "#F97316"; C_ACCENT_SHORTS_H = "#FB923C"
     C_BTN_PRIMARY = t["C_BTN_PRIMARY"]; C_BTN_PRIMARY_TEXT = t["C_BTN_PRIMARY_TEXT"]; C_BTN_SECONDARY = t["C_BTN_SECONDARY"]
     C_BTN_OK = t["C_BTN_OK"]; C_BTN_DANGER = t["C_BTN_DANGER"]
     C_TEXT = t["C_TEXT"]; C_TEXT_DIM = t["C_TEXT_DIM"]; C_MUTED = t["C_MUTED"]
@@ -927,6 +934,10 @@ class AudioToVideoApp(ctk.CTk):
         self._last_run_names: list[str] = []
         self._current_mode: str = "Audio → Video"
         self._slideshow_runner: SlideshowRunner | None = None
+        self._shorts_runner: ShortsRunner | None = None
+        self._sho_image_paths: list[Path] = []
+        self._sho_used_names: set[str] = set()
+        self._sho_last_run_names: list[str] = []
         self._log_queue: list[str] = []
         self._log_lock = threading.Lock()
 
@@ -1097,8 +1108,11 @@ class AudioToVideoApp(ctk.CTk):
                 w.bind("<Button-1>", lambda e, c=cmd: c(), add="+")
 
         _atv_active = self._current_mode == "Audio \u2192 Video"
-        _create_mode_btn(FA_FILM,   "ATV",   _atv_active,      C_ACCENT,       lambda: self._switch_mode("Audio \u2192 Video"), "atv")
-        _create_mode_btn(FA_IMAGES, "SLIDE",  not _atv_active, C_ACCENT_SLIDE, lambda: self._switch_mode("Slideshow"),         "slide")
+        _create_mode_btn(FA_FILM,   "ATV",   _atv_active,      C_ACCENT,        lambda: self._switch_mode("Audio \u2192 Video"), "atv")
+        _create_mode_btn(FA_SHORTS, "SHORTS", self._current_mode == "Shorts",
+                         C_ACCENT_SHORTS, lambda: self._switch_mode("Shorts"), "shorts")
+        _create_mode_btn(FA_IMAGES, "SLIDE", not _atv_active,  C_ACCENT_SLIDE,  lambda: self._switch_mode("Slideshow"),          "slide")
+        
 
         # ── Badge de estado del entorno ──────────────────────────────
         self._status_badge = ctk.CTkFrame(
@@ -1192,6 +1206,7 @@ class AudioToVideoApp(ctk.CTk):
         self._build_left_panel(main)
         self._build_right_panel(main)
         self._build_slideshow_left_panel(main)
+        self._build_shorts_left_panel(main)
 
     # --- Left panel ---------------------------------------------------
 
@@ -1545,7 +1560,8 @@ class AudioToVideoApp(ctk.CTk):
 
         self._text_overlay_frame.grid_remove()
 
-        _refresh = lambda *_: self._update_preview_overlay()
+        _refresh = lambda *_: (self._update_preview_overlay()
+                               if getattr(self, "_current_mode", "") == "Audio \u2192 Video" else None)
         self._var_text_overlay.trace_add("write", _refresh)
         self._var_text_content.trace_add("write", _refresh)
         self._var_text_position.trace_add("write", _refresh)
@@ -1614,13 +1630,26 @@ class AudioToVideoApp(ctk.CTk):
         self._var_naming_mode = tk.StringVar(value="Default")
         ctk.CTkOptionMenu(
             inner_mode,
-            values=["Default", "Prefijo", "Lista personalizada", "Prefijo + Lista personalizada"],
+            values=["Default", "Nombre", "Prefijo", "Lista personalizada", "Prefijo + Lista personalizada"],
             variable=self._var_naming_mode,
             command=self._on_naming_mode_change,
             fg_color=C_CARD,
             button_color=C_ACCENT if self._current_theme == "Dark" else C_BORDER,
             text_color=C_TEXT,
         ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        nr += 1
+
+        self._naming_name_frame = ctk.CTkFrame(_name_inner, fg_color="transparent")
+        self._naming_name_frame.grid(row=nr, column=0, sticky="ew", padx=4, pady=(2, 0))
+        self._naming_name_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(self._naming_name_frame, text="Nombre:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=60, anchor="w"
+                     ).grid(row=0, column=0, sticky="w")
+        self._var_naming_name = tk.StringVar()
+        ctk.CTkEntry(self._naming_name_frame, textvariable=self._var_naming_name,
+                     placeholder_text="Ej: Lofi Chill", height=28
+                     ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        self._naming_name_frame.grid_remove()
         nr += 1
 
         self._naming_prefix_frame = ctk.CTkFrame(_name_inner, fg_color="transparent")
@@ -1668,8 +1697,18 @@ class AudioToVideoApp(ctk.CTk):
         nr += 1
 
         self._var_naming_autonumber = tk.BooleanVar(value=True)
-        self._check_row(_name_inner, "Numeración automática (01, 02…)",
-                        self._var_naming_autonumber, nr)
+        self._cb_naming_autonumber = ctk.CTkCheckBox(
+            _name_inner,
+            text="Numeración automática (01, 02…)",
+            variable=self._var_naming_autonumber,
+            font=ctk.CTkFont(size=self._fs(11)),
+            text_color=C_TEXT,
+            fg_color=C_ACCENT,
+            hover_color=C_ACCENT_H,
+            border_color=C_BORDER,
+            checkmark_color="#ffffff",
+        )
+        self._cb_naming_autonumber.grid(row=nr, column=0, sticky="w", padx=16, pady=(6, 6))
         sr += 1
 
         # --- Rendimiento ---
@@ -1800,6 +1839,10 @@ class AudioToVideoApp(ctk.CTk):
         )
         self._lbl_preview.grid(row=0, column=0, sticky="nsew")
         self._preview_img_path: str = ""  # ruta original para re-renderizar overlay
+        # Rutas de preview por modo — cada modo guarda su propio estado
+        self._atv_preview_path: str = ""
+        self._sl_preview_path:  str = ""
+        self._sho_preview_path: str = ""
 
         # Filmstrip de miniaturas (solo modo multi-imagen, horizontal scrollable)
         self._thumb_strip = ctk.CTkScrollableFrame(
@@ -1979,9 +2022,10 @@ class AudioToVideoApp(ctk.CTk):
             fg_color="transparent", hover_color=C_HOVER,
             border_width=2, border_color=C_BORDER,
             text_color=C_TEXT, height=40,
+            font=ctk.CTkFont(size=self._fs(11)),
             command=self._sl_reload,
         )
-        _btn_sl_reload.grid(row=ar, column=0, padx=12, pady=(0, 8), sticky="w")
+        _btn_sl_reload.grid(row=ar, column=0, padx=12, pady=(0, 8), sticky="ew")
         _apply_sec_hover(_btn_sl_reload)
         ar += 1
 
@@ -2128,13 +2172,541 @@ class AudioToVideoApp(ctk.CTk):
         self._var_sl_gpu_encoding = tk.BooleanVar(value=False)
         self._check_row(_perf_inner, "Usar GPU (NVENC)", self._var_sl_gpu_encoding, 3)
 
+    def _build_shorts_left_panel(self, parent: ctk.CTkFrame) -> None:
+        """Panel izquierdo del modo Shorts (separado, comparte panel derecho)."""
+        panel, _tabs = self._make_tab_panel(
+            parent,
+            [("Config", "config"), ("Visual", "visual"), ("Salida", "salida")],
+            accent=C_ACCENT_SHORTS,
+        )
+        panel.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
+        self._sho_scroll_frame = panel
+        panel.grid_remove()  # hidden until mode is switched
+
+        tab_config = _tabs["config"]
+        tab_visual = _tabs["visual"]
+        tab_salida = _tabs["salida"]
+
+        # ══════════════════════════════════════════════════════════════
+        # TAB: CONFIG
+        # ══════════════════════════════════════════════════════════════
+        cf = ctk.CTkScrollableFrame(tab_config, fg_color="transparent")
+        cf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
+        cf.grid_columnconfigure(0, weight=1)
+        cf._scrollbar.grid_forget()
+        cr = 0
+
+        # --- Audio ---
+        _sec_audio = ctk.CTkFrame(cf, fg_color=C_CARD, corner_radius=10,
+                                  border_width=1, border_color=C_BORDER)
+        _sec_audio.grid(row=cr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_audio.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_audio, "Audio").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _audio_inner = ctk.CTkFrame(_sec_audio, fg_color="transparent")
+        _audio_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 12))
+        _audio_inner.grid_columnconfigure(0, weight=1)
+        self._var_sho_audio = tk.StringVar()
+        self._file_row(_audio_inner, "Archivo de audio:", self._var_sho_audio,
+                       self._sho_browse_audio, 0)
+        self._sho_lbl_duration = ctk.CTkLabel(
+            _audio_inner, text="Duración: —", text_color=C_MUTED,
+            font=ctk.CTkFont(size=self._fs(11)), anchor="w",
+        )
+        self._sho_lbl_duration.grid(row=2, column=0, sticky="w", padx=14, pady=(0, 4))
+        self._var_sho_audio.trace_add("write", lambda *_: self._sho_on_audio_selected())
+        cr += 1
+
+        # --- Imágenes ---
+        _sec_img = ctk.CTkFrame(cf, fg_color=C_CARD, corner_radius=10,
+                                border_width=1, border_color=C_BORDER)
+        _sec_img.grid(row=cr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_img.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_img, "Imagen de fondo").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _img_inner = ctk.CTkFrame(_sec_img, fg_color="transparent")
+        _img_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 12))
+        _img_inner.grid_columnconfigure(0, weight=1)
+        self._var_sho_multi_image = tk.BooleanVar(value=False)
+        _img_r = self._check_row(_img_inner, "Usar múltiples imágenes (rotar)",
+                                 self._var_sho_multi_image, 0,
+                                 command=self._sho_toggle_multi_image)
+        # Single image wrapper
+        self._sho_single_img_wrapper = ctk.CTkFrame(_img_inner, fg_color="transparent")
+        self._sho_single_img_wrapper.grid(row=_img_r, column=0, sticky="ew")
+        self._sho_single_img_wrapper.grid_columnconfigure(0, weight=1)
+        self._var_sho_image = tk.StringVar()
+        self._file_row(self._sho_single_img_wrapper, "Imagen:", self._var_sho_image,
+                       self._sho_browse_image, 0)
+        self._var_sho_image.trace_add("write", lambda *_: self._on_sho_image_change())
+        # Multi image wrapper
+        self._sho_multi_img_wrapper = ctk.CTkFrame(_img_inner, fg_color="transparent")
+        self._sho_multi_img_wrapper.grid(row=_img_r, column=0, sticky="ew")
+        self._sho_multi_img_wrapper.grid_columnconfigure(0, weight=1)
+        self._var_sho_images_folder = tk.StringVar()
+        self._file_row(self._sho_multi_img_wrapper, "Carpeta de imágenes:",
+                       self._var_sho_images_folder,
+                       self._sho_browse_images_folder, 0)
+        self._sho_lbl_img_count = ctk.CTkLabel(
+            self._sho_multi_img_wrapper, text="\u266b Imágenes: —",
+            font=ctk.CTkFont(size=self._fs(11)), text_color=C_MUTED, anchor="w",
+        )
+        self._sho_lbl_img_count.grid(row=2, column=0, sticky="w", padx=14, pady=(0, 4))
+        self._sho_multi_img_wrapper.grid_remove()
+        cr += 1
+
+        # --- Fragmentos ---
+        _sec_frag = ctk.CTkFrame(cf, fg_color=C_CARD, corner_radius=10,
+                                 border_width=1, border_color=C_BORDER)
+        _sec_frag.grid(row=cr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_frag.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_frag, "Fragmentos").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _frag_inner = ctk.CTkFrame(_sec_frag, fg_color="transparent")
+        _frag_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 12))
+        _frag_inner.grid_columnconfigure(0, weight=1)
+        self._var_sho_duration = tk.IntVar(value=45)
+        self._slider_row(
+            _frag_inner, "Duración por short:", self._var_sho_duration,
+            30, 59, 0, fmt="{:.0f} s", number_of_steps=29,
+            tooltip_text="Duración de cada short en segundos (30–59 s)",
+        )
+        self._var_sho_duration.trace_add("write", lambda *_: self._sho_update_fragment_suggestion())
+        _qty_row = ctk.CTkFrame(_frag_inner, fg_color="transparent")
+        _qty_row.grid(row=2, column=0, sticky="ew", padx=4, pady=(8, 4))
+        _qty_row.grid_columnconfigure(2, weight=1)
+        ctk.CTkLabel(_qty_row, text="Cantidad de shorts:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=140, anchor="w").grid(
+            row=0, column=0, sticky="w")
+        self._var_sho_quantity = tk.IntVar(value=3)
+        ctk.CTkEntry(_qty_row, textvariable=self._var_sho_quantity,
+                     width=64, height=28, justify="center").grid(
+            row=0, column=1, padx=(8, 0))
+        self._sho_lbl_suggestion = ctk.CTkLabel(
+            _frag_inner, text="Sugerencia: —",
+            font=ctk.CTkFont(size=self._fs(10)), text_color=C_MUTED, anchor="w",
+        )
+        self._sho_lbl_suggestion.grid(row=3, column=0, sticky="w", padx=8, pady=(2, 6))
+        cr += 1
+
+        # ══════════════════════════════════════════════════════════════
+        # TAB: VISUAL
+        # ══════════════════════════════════════════════════════════════
+        vf = ctk.CTkScrollableFrame(tab_visual, fg_color="transparent")
+        vf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
+        vf.grid_columnconfigure(0, weight=1)
+        vf._scrollbar.grid_forget()
+        vr = 0
+
+        # --- Resolución 9:16 ---
+        _sec_res = ctk.CTkFrame(vf, fg_color=C_CARD, corner_radius=10,
+                                border_width=1, border_color=C_BORDER)
+        _sec_res.grid(row=vr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_res.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_res, "Resolución 9:16").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _res_inner = ctk.CTkFrame(_sec_res, fg_color="transparent")
+        _res_inner.grid(row=1, column=0, sticky="ew", padx=16, pady=(16, 20))
+        self._var_sho_resolution = tk.StringVar(value="1080p")
+        for _res in ("720p", "1080p", "4K"):
+            ctk.CTkRadioButton(
+                _res_inner, text=_res,
+                variable=self._var_sho_resolution, value=_res,
+                fg_color=C_ACCENT_SHORTS,
+                font=ctk.CTkFont(size=self._fs(11)), text_color=C_TEXT,
+            ).pack(side="left", padx=6)
+        vr += 1
+
+        # --- Efectos visuales ---
+        _sec_fx = ctk.CTkFrame(vf, fg_color=C_CARD, corner_radius=10,
+                               border_width=1, border_color=C_BORDER)
+        _sec_fx.grid(row=vr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_fx.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_fx, "Efectos visuales").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _fx_inner = ctk.CTkFrame(_sec_fx, fg_color="transparent")
+        _fx_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
+        _fx_inner.grid_columnconfigure(0, weight=1)
+
+        self._var_sho_zoom = tk.BooleanVar(value=True)
+        fr = self._check_row(_fx_inner, "Zoom dinámico", self._var_sho_zoom, 0)
+        self._sho_zoom_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sho_zoom_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sho_zoom_frame.grid_columnconfigure(0, weight=1)
+        self._var_sho_zoom_max = tk.DoubleVar(value=1.02)
+        self._var_sho_zoom_speed = tk.IntVar(value=300)
+        zr = 0
+        zr = self._slider_row(self._sho_zoom_frame, "Zoom máximo:",
+                              self._var_sho_zoom_max, 1.0, 1.1, zr, fmt="{:.3f}",
+                              number_of_steps=200)
+        self._slider_row(self._sho_zoom_frame, "Velocidad zoom:",
+                         self._var_sho_zoom_speed, 100, 700, zr, fmt="{:.0f}")
+        if not self._var_sho_zoom.get():
+            self._sho_zoom_frame.grid_remove()
+        self._var_sho_zoom.trace_add("write", lambda *_: (
+            self._sho_zoom_frame.grid() if self._var_sho_zoom.get()
+            else self._sho_zoom_frame.grid_remove()
+        ))
+        fr += 1
+
+        self._var_sho_glitch = tk.BooleanVar(value=False)
+        fr = self._check_row(_fx_inner, "Glitch effect (video)", self._var_sho_glitch, fr)
+        self._sho_glitch_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sho_glitch_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sho_glitch_frame.grid_columnconfigure(0, weight=1)
+        self._var_sho_glitch_intensity = tk.IntVar(value=4)
+        self._var_sho_glitch_speed_fx = tk.IntVar(value=90)
+        self._var_sho_glitch_pulse = tk.IntVar(value=3)
+        gr = 0
+        gr = self._slider_row(self._sho_glitch_frame, "Intensidad:",
+                              self._var_sho_glitch_intensity, 1, 20, gr, fmt="{:.0f}")
+        gr = self._slider_row(self._sho_glitch_frame, "Frecuencia (frames):",
+                              self._var_sho_glitch_speed_fx, 20, 300, gr, fmt="{:.0f}")
+        self._slider_row(self._sho_glitch_frame, "Duración pulso:",
+                         self._var_sho_glitch_pulse, 1, 10, gr, fmt="{:.0f}")
+        if not self._var_sho_glitch.get():
+            self._sho_glitch_frame.grid_remove()
+        self._var_sho_glitch.trace_add("write", lambda *_: (
+            self._sho_glitch_frame.grid() if self._var_sho_glitch.get()
+            else self._sho_glitch_frame.grid_remove()
+        ))
+        fr += 1
+
+        self._var_sho_normalize = tk.BooleanVar(value=False)
+        self._check_row(_fx_inner, "Normalizar audio", self._var_sho_normalize, fr)
+        vr += 1
+
+        # --- Texto overlay ---
+        _sec_txt = ctk.CTkFrame(vf, fg_color=C_CARD, corner_radius=10,
+                                border_width=1, border_color=C_BORDER)
+        _sec_txt.grid(row=vr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_txt.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_txt, "Texto overlay").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _txt_inner = ctk.CTkFrame(_sec_txt, fg_color="transparent")
+        _txt_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
+        _txt_inner.grid_columnconfigure(0, weight=1)
+
+        self._var_sho_text_overlay = tk.BooleanVar(value=False)
+        txt_r = self._check_row(_txt_inner, "Activar texto overlay",
+                                self._var_sho_text_overlay, 0,
+                                command=self._sho_toggle_text_overlay)
+        self._sho_text_overlay_frame = ctk.CTkFrame(
+            _txt_inner, fg_color=C_PANEL, corner_radius=6,
+            border_width=1, border_color=C_BORDER,
+        )
+        self._sho_text_overlay_frame.grid(row=txt_r, column=0, sticky="ew",
+                                          padx=12, pady=(16, 20))
+        self._sho_text_overlay_frame.grid_columnconfigure(0, weight=1)
+        tof = 0
+
+        ctk.CTkLabel(self._sho_text_overlay_frame, text="Texto:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
+            row=tof, column=0, sticky="w", padx=10, pady=(8, 0))
+        tof += 1
+        self._var_sho_text_content = tk.StringVar()
+        ctk.CTkEntry(self._sho_text_overlay_frame, textvariable=self._var_sho_text_content,
+                     placeholder_text="Ej: Lo-Fi Beats \u266a", height=28).grid(
+            row=tof, column=0, sticky="ew", padx=10, pady=(2, 6))
+        tof += 1
+
+        _font_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
+        _font_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        _font_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_font_f, text="Fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        _sho_fonts = available_fonts() or ["Arial"]
+        self._var_sho_text_font = tk.StringVar(value=_sho_fonts[0])
+        ctk.CTkOptionMenu(_font_f, variable=self._var_sho_text_font, values=_sho_fonts,
+                          width=160, height=28,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(
+            row=0, column=1, sticky="w", padx=4)
+        tof += 1
+
+        _col_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
+        _col_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        _col_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_col_f, text="Color:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        self._var_sho_text_color = tk.StringVar(value="Blanco")
+        self._sho_text_color_preview = ctk.CTkLabel(
+            _col_f, text="", width=16, height=16, corner_radius=8, fg_color="#FFFFFF")
+        self._sho_text_color_preview.grid(row=0, column=2, padx=(6, 0))
+        _sho_color_hex = {
+            "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+            "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+        }
+        def _sho_upd_color(name: str) -> None:
+            self._sho_text_color_preview.configure(
+                fg_color=_sho_color_hex.get(name, "#FFFFFF"))
+        ctk.CTkOptionMenu(_col_f, variable=self._var_sho_text_color,
+                          values=list(_sho_color_hex.keys()), width=140, height=28,
+                          command=_sho_upd_color,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(
+            row=0, column=1, sticky="w", padx=4)
+        tof += 1
+
+        _pos_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
+        _pos_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        ctk.CTkLabel(_pos_f, text="Posición:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
+        self._var_sho_text_position = tk.StringVar(value="Bottom")
+        for _pos in ("Top", "Middle", "Bottom"):
+            ctk.CTkRadioButton(_pos_f, text=_pos, variable=self._var_sho_text_position,
+                               value=_pos, font=ctk.CTkFont(size=self._fs(11))).pack(
+                side="left", padx=6)
+        tof += 1
+
+        _m_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
+        _m_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        _m_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_m_f, text="Margen (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sho_text_margin = tk.IntVar(value=40)
+        _m_lbl = ctk.CTkLabel(_m_f, text="40", text_color=C_TEXT,
+                              font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _m_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_m_f, from_=10, to=200, variable=self._var_sho_text_margin,
+                      command=lambda v: _m_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        tof += 1
+
+        _fsz_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
+        _fsz_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        _fsz_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_fsz_f, text="Tamaño fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sho_text_font_size = tk.IntVar(value=36)
+        _fsz_lbl = ctk.CTkLabel(_fsz_f, text="36", text_color=C_TEXT,
+                                font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _fsz_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_fsz_f, from_=12, to=120, variable=self._var_sho_text_font_size,
+                      command=lambda v: _fsz_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        tof += 1
+
+        _gi_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
+        _gi_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
+        _gi_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_gi_f, text="Glitch (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sho_text_glitch_intensity = tk.IntVar(value=3)
+        _gi_lbl = ctk.CTkLabel(_gi_f, text="3", text_color=C_TEXT,
+                               font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _gi_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_gi_f, from_=0, to=20, variable=self._var_sho_text_glitch_intensity,
+                      command=lambda v: _gi_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        tof += 1
+
+        _gs_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
+        _gs_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=(2, 8))
+        _gs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sho_text_glitch_speed = tk.DoubleVar(value=4.0)
+        _gs_lbl = ctk.CTkLabel(_gs_f, text="4.0", text_color=C_TEXT,
+                               font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _gs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_gs_f, from_=0.5, to=20.0, variable=self._var_sho_text_glitch_speed,
+                      command=lambda v: _gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        self._sho_text_overlay_frame.grid_remove()
+
+        # Traces to refresh preview when any Shorts text setting changes
+        _sho_prev = lambda *_: (self._update_preview_overlay()
+                                if getattr(self, "_current_mode", "") == "Shorts" else None)
+        self._var_sho_text_content.trace_add("write", _sho_prev)
+        self._var_sho_text_position.trace_add("write", _sho_prev)
+        self._var_sho_text_color.trace_add("write", _sho_prev)
+        self._var_sho_text_margin.trace_add("write", _sho_prev)
+        self._var_sho_text_font_size.trace_add("write", _sho_prev)
+        self._var_sho_text_font.trace_add("write", _sho_prev)
+        vr += 1
+
+        # ══════════════════════════════════════════════════════════════
+        # TAB: SALIDA
+        # ══════════════════════════════════════════════════════════════
+        xf = ctk.CTkScrollableFrame(tab_salida, fg_color="transparent")
+        xf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
+        xf.grid_columnconfigure(0, weight=1)
+        xf._scrollbar.grid_forget()
+        xr = 0
+
+        # --- Naming ---
+        _sec_name = ctk.CTkFrame(xf, fg_color=C_CARD, corner_radius=10,
+                                 border_width=1, border_color=C_BORDER)
+        _sec_name.grid(row=xr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_name.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_name, "Nombre de salida").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _nm_inner = ctk.CTkFrame(_sec_name, fg_color="transparent")
+        _nm_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
+        _nm_inner.grid_columnconfigure(0, weight=1)
+        nr = 0
+
+        _mode_row = ctk.CTkFrame(_nm_inner, fg_color="transparent")
+        _mode_row.grid(row=nr, column=0, sticky="ew", padx=4, pady=4)
+        _mode_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_mode_row, text="Modo:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=60, anchor="w",
+                     ).grid(row=0, column=0, sticky="w")
+        self._var_sho_naming_mode = tk.StringVar(value="Default")
+        ctk.CTkOptionMenu(
+            _mode_row,
+            values=["Default", "Nombre", "Prefijo", "Lista personalizada",
+                    "Prefijo + Lista personalizada"],
+            variable=self._var_sho_naming_mode,
+            command=self._on_sho_naming_mode_change,
+            fg_color=C_CARD,
+            button_color=C_ACCENT_SHORTS if self._current_theme == "Dark" else C_BORDER,
+            text_color=C_TEXT,
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        nr += 1
+
+        self._sho_naming_name_frame = ctk.CTkFrame(_nm_inner, fg_color="transparent")
+        self._sho_naming_name_frame.grid(row=nr, column=0, sticky="ew",
+                                         padx=4, pady=(2, 0))
+        self._sho_naming_name_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(self._sho_naming_name_frame, text="Nombre:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=60, anchor="w",
+                     ).grid(row=0, column=0, sticky="w")
+        self._var_sho_naming_name = tk.StringVar()
+        ctk.CTkEntry(self._sho_naming_name_frame,
+                     textvariable=self._var_sho_naming_name,
+                     placeholder_text="Ej: Short Chill", height=28,
+                     ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        self._sho_naming_name_frame.grid_remove()
+        nr += 1
+
+        self._sho_naming_prefix_frame = ctk.CTkFrame(_nm_inner, fg_color="transparent")
+        self._sho_naming_prefix_frame.grid(row=nr, column=0, sticky="ew",
+                                           padx=4, pady=(2, 0))
+        self._sho_naming_prefix_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(self._sho_naming_prefix_frame, text="Prefijo:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=60, anchor="w",
+                     ).grid(row=0, column=0, sticky="w")
+        self._var_sho_naming_prefix = tk.StringVar()
+        ctk.CTkEntry(self._sho_naming_prefix_frame,
+                     textvariable=self._var_sho_naming_prefix,
+                     placeholder_text="Ej: short - ", height=28,
+                     ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        self._sho_naming_prefix_frame.grid_remove()
+        nr += 1
+
+        self._sho_naming_list_frame = ctk.CTkFrame(_nm_inner, fg_color="transparent")
+        self._sho_naming_list_frame.grid(row=nr, column=0, sticky="ew",
+                                         padx=4, pady=(4, 0))
+        self._sho_naming_list_frame.grid_columnconfigure(0, weight=1)
+        _nl_hdr = ctk.CTkFrame(self._sho_naming_list_frame, fg_color="transparent")
+        _nl_hdr.grid(row=0, column=0, sticky="ew", pady=(0, 2))
+        _nl_hdr.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(_nl_hdr, text="Nombres personalizados (uno por línea):",
+                     text_color=C_MUTED, font=ctk.CTkFont(size=self._fs(11)), anchor="w",
+                     ).grid(row=0, column=0, sticky="w")
+        self._lbl_sho_names_count = ctk.CTkLabel(
+            _nl_hdr, text="0 nombres", text_color=C_TEXT_DIM,
+            font=ctk.CTkFont(size=self._fs(10)))
+        self._lbl_sho_names_count.grid(row=0, column=1, sticky="e", padx=(4, 0))
+        self._txt_sho_naming_list = ctk.CTkTextbox(
+            self._sho_naming_list_frame, height=80, fg_color=C_INPUT,
+            text_color=C_TEXT, font=ctk.CTkFont(family="Consolas", size=self._fs(11)))
+        self._txt_sho_naming_list.grid(row=1, column=0, sticky="ew")
+        self._txt_sho_naming_list.bind(
+            "<KeyRelease>", lambda *_: self._refresh_sho_names_count())
+        _btn_sho_names = ctk.CTkButton(
+            self._sho_naming_list_frame, text="Ver / editar lista  \u25b6",
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, height=40,
+            font=ctk.CTkFont(size=self._fs(11)),
+            command=self._open_sho_names_list_dialog,
+        )
+        _btn_sho_names.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        _apply_sec_hover(_btn_sho_names)
+        self._sho_naming_list_frame.grid_remove()
+        nr += 1
+
+        self._var_sho_naming_autonumber = tk.BooleanVar(value=True)
+        self._cb_sho_naming_autonumber = ctk.CTkCheckBox(
+            _nm_inner,
+            text="Numeración automática (01, 02…)",
+            variable=self._var_sho_naming_autonumber,
+            font=ctk.CTkFont(size=self._fs(11)),
+            text_color=C_TEXT,
+            fg_color=C_ACCENT_SHORTS,
+            hover_color=C_ACCENT_SHORTS_H,
+            border_color=C_BORDER,
+            checkmark_color="#ffffff",
+        )
+        self._cb_sho_naming_autonumber.grid(row=nr, column=0, sticky="w", padx=16, pady=(6, 6))
+        xr += 1
+
+        # --- Carpeta de salida ---
+        _sec_out = ctk.CTkFrame(xf, fg_color=C_CARD, corner_radius=10,
+                                border_width=1, border_color=C_BORDER)
+        _sec_out.grid(row=xr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_out.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_out, "Carpeta de salida").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _out_inner = ctk.CTkFrame(_sec_out, fg_color="transparent")
+        _out_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 12))
+        _out_inner.grid_columnconfigure(0, weight=1)
+        self._var_sho_output_folder = tk.StringVar()
+        self._file_row(_out_inner, "Carpeta de salida:", self._var_sho_output_folder,
+                       self._sho_browse_output, 0)
+        xr += 1
+
+        # --- Rendimiento ---
+        _sec_perf = ctk.CTkFrame(xf, fg_color=C_CARD, corner_radius=10,
+                                 border_width=1, border_color=C_BORDER)
+        _sec_perf.grid(row=xr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_perf.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_perf, "Rendimiento").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _perf_inner_sho = ctk.CTkFrame(_sec_perf, fg_color="transparent")
+        _perf_inner_sho.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
+        _perf_inner_sho.grid_columnconfigure(0, weight=1)
+        _cpu_r = ctk.CTkFrame(_perf_inner_sho, fg_color="transparent")
+        _cpu_r.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        ctk.CTkLabel(_cpu_r, text="CPU:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=80, anchor="w").pack(side="left")
+        self._var_sho_cpu_mode = tk.StringVar(value="Medium")
+        for _m in ("Low", "Medium", "High", "Max"):
+            ctk.CTkRadioButton(
+                _cpu_r, text=_m, variable=self._var_sho_cpu_mode, value=_m,
+                font=ctk.CTkFont(size=self._fs(11)), text_color=C_TEXT,
+            ).pack(side="left", padx=4)
+        _pre_r = ctk.CTkFrame(_perf_inner_sho, fg_color="transparent")
+        _pre_r.grid(row=1, column=0, sticky="ew", pady=(0, 4))
+        _pre_r.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_pre_r, text="Preset:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=80, anchor="w").grid(
+            row=0, column=0, sticky="w")
+        self._var_sho_encode_preset = tk.StringVar(value="slow")
+        ctk.CTkComboBox(
+            _pre_r,
+            values=["ultrafast", "superfast", "veryfast", "faster", "fast",
+                    "medium", "slow", "slower", "veryslow"],
+            variable=self._var_sho_encode_preset, state="readonly",
+            fg_color=C_INPUT, button_color=C_ACCENT_SHORTS,
+            border_color=C_BORDER, text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)), height=30,
+        ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        self._var_sho_crf = tk.IntVar(value=18)
+        self._slider_row(_perf_inner_sho, "Calidad (CRF):", self._var_sho_crf,
+                         0, 51, 2, fmt="{:.0f}",
+                         tooltip_text="0=máxima calidad, 18=alta, 28=media, 51=mínima")
+        self._var_sho_gpu_encoding = tk.BooleanVar(value=False)
+        self._check_row(_perf_inner_sho, "Usar GPU (NVENC)", self._var_sho_gpu_encoding, 4)
+
     # --- Footer -------------------------------------------------------
 
     def _build_footer(self) -> None:
         footer = ctk.CTkFrame(self, fg_color=C_PANEL, corner_radius=0, height=56)
         footer.grid(row=3, column=0, sticky="ew")
         footer.grid_propagate(False)
-        footer.grid_columnconfigure(4, weight=1)
+        footer.grid_columnconfigure(2, weight=1)
 
         _pad = 10
         _sec_kw: dict = dict(
@@ -2144,31 +2716,25 @@ class AudioToVideoApp(ctk.CTk):
             font=ctk.CTkFont(size=self._fs(11)),
         )
 
-        self._btn_cancel = ctk.CTkButton(
-            footer, text="CANCELAR", state="disabled",
-            command=self._on_cancel, **_sec_kw)
-        self._btn_cancel.grid(row=0, column=0, padx=(16, 4), pady=_pad)
-        _apply_sec_hover(self._btn_cancel)
-
-        self._btn_preview = ctk.CTkButton(
-            footer, text="PREVIEW EFECTO",
-            command=self._on_preview, **_sec_kw)
-        self._btn_preview.grid(row=0, column=1, padx=4, pady=_pad)
-        self._prev_frame = self._btn_preview
-        _apply_sec_hover(self._btn_preview)
-
         self._btn_test = ctk.CTkButton(
             footer, text="PROBAR FFMPEG",
             command=self._on_test_ffmpeg, **_sec_kw)
-        self._btn_test.grid(row=0, column=2, padx=4, pady=_pad)
+        self._btn_test.grid(row=0, column=0, padx=(32, 4), pady=_pad)
         _apply_sec_hover(self._btn_test)
 
         _btn_save = ctk.CTkButton(
             footer, text="GUARDAR CONFIG",
             command=self._save_settings, **_sec_kw,
         )
-        _btn_save.grid(row=0, column=3, padx=4, pady=_pad)
+        _btn_save.grid(row=0, column=1, padx=4, pady=_pad)
         _apply_sec_hover(_btn_save)
+
+        # CANCELAR — junto al botón principal
+        self._btn_cancel = ctk.CTkButton(
+            footer, text="CANCELAR", state="disabled",
+            command=self._on_cancel, **_sec_kw)
+        self._btn_cancel.grid(row=0, column=3, padx=(4, 4), pady=_pad)
+        _apply_sec_hover(self._btn_cancel)
 
         # Primary CTA — right side
         self._btn_generate = ctk.CTkButton(
@@ -2176,8 +2742,8 @@ class AudioToVideoApp(ctk.CTk):
             fg_color=C_BTN_PRIMARY, hover_color=C_ACCENT_H,
             text_color="#ffffff", corner_radius=6,
             font=ctk.CTkFont(size=self._fs(13), weight="bold"),
-            height=38, command=self._on_generate)
-        self._btn_generate.grid(row=0, column=5, padx=(4, 16), pady=_pad, sticky="e")
+            height=38, width=220, command=self._on_generate)
+        self._btn_generate.grid(row=0, column=4, padx=(4, 32), pady=_pad, sticky="e")
 
     # ──────────────────────────────────────────────────────────────────
     # HELPERS DE CONSTRUCCIÓN DE WIDGETS
@@ -2592,8 +3158,16 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_sl_scroll_frame"):
             self._sl_scroll_frame.destroy()
         self._build_slideshow_left_panel(self._main_panel)
-        if self._current_mode != "Audio \u2192 Video":
+        # Rebuild shorts panel too
+        if hasattr(self, "_sho_scroll_frame"):
+            self._sho_scroll_frame.destroy()
+        self._build_shorts_left_panel(self._main_panel)
+        if self._current_mode == "Slideshow":
             self._sl_scroll_frame.grid()
+            self._scroll_frame.grid_remove()
+        elif self._current_mode == "Shorts":
+            if hasattr(self, "_sho_scroll_frame"):
+                self._sho_scroll_frame.grid()
             self._scroll_frame.grid_remove()
         self._load_settings_to_ui()
         if hasattr(self, "_log_text"):
@@ -2604,11 +3178,15 @@ class AudioToVideoApp(ctk.CTk):
     # ──────────────────────────────────────────────────────────────────
 
     def _update_mode_buttons(self) -> None:
-        """Actualiza el color activo/inactivo de los botones ATV y SLIDE del header."""
-        _atv_active = self._current_mode == "Audio \u2192 Video"
-        for prefix, active in (("atv", _atv_active), ("slide", not _atv_active)):
+        """Actualiza el color activo/inactivo de los botones ATV, SLIDE y SHORTS del header."""
+        for prefix in ("atv", "slide", "shorts"):
             if not hasattr(self, f"_frame_mode_{prefix}"):
                 continue
+            active = (
+                (prefix == "atv"    and self._current_mode == "Audio \u2192 Video")
+                or (prefix == "slide"  and self._current_mode == "Slideshow")
+                or (prefix == "shorts" and self._current_mode == "Shorts")
+            )
             accent = getattr(self, f"_mode_{prefix}_accent")
             bg  = C_INPUT if active else "transparent"
             txt = C_TEXT  if active else C_TEXT_DIM
@@ -2620,31 +3198,83 @@ class AudioToVideoApp(ctk.CTk):
             getattr(self, f"_lbl_mode_{prefix}_text").configure(text_color=txt)
 
     def _switch_mode(self, mode: str) -> None:
-        """Alterna entre los paneles Audio→Video y Slideshow."""
+        """Alterna entre los paneles Audio→Video, Slideshow y Shorts."""
         self._current_mode = mode
         self._update_mode_buttons()
+        # Hide all left panels first
+        self._scroll_frame.grid_remove()
+        if hasattr(self, "_sl_scroll_frame"):
+            self._sl_scroll_frame.grid_remove()
+        if hasattr(self, "_sho_scroll_frame"):
+            self._sho_scroll_frame.grid_remove()
+
         if mode == "Audio \u2192 Video":
             self._scroll_frame.grid()
-            if hasattr(self, "_sl_scroll_frame"):
-                self._sl_scroll_frame.grid_remove()
             self._btn_generate.configure(
                 text="\u25b6  GENERAR VIDEOS", command=self._on_generate)
-            self._prev_frame.grid()
-        else:  # Slideshow
-            self._scroll_frame.grid_remove()
+            # Siempre re-derivar la preview desde las variables ATV
+            if hasattr(self, "_var_multi_image") and self._var_multi_image.get():
+                imgs_folder = self._var_images_folder.get() if hasattr(self, "_var_images_folder") else ""
+                if imgs_folder and Path(imgs_folder).is_dir():
+                    imgs = get_image_files(imgs_folder)
+                    if imgs:
+                        self._load_preview(str(imgs[0]))
+            elif hasattr(self, "_var_image"):
+                img = self._var_image.get()
+                if img and Path(img).is_file():
+                    self._load_preview(img)
+            self._rebuild_thumb_strip()
+            if hasattr(self, "_var_audio_folder"):
+                self._update_audio_count(self._var_audio_folder.get())
+
+        elif mode == "Slideshow":
             if hasattr(self, "_sl_scroll_frame"):
                 self._sl_scroll_frame.grid()
             self._btn_generate.configure(
-                text="\u25b6  GENERAR SLIDESHOW", command=self._on_generate_slideshow)
-            self._prev_frame.grid_remove()
-            # Cargar preview desde carpeta de slideshow si existe
+                text="\u25b6  GENERAR VIDEO", command=self._on_generate_slideshow)
+            # Siempre re-derivar la preview desde las variables Slideshow
             if hasattr(self, "_var_sl_images_folder"):
                 folder = self._var_sl_images_folder.get()
                 if folder and Path(folder).is_dir():
                     imgs = get_image_files(folder)
                     if imgs:
                         self._load_preview(str(imgs[0]))
-                    self._rebuild_thumb_strip_sl()
+            self._rebuild_thumb_strip_sl()
+            # Audio label para Slideshow
+            if hasattr(self, "_var_sl_audio_enabled") and self._var_sl_audio_enabled.get():
+                af = self._var_sl_audio_file.get() if hasattr(self, "_var_sl_audio_file") else ""
+                if af and Path(af).is_file():
+                    self._lbl_audio_count.configure(
+                        text=f"\u266b Audio: {Path(af).name}", text_color=C_ACCENT_SLIDE)
+                else:
+                    self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
+            else:
+                self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
+
+        else:  # Shorts
+            if hasattr(self, "_sho_scroll_frame"):
+                self._sho_scroll_frame.grid()
+            self._btn_generate.configure(
+                text="\u25b6  GENERAR SHORTS", command=self._on_generate_shorts)
+            # Siempre re-derivar la preview desde las variables Shorts
+            if hasattr(self, "_var_sho_multi_image") and self._var_sho_multi_image.get():
+                folder = self._var_sho_images_folder.get() if hasattr(self, "_var_sho_images_folder") else ""
+                if folder and Path(folder).is_dir():
+                    imgs = get_image_files(folder)
+                    if imgs:
+                        self._load_preview(str(imgs[0]))
+            elif hasattr(self, "_var_sho_image"):
+                img = self._var_sho_image.get()
+                if img and Path(img).is_file():
+                    self._load_preview(img)
+            self._rebuild_thumb_strip_sho()
+            # Audio label para Shorts
+            af = self._var_sho_audio.get() if hasattr(self, "_var_sho_audio") else ""
+            if af and Path(af).is_file():
+                self._lbl_audio_count.configure(
+                    text=f"\u266b Audio: {Path(af).name}", text_color=C_ACCENT_SHORTS)
+            else:
+                self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
 
     def _sl_browse_images_folder(self) -> None:
         path = filedialog.askdirectory(title="Seleccionar carpeta de im\u00e1genes")
@@ -2705,6 +3335,45 @@ class AudioToVideoApp(ctk.CTk):
             imgs = get_image_files(imgs_folder)
             if imgs:
                 self._load_preview(str(imgs[0]))
+
+    def _rebuild_thumb_strip_sho(self) -> None:
+        """Repobla el filmstrip con imágenes de la carpeta de Shorts (miniaturas 9:16)."""
+        if not hasattr(self, "_thumb_strip"):
+            return
+        for w in self._thumb_strip.winfo_children():
+            w.destroy()
+        self._thumb_strip_imgs.clear()
+        if not getattr(self, "_var_sho_multi_image", tk.BooleanVar(value=False)).get():
+            self._thumb_strip.grid_remove()
+            return
+        folder = self._var_sho_images_folder.get() if hasattr(self, "_var_sho_images_folder") else ""
+        if not folder or not Path(folder).is_dir():
+            self._thumb_strip.grid_remove()
+            return
+        imgs = get_image_files(folder)
+        if not imgs:
+            self._thumb_strip.grid_remove()
+            return
+        TW, TH = 32, 56  # 9:16 thumbnail
+        for i, img_path in enumerate(imgs):
+            try:
+                thumb = Image.open(str(img_path))
+                thumb = self._crop_img_to_9_16(thumb, TW, TH)
+                ctk_thumb = ctk.CTkImage(light_image=thumb, dark_image=thumb, size=(TW, TH))
+                self._thumb_strip_imgs.append(ctk_thumb)
+                btn = ctk.CTkButton(
+                    self._thumb_strip,
+                    image=ctk_thumb, text="",
+                    width=TW + 4, height=TH + 8,
+                    fg_color=C_CARD, hover_color=C_HOVER,
+                    border_width=1, border_color=C_BORDER,
+                    corner_radius=3,
+                    command=lambda p=str(img_path): self._load_preview(p),
+                )
+                btn.grid(row=0, column=i, padx=2, pady=2)
+            except Exception:
+                pass
+        self._thumb_strip.grid()
 
     def _rebuild_thumb_strip_sl(self) -> None:
         """Repobla el filmstrip con imágenes de la carpeta de slideshow."""
@@ -2811,6 +3480,324 @@ class AudioToVideoApp(ctk.CTk):
 
     def _on_slideshow_finished(self, success: bool) -> None:
         self.after(0, self._set_processing_state, False)
+        self.after(0, self._play_notify_sound)
+
+    # ──────────────────────────────────────────────────────────────────
+    # MODO SHORTS — acciones de UI
+    # ──────────────────────────────────────────────────────────────────
+
+    def _sho_browse_audio(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleccionar archivo de audio",
+            filetypes=[("Audio", "*.mp3 *.wav *.flac *.aac *.ogg *.m4a"), ("Todos", "*.*")],
+        )
+        if path:
+            self._var_sho_audio.set(path)
+            if not self._var_sho_output_folder.get():
+                self._var_sho_output_folder.set(str(Path(path).parent))
+
+    def _sho_on_audio_selected(self) -> None:
+        """Called when audio file changes — update duration label and suggestion."""
+        path = self._var_sho_audio.get()
+        if path and Path(path).is_file():
+            dur = get_audio_duration(path)
+            if dur and dur > 0:
+                m, s = divmod(int(dur), 60)
+                if hasattr(self, "_sho_lbl_duration"):
+                    self._sho_lbl_duration.configure(
+                        text=f"Duración: {m}:{s:02d} ({dur:.1f}s)")
+                self._sho_update_fragment_suggestion()
+                return
+        if hasattr(self, "_sho_lbl_duration"):
+            self._sho_lbl_duration.configure(text="Duración: —")
+
+    def _sho_update_fragment_suggestion(self) -> None:
+        """Update suggested quantity label based on audio duration and short duration."""
+        if not hasattr(self, "_sho_lbl_suggestion"):
+            return
+        path = self._var_sho_audio.get() if hasattr(self, "_var_sho_audio") else ""
+        if not (path and Path(path).is_file()):
+            self._sho_lbl_suggestion.configure(text="Sugerencia: —")
+            return
+        dur = get_audio_duration(path)
+        if not dur or dur <= 0:
+            self._sho_lbl_suggestion.configure(text="Sugerencia: —")
+            return
+        short_s = self._var_sho_duration.get() if hasattr(self, "_var_sho_duration") else 45
+        suggested = suggest_quantity(dur, short_s)
+        self._sho_lbl_suggestion.configure(
+            text=f"Sugerencia: {suggested} shorts para este audio")
+
+    def _sho_browse_image(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleccionar imagen de fondo",
+            filetypes=[("Imágenes", "*.jpg *.jpeg *.png *.bmp *.webp"), ("Todos", "*.*")],
+        )
+        if path:
+            self._var_sho_image.set(path)
+
+    def _on_sho_image_change(self) -> None:
+        if getattr(self, "_current_mode", "") != "Shorts":
+            return
+        path = self._var_sho_image.get()
+        if path and Path(path).is_file():
+            self._load_preview(path)
+
+    def _sho_browse_images_folder(self) -> None:
+        path = filedialog.askdirectory(title="Seleccionar carpeta de imágenes")
+        if path:
+            self._var_sho_images_folder.set(path)
+            imgs = get_image_files(path)
+            n = len(imgs)
+            if hasattr(self, "_sho_lbl_img_count"):
+                self._sho_lbl_img_count.configure(text=f"\u266b Imágenes: {n}")
+            if imgs:
+                self._load_preview(str(imgs[0]))
+            self._sho_image_paths = imgs
+            self._rebuild_thumb_strip_sho()
+
+    def _sho_toggle_multi_image(self) -> None:
+        multi = self._var_sho_multi_image.get()
+        if multi:
+            self._sho_single_img_wrapper.grid_remove()
+            self._sho_multi_img_wrapper.grid()
+            self._rebuild_thumb_strip_sho()
+        else:
+            self._sho_multi_img_wrapper.grid_remove()
+            self._sho_single_img_wrapper.grid()
+            for w in self._thumb_strip.winfo_children():
+                w.destroy()
+            self._thumb_strip_imgs.clear()
+            self._thumb_strip.grid_remove()
+            if getattr(self, "_current_mode", "") == "Shorts":
+                path = self._var_sho_image.get()
+                if path and Path(path).is_file():
+                    self._load_preview(path)
+
+    def _sho_browse_output(self) -> None:
+        path = filedialog.askdirectory(title="Seleccionar carpeta de salida")
+        if path:
+            self._var_sho_output_folder.set(path)
+
+    def _sho_toggle_text_overlay(self) -> None:
+        if self._var_sho_text_overlay.get():
+            self._sho_text_overlay_frame.grid()
+        else:
+            self._sho_text_overlay_frame.grid_remove()
+        if getattr(self, "_current_mode", "") == "Shorts":
+            self._update_preview_overlay()
+
+    def _on_sho_naming_mode_change(self, mode: str) -> None:
+        needs_name   = mode == "Nombre"
+        show_prefix  = mode in ("Prefijo", "Prefijo + Lista personalizada")
+        show_list    = mode in ("Lista personalizada", "Prefijo + Lista personalizada")
+
+        if hasattr(self, "_sho_naming_name_frame"):
+            if needs_name:
+                self._sho_naming_name_frame.grid()
+            else:
+                self._sho_naming_name_frame.grid_remove()
+        if hasattr(self, "_sho_naming_prefix_frame"):
+            if show_prefix:
+                self._sho_naming_prefix_frame.grid()
+            else:
+                self._sho_naming_prefix_frame.grid_remove()
+        if hasattr(self, "_sho_naming_list_frame"):
+            if show_list:
+                self._sho_naming_list_frame.grid()
+            else:
+                self._sho_naming_list_frame.grid_remove()
+
+        # "Nombre": auto-number es obligatorio y no se puede desactivar
+        if hasattr(self, "_cb_sho_naming_autonumber"):
+            if needs_name:
+                self._var_sho_naming_autonumber.set(True)
+                self._cb_sho_naming_autonumber.configure(state="disabled")
+            else:
+                self._cb_sho_naming_autonumber.configure(state="normal")
+
+    def _refresh_sho_names_count(self) -> None:
+        if not hasattr(self, "_txt_sho_naming_list"):
+            return
+        _p = NamesListDialog._USED_PREFIX
+        raw = [l.strip() for l in self._txt_sho_naming_list.get("1.0", "end").splitlines()
+               if l.strip()]
+        count = len(raw)
+        if hasattr(self, "_lbl_sho_names_count"):
+            self._lbl_sho_names_count.configure(
+                text=f"{count} nombre{'s' if count != 1 else ''}")
+
+    def _open_sho_names_list_dialog(self) -> None:
+        if not hasattr(self, "_txt_sho_naming_list"):
+            return
+        _p = NamesListDialog._USED_PREFIX
+        raw = [l.strip() for l in self._txt_sho_naming_list.get("1.0", "end").splitlines()
+               if l.strip()]
+        current = [(n[len(_p):] if n.startswith(_p) else n) for n in raw]
+        used: set[str] = set(self._sho_used_names) if hasattr(self, "_sho_used_names") else set()
+        dlg = NamesListDialog(self, current, used_names=used)
+        self.wait_window(dlg)
+        if dlg.result is not None:
+            self._txt_sho_naming_list.delete("1.0", "end")
+            if dlg.result:
+                self._txt_sho_naming_list.insert("1.0", "\n".join(dlg.result))
+            self._refresh_sho_names_count()
+
+    def _validate_shorts_inputs(self) -> bool:
+        audio = self._var_sho_audio.get() if hasattr(self, "_var_sho_audio") else ""
+        if not audio or not Path(audio).is_file():
+            self._log("ERROR: Selecciona un archivo de audio válido.")
+            return False
+        multi = self._var_sho_multi_image.get() if hasattr(self, "_var_sho_multi_image") else False
+        if multi:
+            folder = self._var_sho_images_folder.get() if hasattr(self, "_var_sho_images_folder") else ""
+            imgs = get_image_files(folder) if folder and Path(folder).is_dir() else []
+            if not imgs:
+                self._log("ERROR: La carpeta de imágenes está vacía o no existe.")
+                return False
+        else:
+            img = self._var_sho_image.get() if hasattr(self, "_var_sho_image") else ""
+            if not img or not Path(img).is_file():
+                self._log("ERROR: Selecciona una imagen de fondo válida.")
+                return False
+        out = self._var_sho_output_folder.get() if hasattr(self, "_var_sho_output_folder") else ""
+        if not out:
+            self._log("ERROR: Selecciona una carpeta de salida.")
+            return False
+        dur = get_audio_duration(audio)
+        qty = int(self._var_sho_quantity.get()) if hasattr(self, "_var_sho_quantity") else 1
+        short_s = int(self._var_sho_duration.get()) if hasattr(self, "_var_sho_duration") else 45
+        ok, msg = validate_request(dur or 0.0, short_s, qty)
+        if not ok:
+            self._log(f"ERROR: {msg}")
+            return False
+        if msg:
+            self._log(f"Advertencia: {msg}")
+        return True
+
+    def _collect_shorts_settings(self) -> None:
+        if not hasattr(self, "_var_sho_audio"):
+            return
+        multi = self._var_sho_multi_image.get()
+        self.settings.update({
+            "sho_audio_file":       self._var_sho_audio.get(),
+            "sho_background_image": self._var_sho_image.get() if hasattr(self, "_var_sho_image") else "",
+            "sho_images_folder":    self._var_sho_images_folder.get() if hasattr(self, "_var_sho_images_folder") else "",
+            "sho_multi_image":      multi,
+            "sho_output_folder":    self._var_sho_output_folder.get() if hasattr(self, "_var_sho_output_folder") else "",
+            "sho_duration":         int(self._var_sho_duration.get()) if hasattr(self, "_var_sho_duration") else 45,
+            "sho_quantity":         int(self._var_sho_quantity.get()) if hasattr(self, "_var_sho_quantity") else 3,
+            "sho_resolution":       self._var_sho_resolution.get() if hasattr(self, "_var_sho_resolution") else "1080p",
+            "sho_enable_zoom":      self._var_sho_zoom.get() if hasattr(self, "_var_sho_zoom") else True,
+            "sho_zoom_max":         self._var_sho_zoom_max.get() if hasattr(self, "_var_sho_zoom_max") else 1.02,
+            "sho_zoom_speed":       int(self._var_sho_zoom_speed.get()) if hasattr(self, "_var_sho_zoom_speed") else 300,
+            "sho_enable_glitch":    self._var_sho_glitch.get() if hasattr(self, "_var_sho_glitch") else False,
+            "sho_glitch_intensity": int(self._var_sho_glitch_intensity.get()) if hasattr(self, "_var_sho_glitch_intensity") else 4,
+            "sho_glitch_speed":     int(self._var_sho_glitch_speed_fx.get()) if hasattr(self, "_var_sho_glitch_speed_fx") else 90,
+            "sho_glitch_pulse":     int(self._var_sho_glitch_pulse.get()) if hasattr(self, "_var_sho_glitch_pulse") else 3,
+            "sho_normalize_audio":  self._var_sho_normalize.get() if hasattr(self, "_var_sho_normalize") else False,
+            "sho_enable_text_overlay": self._var_sho_text_overlay.get() if hasattr(self, "_var_sho_text_overlay") else False,
+            "sho_text_content":     self._var_sho_text_content.get() if hasattr(self, "_var_sho_text_content") else "",
+            "sho_text_position":    self._var_sho_text_position.get() if hasattr(self, "_var_sho_text_position") else "Bottom",
+            "sho_text_margin":      int(self._var_sho_text_margin.get()) if hasattr(self, "_var_sho_text_margin") else 40,
+            "sho_text_font_size":   int(self._var_sho_text_font_size.get()) if hasattr(self, "_var_sho_text_font_size") else 36,
+            "sho_text_font":        self._var_sho_text_font.get() if hasattr(self, "_var_sho_text_font") else "Arial",
+            "sho_text_color":       self._var_sho_text_color.get() if hasattr(self, "_var_sho_text_color") else "Blanco",
+            "sho_text_glitch_intensity": int(self._var_sho_text_glitch_intensity.get()) if hasattr(self, "_var_sho_text_glitch_intensity") else 3,
+            "sho_text_glitch_speed": float(self._var_sho_text_glitch_speed.get()) if hasattr(self, "_var_sho_text_glitch_speed") else 4.0,
+            "sho_naming_mode":      self._var_sho_naming_mode.get() if hasattr(self, "_var_sho_naming_mode") else "Default",
+            "sho_naming_name":       self._var_sho_naming_name.get() if hasattr(self, "_var_sho_naming_name") else "",
+            "sho_naming_prefix":    self._var_sho_naming_prefix.get() if hasattr(self, "_var_sho_naming_prefix") else "",
+            "sho_naming_custom_list": "\n".join(
+                [l.strip() for l in (self._txt_sho_naming_list.get("1.0", "end").splitlines()
+                                     if hasattr(self, "_txt_sho_naming_list") else [])
+                 if l.strip()]
+            ),
+            "sho_naming_auto_number": self._var_sho_naming_autonumber.get() if hasattr(self, "_var_sho_naming_autonumber") else True,
+            "sho_crf":              int(self._var_sho_crf.get()) if hasattr(self, "_var_sho_crf") else 18,
+            "sho_cpu_mode":         self._var_sho_cpu_mode.get() if hasattr(self, "_var_sho_cpu_mode") else "Medium",
+            "sho_encode_preset":    self._var_sho_encode_preset.get() if hasattr(self, "_var_sho_encode_preset") else "slow",
+            "sho_gpu_encoding":     self._var_sho_gpu_encoding.get() if hasattr(self, "_var_sho_gpu_encoding") else False,
+        })
+
+    def _on_generate_shorts(self) -> None:
+        self._collect_settings()
+        if not self._validate_shorts_inputs():
+            return
+        s = self.settings.all()
+        audio = s["sho_audio_file"]
+        multi = s["sho_multi_image"]
+        if multi:
+            folder = s["sho_images_folder"]
+            image_paths = get_image_files(folder) if folder and Path(folder).is_dir() else []
+        else:
+            img = s["sho_background_image"]
+            image_paths = [Path(img)] if img and Path(img).is_file() else []
+        if not image_paths:
+            self._log("ERROR: No se encontraron imágenes válidas.")
+            return
+
+        audio_dur  = get_audio_duration(audio) or 0.0
+        short_s    = int(s["sho_duration"])
+        qty        = int(s["sho_quantity"])
+        starts     = distribute_fragments(audio_dur, short_s, qty)
+        out_folder = Path(s["sho_output_folder"])
+
+        # Build output names via NamingManager
+        custom_list = [ln.strip() for ln in s.get("sho_naming_custom_list", "").splitlines()
+                       if ln.strip()]
+        sho_nm_mode = s["sho_naming_mode"]
+        nm = _NamingManager(
+            mode=sho_nm_mode,
+            prefix=(
+                s.get("sho_naming_name", "")
+                if sho_nm_mode == "Nombre"
+                else s["sho_naming_prefix"]
+            ),
+            custom_names=custom_list,
+            auto_number=s["sho_naming_auto_number"],
+        )
+        audio_path   = Path(audio)
+        output_names = nm.generate_names([audio_path] * qty)
+
+        self._set_processing_state(True)
+        self._log(f"Generando {qty} short(s) desde: {audio_path.name}")
+
+        self._shorts_runner = ShortsRunner(
+            settings=s,
+            on_log=lambda msg: self.after(0, self._log, msg),
+            on_progress=lambda done, tot, label: self.after(
+                0, self._update_progress_ui, done, tot, label),
+            on_job_done=lambda r: self.after(0, self._on_sho_result, r),
+            on_finished=lambda results: self.after(0, self._on_shorts_finished, results),
+        )
+        self._shorts_runner.start(
+            audio_path=audio_path,
+            image_paths=image_paths,
+            output_folder=out_folder,
+            starts=starts,
+            short_duration=float(short_s),
+            output_names=output_names,
+        )
+
+    def _on_sho_result(self, result: "ShortsJobResult") -> None:
+        status = "\u2713" if result.success else "\u2717"
+        name = result.output_path.name if result.output_path else f"short_{result.index}"
+        elapsed = f"{result.elapsed:.1f}s"
+        if result.success:
+            self._log(f"  [{status}] {name}  ({elapsed})")
+        else:
+            self._log(f"  [{status}] {name}  ERROR: {result.error}")
+
+    def _on_shorts_finished(self, results: list) -> None:
+        self._set_processing_state(False)
+        n_ok  = sum(1 for r in results if r.success)
+        n_tot = len(results)
+        if n_ok == n_tot:
+            self._log(f"\u2713 {n_ok}/{n_tot} shorts generados correctamente.")
+        else:
+            self._log(f"\u26a0 {n_ok}/{n_tot} shorts generados. Revisa los errores.")
+        self._play_notify_sound()
 
     # ──────────────────────────────────────────────────────────────────
     # ACCIONES DE UI
@@ -3006,8 +3993,15 @@ class AudioToVideoApp(ctk.CTk):
 
     def _on_naming_mode_change(self, mode: str) -> None:
         """Muestra u oculta el campo de prefijo y/o la lista según el modo elegido."""
+        needs_name   = mode == "Nombre"
         needs_prefix = mode in ("Prefijo", "Prefijo + Lista personalizada")
-        needs_list = mode in ("Lista personalizada", "Prefijo + Lista personalizada")
+        needs_list   = mode in ("Lista personalizada", "Prefijo + Lista personalizada")
+
+        if hasattr(self, "_naming_name_frame"):
+            if needs_name:
+                self._naming_name_frame.grid()
+            else:
+                self._naming_name_frame.grid_remove()
 
         if needs_prefix:
             self._naming_prefix_frame.grid()
@@ -3018,6 +4012,14 @@ class AudioToVideoApp(ctk.CTk):
             self._naming_list_frame.grid()
         else:
             self._naming_list_frame.grid_remove()
+
+        # "Nombre": auto-number es obligatorio y no se puede desactivar
+        if hasattr(self, "_cb_naming_autonumber"):
+            if needs_name:
+                self._var_naming_autonumber.set(True)
+                self._cb_naming_autonumber.configure(state="disabled")
+            else:
+                self._cb_naming_autonumber.configure(state="normal")
 
     def _apply_preset(self, name: str) -> None:
         self.settings.apply_preset(name)
@@ -3157,6 +4159,14 @@ class AudioToVideoApp(ctk.CTk):
                                              text_color=C_ERROR)
 
     def _load_preview(self, path: str) -> None:
+        """Carga la preview y la guarda en la ranura del modo activo."""
+        mode = getattr(self, "_current_mode", "Audio \u2192 Video")
+        if mode == "Slideshow":
+            self._sl_preview_path = path
+        elif mode == "Shorts":
+            self._sho_preview_path = path
+        else:
+            self._atv_preview_path = path
         self._preview_img_path = path
         self._update_preview_overlay()
 
@@ -3173,40 +4183,106 @@ class AudioToVideoApp(ctk.CTk):
         top = (new_h - target_h) // 2
         return img.crop((left, top, left + target_w, top + target_h))
 
+    @staticmethod
+    def _crop_img_to_9_16(img: Image.Image, target_w: int = 203,
+                          target_h: int = 360) -> Image.Image:
+        """Crop + resize a 9:16 (vertical) replicando el scale-to-fill + center-crop."""
+        src_w, src_h = img.size
+        scale = max(target_w / src_w, target_h / src_h)
+        new_w = max(target_w, round(src_w * scale))
+        new_h = max(target_h, round(src_h * scale))
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        left = (new_w - target_w) // 2
+        top = (new_h - target_h) // 2
+        return img.crop((left, top, left + target_w, top + target_h))
+
     def _update_preview_overlay(self) -> None:
         """Re-renderiza el preview con overlay de texto si está activo."""
-        path = getattr(self, "_preview_img_path", "")
+        # Usar siempre la ruta del modo activo, no la compartida
+        mode = getattr(self, "_current_mode", "Audio \u2192 Video")
+        if mode == "Slideshow":
+            path = getattr(self, "_sl_preview_path", "")
+        elif mode == "Shorts":
+            path = getattr(self, "_sho_preview_path", "")
+        else:
+            path = getattr(self, "_atv_preview_path", "")
         if not path:
             return
         try:
             img = Image.open(path)
-            img = self._crop_img_to_16_9(img)  # replica el crop real de FFmpeg
+            is_shorts = getattr(self, "_current_mode", "") == "Shorts"
+            if is_shorts:
+                # Renderizar a 4× internamente para que el texto sea proporcional
+                # y visible, luego mostrar en el widget a tamaño 1× (203×360).
+                img = self._crop_img_to_9_16(img, target_w=812, target_h=1440)
+            else:
+                img = self._crop_img_to_16_9(img)  # preview horizontal 16:9
 
             # Dibujar overlay de texto si está activado
-            if (hasattr(self, "_var_text_overlay")
-                    and self._var_text_overlay.get()
-                    and hasattr(self, "_var_text_content")
-                    and self._var_text_content.get().strip()):
+            if is_shorts:
+                overlay_active = (hasattr(self, "_var_sho_text_overlay")
+                                  and self._var_sho_text_overlay.get()
+                                  and hasattr(self, "_var_sho_text_content")
+                                  and self._var_sho_text_content.get().strip())
+            else:
+                overlay_active = (hasattr(self, "_var_text_overlay")
+                                  and self._var_text_overlay.get()
+                                  and hasattr(self, "_var_text_content")
+                                  and self._var_text_content.get().strip())
+            if overlay_active:
                 self._draw_text_on_preview(img)
 
-            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+            display_size = (203, 360) if is_shorts else img.size
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=display_size)
             self._lbl_preview.configure(image=ctk_img, text="")
             self._lbl_preview.image = ctk_img  # evitar GC
         except Exception as exc:
             self._lbl_preview.configure(image=None, text=f"No se pudo cargar: {exc}")
 
+    def _play_notify_sound(self) -> None:
+        """Reproduce NotifySound.mp3 en segundo plano usando Windows MCI (sin dependencias extras)."""
+        import threading, ctypes
+        from pathlib import Path
+        sound_path = str(_BUNDLE_DIR / "NotifySound.mp3").replace("/", "\\")
+        if not Path(sound_path).is_file():
+            return
+        def _play() -> None:
+            try:
+                winmm = ctypes.windll.winmm
+                alias = "atv_notify"
+                winmm.mciSendStringW(f'open "{sound_path}" type mpegvideo alias {alias}', None, 0, None)
+                winmm.mciSendStringW(f'play {alias} wait', None, 0, None)
+                winmm.mciSendStringW(f'close {alias}', None, 0, None)
+            except Exception:
+                pass
+        threading.Thread(target=_play, daemon=True).start()
+
     def _draw_text_on_preview(self, img: Image.Image) -> None:
         """Dibuja el texto overlay sobre la imagen de preview."""
         draw = ImageDraw.Draw(img)
-        text = self._var_text_content.get().strip()
+        is_shorts = getattr(self, "_current_mode", "") == "Shorts"
+
+        if is_shorts:
+            text       = self._var_sho_text_content.get().strip()
+            font_size  = self._var_sho_text_font_size.get()
+            font_name  = self._var_sho_text_font.get()
+            margin_val = self._var_sho_text_margin.get()
+            pos        = self._var_sho_text_position.get()
+            color_name = self._var_sho_text_color.get() if hasattr(self, "_var_sho_text_color") else "Blanco"
+            ref_w = 1080.0  # shorts reference width
+        else:
+            text       = self._var_text_content.get().strip()
+            font_size  = self._var_text_font_size.get()
+            font_name  = self._var_text_font.get()
+            margin_val = self._var_text_margin.get()
+            pos        = self._var_text_position.get()
+            color_name = self._var_text_color.get() if hasattr(self, "_var_text_color") else "Blanco"
+            ref_w = 1920.0
+
         w, h = img.size
-
-        # Escala proporcional: el usuario configura para 1920px, el thumb es ~500px
-        scale = w / 1920.0
-        fs = max(8, int(self._var_text_font_size.get() * scale))
-
-        # Intentar cargar la fuente seleccionada
-        font_name = self._var_text_font.get()
+        scale   = w / ref_w       # escala de fuente: basada en ancho del video
+        scale_h = h / 1080.0      # escala de margen: referencia universal 1080px
+        fs = max(8, int(font_size * scale))
         font = None
         for ext in (".ttf", ".otf"):
             fp = _BUNDLE_DIR / "fonts" / f"{font_name}{ext}"
@@ -3230,8 +4306,7 @@ class AudioToVideoApp(ctk.CTk):
         x = (w - tw) // 2
 
         # Posición Y según configuración
-        margin = int(self._var_text_margin.get() * scale)
-        pos = self._var_text_position.get()
+        margin = int(margin_val * scale_h)
         if pos == "Top":
             y = margin
         elif pos == "Middle":
@@ -3244,7 +4319,6 @@ class AudioToVideoApp(ctk.CTk):
             "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
             "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
         }
-        color_name = self._var_text_color.get() if hasattr(self, "_var_text_color") else "Blanco"
         fill = _hex_map.get(color_name, "#FFFFFF")
 
         # Sombra
@@ -3315,6 +4389,8 @@ class AudioToVideoApp(ctk.CTk):
             self._runner.cancel()
         if self._slideshow_runner:
             self._slideshow_runner.cancel()
+        if self._shorts_runner:
+            self._shorts_runner.cancel()
         self._btn_cancel.configure(state="disabled")
 
     def _on_preview(self) -> None:
@@ -3422,6 +4498,7 @@ class AudioToVideoApp(ctk.CTk):
         if self._last_run_names:
             self._used_names.update(self._last_run_names)
             self._last_run_names = []
+        self._play_notify_sound()
 
     # ──────────────────────────────────────────────────────────────────
     # LOGS (thread-safe via cola)
@@ -3479,7 +4556,6 @@ class AudioToVideoApp(ctk.CTk):
             if hasattr(self, "_lbl_status_dot"):
                 self._lbl_status_dot.configure(text_color=C_ERROR)
             self._btn_generate.configure(state="disabled")
-            self._btn_preview.configure(state="disabled")
             messagebox.showerror(
                 "Dependencias faltantes",
                 "Se encontraron problemas con las dependencias del sistema.\n"
@@ -3579,6 +4655,7 @@ class AudioToVideoApp(ctk.CTk):
             "normalize_audio": self._var_normalize.get(),
             # Naming
             "naming_mode": self._var_naming_mode.get(),
+            "naming_name": self._var_naming_name.get() if hasattr(self, "_var_naming_name") else "",
             "naming_prefix": self._var_naming_prefix.get(),
             "naming_custom_list": custom_names,
             "naming_auto_number": self._var_naming_autonumber.get(),
@@ -3606,6 +4683,9 @@ class AudioToVideoApp(ctk.CTk):
         # Save slideshow settings if panel exists
         if hasattr(self, "_var_sl_images_folder"):
             self._collect_slideshow_settings()
+        # Save Shorts settings if panel exists
+        if hasattr(self, "_var_sho_audio"):
+            self._collect_shorts_settings()
 
     def _load_settings_to_ui(self) -> None:
         """Carga la configuración guardada en los widgets de la UI."""
@@ -3635,6 +4715,8 @@ class AudioToVideoApp(ctk.CTk):
 
         # Naming
         self._var_naming_mode.set(s.get("naming_mode", "Default"))
+        if hasattr(self, "_var_naming_name"):
+            self._var_naming_name.set(s.get("naming_name", ""))
         self._var_naming_prefix.set(s.get("naming_prefix", ""))
         custom_names: list[str] = s.get("naming_custom_list", [])
         self._txt_naming_list.delete("1.0", "end")
@@ -3700,6 +4782,84 @@ class AudioToVideoApp(ctk.CTk):
             self._var_sl_zoom_max.set(s.get("sl_zoom_max", 1.05))
             self._sl_update_count()
 
+        # Shorts settings
+        if hasattr(self, "_var_sho_audio"):
+            self._var_sho_audio.set(s.get("sho_audio_file", ""))
+            if hasattr(self, "_var_sho_image"):
+                self._var_sho_image.set(s.get("sho_background_image", ""))
+            if hasattr(self, "_var_sho_images_folder"):
+                self._var_sho_images_folder.set(s.get("sho_images_folder", ""))
+            if hasattr(self, "_var_sho_multi_image"):
+                self._var_sho_multi_image.set(s.get("sho_multi_image", False))
+                self._sho_toggle_multi_image()
+            if hasattr(self, "_var_sho_output_folder"):
+                self._var_sho_output_folder.set(s.get("sho_output_folder", ""))
+            if hasattr(self, "_var_sho_duration"):
+                self._var_sho_duration.set(s.get("sho_duration", 45))
+            if hasattr(self, "_var_sho_quantity"):
+                self._var_sho_quantity.set(s.get("sho_quantity", 3))
+            if hasattr(self, "_var_sho_resolution"):
+                self._var_sho_resolution.set(s.get("sho_resolution", "1080p"))
+            if hasattr(self, "_var_sho_zoom"):
+                self._var_sho_zoom.set(s.get("sho_enable_zoom", True))
+            if hasattr(self, "_var_sho_zoom_max"):
+                self._var_sho_zoom_max.set(s.get("sho_zoom_max", 1.02))
+            if hasattr(self, "_var_sho_zoom_speed"):
+                self._var_sho_zoom_speed.set(s.get("sho_zoom_speed", 300))
+            if hasattr(self, "_var_sho_glitch"):
+                self._var_sho_glitch.set(s.get("sho_enable_glitch", False))
+            if hasattr(self, "_var_sho_glitch_intensity"):
+                self._var_sho_glitch_intensity.set(s.get("sho_glitch_intensity", 4))
+            if hasattr(self, "_var_sho_glitch_speed_fx"):
+                self._var_sho_glitch_speed_fx.set(s.get("sho_glitch_speed", 90))
+            if hasattr(self, "_var_sho_glitch_pulse"):
+                self._var_sho_glitch_pulse.set(s.get("sho_glitch_pulse", 3))
+            if hasattr(self, "_var_sho_normalize"):
+                self._var_sho_normalize.set(s.get("sho_normalize_audio", False))
+            if hasattr(self, "_var_sho_text_overlay"):
+                self._var_sho_text_overlay.set(s.get("sho_enable_text_overlay", False))
+                self._sho_toggle_text_overlay()
+            if hasattr(self, "_var_sho_text_content"):
+                self._var_sho_text_content.set(s.get("sho_text_content", ""))
+            if hasattr(self, "_var_sho_text_position"):
+                self._var_sho_text_position.set(s.get("sho_text_position", "Bottom"))
+            if hasattr(self, "_var_sho_text_margin"):
+                self._var_sho_text_margin.set(s.get("sho_text_margin", 40))
+            if hasattr(self, "_var_sho_text_font_size"):
+                self._var_sho_text_font_size.set(s.get("sho_text_font_size", 36))
+            if hasattr(self, "_var_sho_text_font"):
+                self._var_sho_text_font.set(s.get("sho_text_font", "Arial"))
+            if hasattr(self, "_var_sho_text_color"):
+                self._var_sho_text_color.set(s.get("sho_text_color", "Blanco"))
+            if hasattr(self, "_var_sho_text_glitch_intensity"):
+                self._var_sho_text_glitch_intensity.set(s.get("sho_text_glitch_intensity", 3))
+            if hasattr(self, "_var_sho_text_glitch_speed"):
+                self._var_sho_text_glitch_speed.set(s.get("sho_text_glitch_speed", 4.0))
+            if hasattr(self, "_var_sho_naming_mode"):
+                self._var_sho_naming_mode.set(s.get("sho_naming_mode", "Default"))
+                self._on_sho_naming_mode_change(self._var_sho_naming_mode.get())
+            if hasattr(self, "_var_sho_naming_name"):
+                self._var_sho_naming_name.set(s.get("sho_naming_name", ""))
+            if hasattr(self, "_var_sho_naming_prefix"):
+                self._var_sho_naming_prefix.set(s.get("sho_naming_prefix", ""))
+            if hasattr(self, "_txt_sho_naming_list"):
+                self._txt_sho_naming_list.delete("1.0", "end")
+                custom = s.get("sho_naming_custom_list", "")
+                if custom:
+                    self._txt_sho_naming_list.insert("1.0", custom)
+                self._refresh_sho_names_count()
+            if hasattr(self, "_var_sho_naming_autonumber"):
+                self._var_sho_naming_autonumber.set(s.get("sho_naming_auto_number", True))
+            if hasattr(self, "_var_sho_crf"):
+                self._var_sho_crf.set(s.get("sho_crf", 18))
+            if hasattr(self, "_var_sho_cpu_mode"):
+                self._var_sho_cpu_mode.set(s.get("sho_cpu_mode", "Medium"))
+            if hasattr(self, "_var_sho_encode_preset"):
+                self._var_sho_encode_preset.set(s.get("sho_encode_preset", "slow"))
+            if hasattr(self, "_var_sho_gpu_encoding"):
+                self._var_sho_gpu_encoding.set(s.get("sho_gpu_encoding", False))
+            self._sho_on_audio_selected()
+
     def _save_settings(self) -> None:
         self._collect_settings()
         try:
@@ -3716,13 +4876,21 @@ class AudioToVideoApp(ctk.CTk):
         if processing:
             self._btn_generate.configure(state="disabled")
             self._btn_cancel.configure(state="normal")
-            self._btn_preview.configure(state="disabled")
         else:
-            self._btn_generate.configure(state="normal")
             self._btn_cancel.configure(state="disabled")
-            # Preview sólo disponible en modo Audio→Video
+            # Restore correct generate button label per mode
             if self._current_mode == "Audio \u2192 Video":
-                self._btn_preview.configure(state="normal")
+                self._btn_generate.configure(
+                    state="normal", text="\u25b6  GENERAR VIDEOS",
+                    command=self._on_generate)
+            elif self._current_mode == "Slideshow":
+                self._btn_generate.configure(
+                    state="normal", text="\u25b6  GENERAR VIDEO",
+                    command=self._on_generate_slideshow)
+            else:  # Shorts
+                self._btn_generate.configure(
+                    state="normal", text="\u25b6  GENERAR SHORTS",
+                    command=self._on_generate_shorts)
             self._progress_file.stop()
             self._progress_file.set(0)
             self._lbl_progress_file.configure(text="")
@@ -3735,6 +4903,7 @@ class AudioToVideoApp(ctk.CTk):
         running = (
             (self._runner and self._runner.is_running())
             or (self._slideshow_runner and self._slideshow_runner.is_running())
+            or (self._shorts_runner and self._shorts_runner.is_running())
         )
         if running:
             if not messagebox.askyesno(
@@ -3746,6 +4915,8 @@ class AudioToVideoApp(ctk.CTk):
                 self._runner.cancel()
             if self._slideshow_runner:
                 self._slideshow_runner.cancel()
+            if self._shorts_runner:
+                self._shorts_runner.cancel()
 
         self._collect_settings()
         try:

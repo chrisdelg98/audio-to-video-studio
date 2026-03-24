@@ -92,13 +92,13 @@ class TextOverlayEffect(BaseEffect):
         gi = self.glitch_intensity
         gs = self.glitch_speed
 
-        # Coordenada Y según posición elegida
+        # Coordenada Y según posición elegida (normalizada a altura de referencia 1080)
         if self.position == "Top":
-            y_expr = str(m)
+            y_expr = f"round({m}*(h/1080))"
         elif self.position == "Middle":
             y_expr = "(h-text_h)/2"
         else:                          # Bottom (default)
-            y_expr = f"h-text_h-{m}"
+            y_expr = f"h-text_h-round({m}*(h/1080))"
 
         x_expr = "(w-text_w)/2"
 
