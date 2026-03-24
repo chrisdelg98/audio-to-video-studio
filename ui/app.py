@@ -71,6 +71,7 @@ FA_TRASH  = "\uf2ed"   # trash-can
 FA_PLUS   = "\uf067"   # plus
 FA_PLAY   = "\uf04b"   # play
 FA_FILM    = "\uf008"   # film
+FA_SHORTS  = "\uf03d"   # video 
 FA_SUN     = "\uf185"   # sun
 FA_MOON    = "\uf186"   # moon
 FA_FOLDER  = "\uf07c"   # folder-open
@@ -92,49 +93,51 @@ FA_IMAGES  = "\uf302"   # images (slideshow)
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-# ── Design system (dark defaults) ──────────────────────────────────────────
-C_BG            = "#010409"   # Root background — deep navy
-C_PANEL         = "#010409"   # Panel background
-C_CARD          = "#0d1117"   # Card / section background
-C_BORDER        = "#262C36"   # Borders & separators
-C_ACCENT        = "#3b82f6"   # Primary brand blue — modo ATV
-C_ACCENT_H      = "#2563eb"   # Accent hover
-C_ACCENT_SLIDE  = "#7c3bf6"   # Violet — modo Slideshow
-C_ACCENT_SLIDE_H= "#6b2fe0"   # Violet hover
-C_BTN_PRIMARY   = "#3b82f6"   # Generate / primary CTA
-C_BTN_SECONDARY = "#010409"   # Secondary button bg
-C_BTN_OK        = "#2d8f5a"   # OK / success action
-C_BTN_DANGER    = "#d64040"   # Danger / destructive
-C_TEXT          = "#eaeaf8"   # Primary text — bright white-cool
-C_TEXT_DIM      = "#7a7aa0"   # Secondary / dimmed text
-C_MUTED         = "#505070"   # Muted labels
-C_HOVER         = "#1a1a30"   # Generic hover surface
-C_SUCCESS       = "#40c880"
-C_ERROR         = "#e05050"
-C_WARN          = "#e8a030"
-C_INPUT         = "#010409"   # Input field background
-C_LOG           = "#010409"   # Log textarea background
+# ── Design system (dark defaults — Obsidian Curator) ─────────────────────
+C_BG            = "#0E0E0E"   # Root background — The void
+C_PANEL         = "#0E0E0E"   # Panel background
+C_CARD          = "#131313"   # Card / surface container low
+C_BORDER        = "#484848"   # UI Outline (ghost border)
+C_ACCENT        = "#7CA8FF"   # Primary Electric — modo ATV
+C_ACCENT_H      = "#9FC0FF"   # Accent hover +10%
+C_ACCENT_SLIDE  = "#6366F1"   # Indigo — modo Slideshow
+C_ACCENT_SLIDE_H= "#4F46E5"   # Indigo hover
+C_BTN_PRIMARY   = "#7CA8FF"   # Generate / primary CTA (light blue)
+C_BTN_PRIMARY_TEXT = "#002C65" # Text on primary CTA (dark navy)
+C_BTN_SECONDARY = "#0E0E0E"   # Secondary button bg (ghost)
+C_BTN_OK        = "#22C55E"   # OK / success action
+C_BTN_DANGER    = "#FF716C"   # Danger / destructive
+C_TEXT          = "#FFFFFF"   # Primary text — On-Surface
+C_TEXT_DIM      = "#ADABAA"   # Secondary — On-Surface Variant
+C_MUTED         = "#707070"   # Muted labels / hints
+C_HOVER         = "#1F2020"   # Surface Container High
+C_SUCCESS       = "#22C55E"
+C_ERROR         = "#FF716C"
+C_WARN          = "#F59E0B"
+C_INPUT         = "#262626"   # Input field background (Surface High)
+C_LOG           = "#131313"   # Log textarea background
+C_LOG_TEXT      = "#9AF1B9"   # Log text color (terminal green)
 
 # ── Paletas ─────────────────────────────────────────────────────────────────
 _DARK_PALETTE: dict[str, str] = {
-    "BG": "#010409", "PANEL": "#010409", "CARD": "#0d1117", "BORDER": "#262C36",
-    "ACCENT": "#3b82f6", "ACCENT_H": "#2563eb",
-    "BTN_PRIMARY": "#3b82f6", "BTN_SECONDARY": "#010409",
-    "BTN_OK": "#2d8f5a", "BTN_DANGER": "#d64040",
-    "TEXT": "#eaeaf8", "TEXT_DIM": "#7a7aa0", "MUTED": "#505070",
-    "HOVER": "#1a1a30",
-    "SUCCESS": "#40c880", "ERROR": "#e05050", "WARN": "#e8a030",
-    "INPUT": "#010409", "LOG": "#010409",
+    "BG": "#0E0E0E", "PANEL": "#0E0E0E", "CARD": "#131313", "BORDER": "#484848",
+    "ACCENT": "#7CA8FF", "ACCENT_H": "#9FC0FF",
+    "BTN_PRIMARY": "#7CA8FF", "BTN_PRIMARY_TEXT": "#002C65", "BTN_SECONDARY": "#0E0E0E",
+    "BTN_OK": "#22C55E", "BTN_DANGER": "#FF716C",
+    "TEXT": "#FFFFFF", "TEXT_DIM": "#ADABAA", "MUTED": "#707070",
+    "HOVER": "#1F2020",
+    "SUCCESS": "#22C55E", "ERROR": "#FF716C", "WARN": "#F59E0B",
+    "INPUT": "#262626", "LOG": "#131313", "LOG_TEXT": "#9AF1B9",
 }
 _LIGHT_PALETTE: dict[str, str] = {
-    "BG": "#f0f2f8", "PANEL": "#e6e9f4", "CARD": "#ffffff", "BORDER": "#cdd2e8",
-    "ACCENT": "#4361ee", "ACCENT_H": "#3451d1",
-    "BTN_PRIMARY": "#4361ee", "BTN_SECONDARY": "#dde2f0",
-    "BTN_OK": "#2d8f5a", "BTN_DANGER": "#d64040",
-    "TEXT": "#18182e", "TEXT_DIM": "#50507a", "MUTED": "#8888aa",
-    "HOVER": "#dde2f0",
-    "SUCCESS": "#2d8f5a", "ERROR": "#c83030", "WARN": "#b87020",
-    "INPUT": "#f4f6ff", "LOG": "#111128",
+    "BG": "#F8F9FA", "PANEL": "#F8F9FA", "CARD": "#FFFFFF", "BORDER": "#DEE2E6",
+    "ACCENT": "#4361EE", "ACCENT_H": "#3451D1",
+    "BTN_PRIMARY": "#4361EE", "BTN_PRIMARY_TEXT": "#FFFFFF", "BTN_SECONDARY": "#FFFFFF",
+    "BTN_OK": "#16A34A", "BTN_DANGER": "#DC2626",
+    "TEXT": "#0F172A", "TEXT_DIM": "#475569", "MUTED": "#7B8794",
+    "HOVER": "#EEF2F7",
+    "SUCCESS": "#16A34A", "ERROR": "#DC2626", "WARN": "#D97706",
+    "INPUT": "#FFFFFF", "LOG": "#1A1A2E", "LOG_TEXT": "#22C55E",
 }
 
 _FONT_SIZE_SCALE = {"Small": 1.0, "Medium": 1.22, "Large": 1.5}
@@ -144,19 +147,112 @@ def _apply_theme(mode: str) -> None:
     """Actualiza las variables globales de color leyendo desde ThemeManager."""
     global C_BG, C_PANEL, C_CARD, C_BORDER, C_ACCENT, C_ACCENT_H
     global C_ACCENT_SLIDE, C_ACCENT_SLIDE_H
-    global C_BTN_PRIMARY, C_BTN_SECONDARY, C_BTN_OK, C_BTN_DANGER
+    global C_BTN_PRIMARY, C_BTN_PRIMARY_TEXT, C_BTN_SECONDARY, C_BTN_OK, C_BTN_DANGER
     global C_TEXT, C_TEXT_DIM, C_MUTED, C_HOVER
-    global C_SUCCESS, C_ERROR, C_WARN, C_INPUT, C_LOG
+    global C_SUCCESS, C_ERROR, C_WARN, C_INPUT, C_LOG, C_LOG_TEXT
     t = _TM.get_palette(mode)
     C_BG = t["C_BG"]; C_PANEL = t["C_PANEL"]; C_CARD = t["C_CARD"]; C_BORDER = t["C_BORDER"]
     C_ACCENT = t["C_ACCENT"]; C_ACCENT_H = t["C_ACCENT_H"]
     C_ACCENT_SLIDE = t["C_ACCENT_SLIDE"]; C_ACCENT_SLIDE_H = t["C_ACCENT_SLIDE_H"]
-    C_BTN_PRIMARY = t["C_BTN_PRIMARY"]; C_BTN_SECONDARY = t["C_BTN_SECONDARY"]
+    C_BTN_PRIMARY = t["C_BTN_PRIMARY"]; C_BTN_PRIMARY_TEXT = t["C_BTN_PRIMARY_TEXT"]; C_BTN_SECONDARY = t["C_BTN_SECONDARY"]
     C_BTN_OK = t["C_BTN_OK"]; C_BTN_DANGER = t["C_BTN_DANGER"]
     C_TEXT = t["C_TEXT"]; C_TEXT_DIM = t["C_TEXT_DIM"]; C_MUTED = t["C_MUTED"]
     C_HOVER = t["C_HOVER"]
     C_SUCCESS = t["C_SUCCESS"]; C_ERROR = t["C_ERROR"]; C_WARN = t["C_WARN"]
-    C_INPUT = t["C_INPUT"]; C_LOG = t["C_LOG"]
+    C_INPUT = t["C_INPUT"]; C_LOG = t["C_LOG"]; C_LOG_TEXT = t["C_LOG_TEXT"]
+
+
+# ── Hover-transition animation helpers ──────────────────────────────────────
+_ANIM_JOBS:  dict = {}   # widget id → pending animation after-job id
+_LEAVE_JOBS: dict = {}   # widget id → pending leave-debounce after-job id
+
+
+def _hex_to_rgb(h: str) -> tuple:
+    h = h.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _rgb_to_hex(r: int, g: int, b: int) -> str:
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _animate_widget(widget, props: dict, steps: int = 10, delay: int = 14, _step: int = 0) -> None:
+    """Smoothly interpolate colour properties on a CTk widget.
+    props = {attribute_name: (from_hex, to_hex)}
+    Total duration ≈ steps × delay ms  (default ~140 ms).
+    """
+    wid = id(widget)
+    if _step == 0 and wid in _ANIM_JOBS:
+        try:
+            widget.after_cancel(_ANIM_JOBS.pop(wid))
+        except Exception:
+            _ANIM_JOBS.pop(wid, None)
+    if _step > steps:
+        _ANIM_JOBS.pop(wid, None)
+        return
+    alpha = _step / steps
+    kw: dict = {}
+    for attr, (from_h, to_h) in props.items():
+        r1, g1, b1 = _hex_to_rgb(from_h)
+        r2, g2, b2 = _hex_to_rgb(to_h)
+        kw[attr] = _rgb_to_hex(
+            round(r1 + (r2 - r1) * alpha),
+            round(g1 + (g2 - g1) * alpha),
+            round(b1 + (b2 - b1) * alpha),
+        )
+    try:
+        widget.configure(**kw)
+        job = widget.after(delay, lambda: _animate_widget(widget, props, steps, delay, _step + 1))
+        _ANIM_JOBS[wid] = job
+    except Exception:
+        _ANIM_JOBS.pop(wid, None)
+
+
+def _apply_sec_hover(btn: "ctk.CTkButton") -> None:
+    """Animated accent hover for secondary buttons.
+
+    Debounces leave events (40 ms) so that crossing internal child widgets
+    (the CTkButton text label) does not restart the animation. A state flag
+    prevents redundant enter/leave calls.
+    """
+    _state = {"entered": False}
+
+    def _cancel_leave():
+        wid = id(btn)
+        if wid in _LEAVE_JOBS:
+            try:
+                btn.after_cancel(_LEAVE_JOBS.pop(wid))
+            except Exception:
+                _LEAVE_JOBS.pop(wid, None)
+
+    def on_enter(_e):
+        _cancel_leave()
+        if _state["entered"] or str(btn.cget("state")) == "disabled":
+            return
+        _state["entered"] = True
+        _animate_widget(btn, {
+            "border_color": (C_BORDER, C_ACCENT),
+            "text_color":   (C_TEXT,   C_ACCENT),
+        })
+
+    def on_leave(_e):
+        def _do_leave():
+            _LEAVE_JOBS.pop(id(btn), None)
+            if not _state["entered"]:
+                return
+            _state["entered"] = False
+            _animate_widget(btn, {
+                "border_color": (C_ACCENT, C_BORDER),
+                "text_color":   (C_ACCENT, C_TEXT),
+            })
+        _cancel_leave()
+        _LEAVE_JOBS[id(btn)] = btn.after(40, _do_leave)
+
+    # Bind the button frame and all its internal children (text label, etc.)
+    for widget in (btn, *btn.winfo_children()):
+        widget.bind("<Enter>", on_enter, add="+")
+        widget.bind("<Leave>", on_leave, add="+")
+
 
 
 class _Tooltip:
@@ -285,7 +381,7 @@ class ImageAssignmentDialog(ctk.CTkToplevel):
             ctk.CTkLabel(
                 scroll, text=af.name, font=ctk.CTkFont(size=11),
                 text_color=C_TEXT, anchor="w",
-            ).grid(row=row_idx, column=0, sticky="ew", padx=8, pady=2)
+            ).grid(row=row_idx, column=0, sticky="ew", padx=12, pady=2)
             ctk.CTkOptionMenu(
                 scroll,
                 values=self._image_names,
@@ -302,24 +398,30 @@ class ImageAssignmentDialog(ctk.CTkToplevel):
         btn_row.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="ew")
         btn_row.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkButton(
+        _btn_reset_auto = ctk.CTkButton(
             btn_row, text="Reset auto",
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
             text_color=C_TEXT, width=110, height=32,
             command=self._reset_auto,
-        ).grid(row=0, column=0, padx=(0, 8))
+        )
+        _btn_reset_auto.grid(row=0, column=0, padx=(0, 8))
+        _apply_sec_hover(_btn_reset_auto)
 
-        ctk.CTkButton(
+        _btn_cancel_assign = ctk.CTkButton(
             btn_row, text="Cancelar",
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
             text_color=C_TEXT, width=90, height=32,
             command=self.destroy,
-        ).grid(row=0, column=2, padx=(8, 4))
+        )
+        _btn_cancel_assign.grid(row=0, column=2, padx=(8, 4))
+        _apply_sec_hover(_btn_cancel_assign)
 
         ctk.CTkButton(
             btn_row, text="Confirmar",
             fg_color=C_BTN_PRIMARY, hover_color=C_ACCENT_H,
-            text_color="#ffffff", width=100, height=32,
+            text_color=C_BTN_PRIMARY_TEXT, width=100, height=32,
             command=self._confirm,
         ).grid(row=0, column=3, padx=(4, 0))
 
@@ -403,34 +505,40 @@ class NamesListDialog(ctk.CTkToplevel):
         btn_row.grid(row=3, column=0, padx=12, pady=(0, 12), sticky="ew")
         btn_row.grid_columnconfigure(2, weight=1)
 
-        ctk.CTkButton(
+        _btn_limpiar_todo = ctk.CTkButton(
             btn_row, text="Limpiar todo",
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
             text_color=C_TEXT, width=110, height=32,
             command=self._clear_all,
-        ).grid(row=0, column=0, padx=(0, 4))
+        )
+        _btn_limpiar_todo.grid(row=0, column=0, padx=(0, 4))
+        _apply_sec_hover(_btn_limpiar_todo)
 
-        ctk.CTkButton(
+        _btn_limpiar_usados = ctk.CTkButton(
             btn_row, text="Limpiar usados",
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            border_width=1, border_color="#3a3a55",
-            text_color=C_TEXT_DIM, width=120, height=32,
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, width=120, height=32,
             command=self._clear_used,
-        ).grid(row=0, column=1, padx=(0, 4))
+        )
+        _btn_limpiar_usados.grid(row=0, column=1, padx=(0, 4))
+        _apply_sec_hover(_btn_limpiar_usados)
 
-        ctk.CTkButton(
+        _btn_cancel_names = ctk.CTkButton(
             btn_row, text="Cancelar",
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
             text_color=C_TEXT, width=90, height=32,
             command=self.destroy,
-        ).grid(row=0, column=3, padx=(8, 4))
+        )
+        _btn_cancel_names.grid(row=0, column=3, padx=(8, 4))
+        _apply_sec_hover(_btn_cancel_names)
 
         ctk.CTkButton(
             btn_row, text="Confirmar",
             fg_color=C_BTN_PRIMARY, hover_color=C_ACCENT_H,
-            text_color="#ffffff", width=100, height=32,
+            text_color=C_BTN_PRIMARY_TEXT, width=100, height=32,
             command=self._confirm,
         ).grid(row=0, column=4, padx=(4, 0))
 
@@ -491,6 +599,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         "C_CARD":           "Fondo de tarjetas",
         "C_INPUT":          "Fondo de inputs",
         "C_LOG":            "Fondo de logs",
+        "C_LOG_TEXT":       "Texto de logs",
         "C_BORDER":         "Bordes",
         "C_HOVER":          "Hover de superficies",
         "C_TEXT":           "Texto principal",
@@ -500,8 +609,9 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         "C_ACCENT_H":       "Acento ATV (hover)",
         "C_ACCENT_SLIDE":   "Acento Slideshow",
         "C_ACCENT_SLIDE_H": "Acento Slideshow (hover)",
-        "C_BTN_PRIMARY":    "Botón primario",
-        "C_BTN_SECONDARY":  "Botón secundario",
+        "C_BTN_PRIMARY":      "Botón primario",
+        "C_BTN_PRIMARY_TEXT": "Texto de botón primario",
+        "C_BTN_SECONDARY":    "Botón secundario",
         "C_BTN_OK":         "Botón OK",
         "C_BTN_DANGER":     "Botón peligro",
         "C_SUCCESS":        "Éxito",
@@ -561,14 +671,16 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         )
         self._mode_lbl.pack(padx=10, pady=4)
 
-        ctk.CTkButton(
+        _btn_toggle_mode = ctk.CTkButton(
             hdr, text="Dark / Light", height=28, width=120,
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
-            text_color=C_TEXT_DIM, corner_radius=6,
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, corner_radius=6,
             font=ctk.CTkFont(size=11),
             command=self._toggle_mode,
-        ).grid(row=0, column=3, sticky="e")
+        )
+        _btn_toggle_mode.grid(row=0, column=3, sticky="e")
+        _apply_sec_hover(_btn_toggle_mode)
 
         # ── Search bar ──
         search_f = ctk.CTkFrame(self, fg_color="transparent")
@@ -606,14 +718,16 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
             command=self._reset,
         ).grid(row=0, column=0, padx=(14, 8), pady=10)
 
-        ctk.CTkButton(
+        _btn_close_theme = ctk.CTkButton(
             footer, text="Cerrar",
             fg_color="transparent", hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
-            text_color=C_TEXT_DIM, height=34, width=90, corner_radius=6,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, height=34, width=90, corner_radius=6,
             font=ctk.CTkFont(size=11),
             command=self.destroy,
-        ).grid(row=0, column=2, padx=(8, 14), pady=10)
+        )
+        _btn_close_theme.grid(row=0, column=2, padx=(8, 14), pady=10)
+        _apply_sec_hover(_btn_close_theme)
 
     def _build_color_list(self) -> None:
         """Populate the scrollable frame with category headers and color rows."""
@@ -863,7 +977,7 @@ class AudioToVideoApp(ctk.CTk):
         self._build_header()
         self._build_main_area()
         # Thin separator between main and footer
-        ctk.CTkFrame(self, height=1, fg_color=C_BORDER, corner_radius=0).grid(
+        ctk.CTkFrame(self, height=2, fg_color=C_BORDER, corner_radius=0).grid(
             row=2, column=0, sticky="ew"
         )
         self._build_footer()
@@ -910,47 +1024,81 @@ class AudioToVideoApp(ctk.CTk):
         )
         mode_grp.grid(row=0, column=2, padx=(20, 0))
 
-        def _create_mode_btn(icon, acronym, is_active, accent, accent_h, cmd, prefix):
-            bg = accent if is_active else "transparent"
-            txt = "#ffffff" if is_active else C_TEXT_DIM
-            frame = ctk.CTkFrame(mode_grp, fg_color=bg, corner_radius=6, cursor="hand2")
-            frame.pack(side="left", padx=3, pady=3)
+        def _create_mode_btn(icon, acronym, is_active, accent, cmd, prefix):
+            # Outer wrapper: fixed 110×42px, placed children for precise layout
+            wrap = ctk.CTkFrame(mode_grp, fg_color="transparent",
+                                corner_radius=0, width=110, height=42)
+            wrap.pack(side="left", padx=2, pady=(4, 0))
+            wrap.pack_propagate(False)
+
+            bg  = C_INPUT if is_active else "transparent"
+            txt = C_TEXT  if is_active else C_TEXT_DIM
+            ind = accent  if is_active else "transparent"
+
+            # Content area (40px tall) — fills wrap, bar sits beneath it
+            inner = ctk.CTkFrame(wrap, fg_color=bg, corner_radius=6,
+                                 cursor="hand2", width=110, height=40)
+            inner.pack(fill="x")
+            inner.pack_propagate(False)
+
+            # Icon + text row — centered inside inner
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.place(relx=0.5, rely=0.5, anchor="center")
             icon_lbl = ctk.CTkLabel(
-                frame, text=icon, width=18,
+                row, text=icon, width=18,
                 font=ctk.CTkFont(family=_FA_FAMILY, size=12), text_color=txt)
-            icon_lbl.pack(side="left", padx=(10, 2), pady=6)
+            icon_lbl.pack(side="left", padx=(0, 4))
             text_lbl = ctk.CTkLabel(
-                frame, text=acronym,
+                row, text=acronym,
                 font=ctk.CTkFont(size=12, weight="bold"), text_color=txt)
-            text_lbl.pack(side="left", padx=(2, 10), pady=6)
-            setattr(self, f"_frame_mode_{prefix}", frame)
+            text_lbl.pack(side="left")
+
+            # Bottom accent bar (2px)
+            bar = ctk.CTkFrame(wrap, height=2, fg_color=ind, corner_radius=0)
+            bar.pack(fill="x")
+
+            setattr(self, f"_frame_mode_{prefix}",    inner)
             setattr(self, f"_lbl_mode_{prefix}_icon", icon_lbl)
             setattr(self, f"_lbl_mode_{prefix}_text", text_lbl)
-            setattr(self, f"_mode_{prefix}_base", bg)
-            # Full-surface hover bindings
-            def _enter(e):
-                frame.configure(fg_color=accent_h)
-            def _leave(e):
+            setattr(self, f"_bar_mode_{prefix}",      bar)
+            setattr(self, f"_mode_{prefix}_base",     bg)
+            setattr(self, f"_mode_{prefix}_accent",   accent)
+
+            _lbls = (icon_lbl, text_lbl)
+
+            def _on_enter(e, _inner=inner, _bar=bar, _prefix=prefix):
+                if getattr(self, f"_mode_{prefix}_base") != "transparent":
+                    return  # already active, skip hover
+                _inner.configure(fg_color=C_HOVER)
+                _bar.configure(fg_color=C_BORDER)
+                for lbl in _lbls:
+                    lbl.configure(text_color=C_TEXT)
+
+            def _on_leave(e, _inner=inner, _bar=bar, _prefix=prefix):
                 def _check():
                     try:
-                        mx, my = frame.winfo_pointerxy()
-                        w = frame.winfo_containing(mx, my)
-                        if w and (str(w) == str(frame) or str(w).startswith(str(frame) + ".")):
+                        mx, my = _inner.winfo_pointerxy()
+                        w = _inner.winfo_containing(mx, my)
+                        if w and (str(w) == str(_inner) or str(w).startswith(str(_inner) + ".")):
                             return
                     except Exception:
                         pass
-                    frame.configure(fg_color=getattr(self, f"_mode_{prefix}_base"))
-                frame.after(30, _check)
-            for w in (frame, icon_lbl, text_lbl):
-                w.bind("<Enter>", _enter)
-                w.bind("<Leave>", _leave)
-                w.bind("<Button-1>", lambda e, c=cmd: c())
+                    if getattr(self, f"_mode_{prefix}_base") != "transparent":
+                        return  # already active when leave fires
+                    _inner.configure(fg_color="transparent")
+                    _bar.configure(fg_color="transparent")
+                    for lbl in _lbls:
+                        lbl.configure(text_color=C_TEXT_DIM)
+                _inner.after(30, _check)
+
+            for w in (inner, row, icon_lbl, text_lbl):
+                w.bind("<Enter>",    _on_enter, add="+")
+                w.bind("<Leave>",    _on_leave, add="+")
+                w.bind("<Button-1>", lambda e, c=cmd: c(), add="+")
 
         _atv_active = self._current_mode == "Audio \u2192 Video"
-        _create_mode_btn(FA_FILM, "ATV", _atv_active, C_ACCENT, C_ACCENT_H,
-                         lambda: self._switch_mode("Audio \u2192 Video"), "atv")
-        _create_mode_btn(FA_IMAGES, "SLIDE", not _atv_active, C_ACCENT_SLIDE, C_ACCENT_SLIDE_H,
-                         lambda: self._switch_mode("Slideshow"), "slide")
+        _create_mode_btn(FA_FILM,   "ATV",   _atv_active,      C_ACCENT,       lambda: self._switch_mode("Audio \u2192 Video"), "atv")
+        _create_mode_btn(FA_IMAGES, "SLIDE",  not _atv_active, C_ACCENT_SLIDE, lambda: self._switch_mode("Slideshow"),         "slide")
 
         # ── Badge de estado del entorno ──────────────────────────────
         self._status_badge = ctk.CTkFrame(
@@ -1072,11 +1220,10 @@ class AudioToVideoApp(ctk.CTk):
                                  border_width=1, border_color=C_BORDER)
         _card_dir.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
         _card_dir.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_card_dir, text="Configuración de directorios", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_card_dir, "Configuración de directorios").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
         _dir_inner = ctk.CTkFrame(_card_dir, fg_color="transparent")
-        _dir_inner.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 14))
+        _dir_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _dir_inner.grid_columnconfigure(0, weight=1)
         ar = 0
 
@@ -1106,13 +1253,14 @@ class AudioToVideoApp(ctk.CTk):
         self._btn_assign_images = ctk.CTkButton(
             self._multi_image_wrapper,
             text="Ver / editar asignación  \u25b6",
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
-            text_color=C_TEXT, height=30,
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, height=40,
             font=ctk.CTkFont(size=self._fs(11)),
             command=self._open_image_assignment,
         )
         self._btn_assign_images.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
+        _apply_sec_hover(self._btn_assign_images)
         self._multi_image_wrapper.grid_remove()
         ar += 1
 
@@ -1120,14 +1268,16 @@ class AudioToVideoApp(ctk.CTk):
         ar = self._file_row(_dir_inner, "Carpeta de salida:", self._var_output,
                             self._browse_output, ar)
 
-        ctk.CTkButton(
-            _dir_inner, text="\u21bb  Recargar carpetas",
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
-            text_color=C_TEXT, height=28,
+        _btn_reload = ctk.CTkButton(
+            _dir_inner, text="\u21bb  RECARGAR CARPETAS",
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, height=40,
             font=ctk.CTkFont(size=self._fs(11)),
             command=self._reload_folders,
-        ).grid(row=ar, column=0, sticky="ew", padx=12, pady=(4, 8))
+        )
+        _btn_reload.grid(row=ar, column=0, sticky="ew", padx=12, pady=10)
+        _apply_sec_hover(_btn_reload)
 
         # ══════════════════════════════════════════════════════════════
         # TAB: VISUAL
@@ -1142,12 +1292,10 @@ class AudioToVideoApp(ctk.CTk):
         _sec_res = ctk.CTkFrame(vf, fg_color=C_CARD, corner_radius=10,
                                 border_width=1, border_color=C_BORDER)
         _sec_res.grid(row=vr, column=0, sticky="ew", padx=0, pady=(0, 16))
-        ctk.CTkLabel(_sec_res, text="Resolución", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).pack(anchor="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_res, "Resolución").pack(fill="x")
         self._var_resolution = tk.StringVar(value="1080p")
         _res_inner = ctk.CTkFrame(_sec_res, fg_color="transparent")
-        _res_inner.pack(fill="x", padx=16, pady=(0, 14))
+        _res_inner.pack(fill="x", padx=16, pady=(16, 20))
         for _rv in ("720p", "1080p", "4K"):
             ctk.CTkRadioButton(_res_inner, text=_rv, variable=self._var_resolution,
                                value=_rv, font=ctk.CTkFont(size=self._fs(11))
@@ -1159,11 +1307,10 @@ class AudioToVideoApp(ctk.CTk):
                                 border_width=1, border_color=C_BORDER)
         _sec_par.grid(row=vr, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_par.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_par, text="Parámetros", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_par, "Parámetros").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
         _par_inner = ctk.CTkFrame(_sec_par, fg_color="transparent")
-        _par_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 14))
+        _par_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _par_inner.grid_columnconfigure(0, weight=1)
         self._var_fade_in = tk.DoubleVar(value=2.0)
         pr = self._slider_row(_par_inner, "Fade in (s):", self._var_fade_in, 0, 10, 0, fmt="{:.1f}")
@@ -1189,11 +1336,10 @@ class AudioToVideoApp(ctk.CTk):
                                border_width=1, border_color=C_BORDER)
         _sec_fx.grid(row=vr, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_fx.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_fx, text="Efectos visuales", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_fx, "Efectos visuales").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
         _fx_inner = ctk.CTkFrame(_sec_fx, fg_color="transparent")
-        _fx_inner.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 14))
+        _fx_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _fx_inner.grid_columnconfigure(0, weight=1)
 
         self._var_zoom = tk.BooleanVar(value=True)
@@ -1270,11 +1416,10 @@ class AudioToVideoApp(ctk.CTk):
                                 border_width=1, border_color=C_BORDER)
         _sec_txt.grid(row=vr, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_txt.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_txt, text="Texto overlay", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_txt, "Texto overlay").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
         _txt_inner = ctk.CTkFrame(_sec_txt, fg_color="transparent")
-        _txt_inner.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 14))
+        _txt_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _txt_inner.grid_columnconfigure(0, weight=1)
 
         self._var_text_overlay = tk.BooleanVar(value=False)
@@ -1285,7 +1430,7 @@ class AudioToVideoApp(ctk.CTk):
             _txt_inner, fg_color=C_PANEL, corner_radius=6,
             border_width=1, border_color=C_BORDER,
         )
-        self._text_overlay_frame.grid(row=tr, column=0, sticky="ew", padx=8, pady=(0, 6))
+        self._text_overlay_frame.grid(row=tr, column=0, sticky="ew", padx=12, pady=(16, 20))
         self._text_overlay_frame.grid_columnconfigure(0, weight=1)
         tof = 0
 
@@ -1423,11 +1568,10 @@ class AudioToVideoApp(ctk.CTk):
                                 border_width=1, border_color=C_BORDER)
         _sec_pre.grid(row=sr, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_pre.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_pre, text="Presets", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_pre, "Presets").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
         self._preset_container = ctk.CTkFrame(_sec_pre, fg_color="transparent")
-        self._preset_container.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 8))
+        self._preset_container.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         self._preset_container.grid_columnconfigure(0, weight=1)
         self._preset_tiles_frame = ctk.CTkFrame(self._preset_container, fg_color="transparent")
         self._preset_tiles_frame.grid(row=0, column=0, sticky="ew", pady=(0, 4))
@@ -1454,11 +1598,10 @@ class AudioToVideoApp(ctk.CTk):
                                  border_width=1, border_color=C_BORDER)
         _sec_name.grid(row=sr, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_name.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_name, text="Nombre de salida", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_name, "Nombre de salida").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
         _name_inner = ctk.CTkFrame(_sec_name, fg_color="transparent")
-        _name_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 14))
+        _name_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _name_inner.grid_columnconfigure(0, weight=1)
         nr = 0
 
@@ -1511,14 +1654,16 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_TEXT, font=ctk.CTkFont(family="Consolas", size=self._fs(11)))
         self._txt_naming_list.grid(row=1, column=0, sticky="ew")
         self._txt_naming_list.bind("<KeyRelease>", lambda *_: self._refresh_names_count())
-        ctk.CTkButton(
+        _btn_names_list = ctk.CTkButton(
             self._naming_list_frame, text="Ver / editar lista  \u25b6",
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
-            text_color=C_TEXT, height=28,
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, height=40,
             font=ctk.CTkFont(size=self._fs(11)),
             command=self._open_names_list_dialog,
-        ).grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        )
+        _btn_names_list.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        _apply_sec_hover(_btn_names_list)
         self._naming_list_frame.grid_remove()
         nr += 1
 
@@ -1532,12 +1677,11 @@ class AudioToVideoApp(ctk.CTk):
                                  border_width=1, border_color=C_BORDER)
         _sec_perf.grid(row=sr, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_perf.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_perf, text="Rendimiento", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_perf, "Rendimiento").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
 
         inner_perf = ctk.CTkFrame(_sec_perf, fg_color="transparent")
-        inner_perf.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 14))
+        inner_perf.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         inner_perf.grid_columnconfigure(1, weight=1)
         inner_perf.grid_columnconfigure(4, weight=1)
 
@@ -1657,16 +1801,6 @@ class AudioToVideoApp(ctk.CTk):
         self._lbl_preview.grid(row=0, column=0, sticky="nsew")
         self._preview_img_path: str = ""  # ruta original para re-renderizar overlay
 
-        # Preview badge overlay
-        _preview_badge = ctk.CTkFrame(
-            self._preview_frame, fg_color=C_BTN_DANGER, corner_radius=10)
-        _preview_badge.place(relx=1.0, x=-12, y=10, anchor="ne")
-        ctk.CTkLabel(
-            _preview_badge, text="\u25cf  PREVIEW",
-            text_color="#ffffff",
-            font=ctk.CTkFont(size=9, weight="bold"),
-        ).pack(padx=8, pady=2)
-
         # Filmstrip de miniaturas (solo modo multi-imagen, horizontal scrollable)
         self._thumb_strip = ctk.CTkScrollableFrame(
             self._preview_frame,
@@ -1716,15 +1850,6 @@ class AudioToVideoApp(ctk.CTk):
             font=ctk.CTkFont(size=self._fs(13), weight="bold"),
             text_color=C_TEXT,
         ).pack(side="left")
-        _active_badge = ctk.CTkFrame(
-            _logs_hdr, fg_color=C_CARD, corner_radius=10,
-            border_width=1, border_color=C_SUCCESS)
-        _active_badge.pack(side="left", padx=(8, 0))
-        ctk.CTkLabel(
-            _active_badge, text="\u25cf Active",
-            text_color=C_SUCCESS,
-            font=ctk.CTkFont(size=self._fs(9)),
-        ).pack(padx=8, pady=2)
         # "Clear" button
         ctk.CTkButton(
             _logs_hdr, text="Clear", width=50, height=22,
@@ -1741,7 +1866,7 @@ class AudioToVideoApp(ctk.CTk):
         self._log_text = ctk.CTkTextbox(
             frame,
             fg_color=C_LOG,
-            text_color="#a8c8ff",
+            text_color=C_LOG_TEXT,
             font=ctk.CTkFont(family="Consolas", size=self._fs(11)),
             wrap="word",
             state="disabled",
@@ -1809,11 +1934,10 @@ class AudioToVideoApp(ctk.CTk):
                                  border_width=1, border_color=C_BORDER)
         _card_dir.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
         _card_dir.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_card_dir, text="Configuración de archivos", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_card_dir, "Configuración de archivos").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
         _dir_inner = ctk.CTkFrame(_card_dir, fg_color="transparent")
-        _dir_inner.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 14))
+        _dir_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _dir_inner.grid_columnconfigure(0, weight=1)
         ar = 0
 
@@ -1850,13 +1974,15 @@ class AudioToVideoApp(ctk.CTk):
                      font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=2, padx=(4, 0))
         ar += 1
 
-        ctk.CTkButton(
-            _dir_inner, text="\u21bb  Recargar imágenes",
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
-            text_color=C_TEXT_DIM, height=28,
+        _btn_sl_reload = ctk.CTkButton(
+            _dir_inner, text="\u21bb  RECARGAR CARPETAS",
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, height=40,
             command=self._sl_reload,
-        ).grid(row=ar, column=0, padx=12, pady=(0, 8), sticky="w")
+        )
+        _btn_sl_reload.grid(row=ar, column=0, padx=12, pady=(0, 8), sticky="w")
+        _apply_sec_hover(_btn_sl_reload)
         ar += 1
 
         self._sl_lbl_count = ctk.CTkLabel(
@@ -1880,11 +2006,10 @@ class AudioToVideoApp(ctk.CTk):
                                 border_width=1, border_color=C_BORDER)
         _sec_dur.grid(row=sqr, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_dur.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_dur, text="Duración y transición", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_dur, "Duración y transición").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
         _dur_inner = ctk.CTkFrame(_sec_dur, fg_color="transparent")
-        _dur_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 14))
+        _dur_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _dur_inner.grid_columnconfigure(0, weight=1)
         self._var_sl_duration = tk.DoubleVar(value=5.0)
         dr = self._slider_row(
@@ -1914,12 +2039,10 @@ class AudioToVideoApp(ctk.CTk):
                                 border_width=1, border_color=C_BORDER)
         _sec_res.grid(row=sqr, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_res.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_res, text="Resolución", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).pack(anchor="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_res, "Resolución").pack(fill="x")
         self._var_sl_resolution = tk.StringVar(value="1080p")
         _res_inner = ctk.CTkFrame(_sec_res, fg_color="transparent")
-        _res_inner.pack(fill="x", padx=16, pady=(0, 14))
+        _res_inner.pack(fill="x", padx=16, pady=(16, 20))
         for _res in ("720p", "1080p", "4K"):
             ctk.CTkRadioButton(
                 _res_inner, text=_res,
@@ -1933,11 +2056,10 @@ class AudioToVideoApp(ctk.CTk):
                                border_width=1, border_color=C_BORDER)
         _sec_fx.grid(row=sqr, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_fx.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_fx, text="Efectos", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_fx, "Efectos").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
         _fx_inner = ctk.CTkFrame(_sec_fx, fg_color="transparent")
-        _fx_inner.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 14))
+        _fx_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _fx_inner.grid_columnconfigure(0, weight=1)
         self._var_sl_zoom = tk.BooleanVar(value=False)
         fxr = self._check_row(_fx_inner, "Zoom suave por imagen", self._var_sl_zoom, 0,
@@ -1963,12 +2085,11 @@ class AudioToVideoApp(ctk.CTk):
                                  border_width=1, border_color=C_BORDER)
         _sec_perf.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 16))
         _sec_perf.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(_sec_perf, text="Rendimiento", text_color=C_TEXT,
-                     font=ctk.CTkFont(size=self._fs(13), weight="bold")
-                     ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
+        self._section_header(_sec_perf, "Rendimiento").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
 
         _perf_inner = ctk.CTkFrame(_sec_perf, fg_color="transparent")
-        _perf_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 14))
+        _perf_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _perf_inner.grid_columnconfigure(0, weight=1)
 
         _cpu_inner = ctk.CTkFrame(_perf_inner, fg_color="transparent")
@@ -2017,9 +2138,9 @@ class AudioToVideoApp(ctk.CTk):
 
         _pad = 10
         _sec_kw: dict = dict(
-            height=34, fg_color="transparent", hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
-            text_color=C_TEXT_DIM, corner_radius=6,
+            height=40, fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, corner_radius=6,
             font=ctk.CTkFont(size=self._fs(11)),
         )
 
@@ -2027,22 +2148,27 @@ class AudioToVideoApp(ctk.CTk):
             footer, text="CANCELAR", state="disabled",
             command=self._on_cancel, **_sec_kw)
         self._btn_cancel.grid(row=0, column=0, padx=(16, 4), pady=_pad)
+        _apply_sec_hover(self._btn_cancel)
 
         self._btn_preview = ctk.CTkButton(
             footer, text="PREVIEW EFECTO",
             command=self._on_preview, **_sec_kw)
         self._btn_preview.grid(row=0, column=1, padx=4, pady=_pad)
         self._prev_frame = self._btn_preview
+        _apply_sec_hover(self._btn_preview)
 
         self._btn_test = ctk.CTkButton(
             footer, text="PROBAR FFMPEG",
             command=self._on_test_ffmpeg, **_sec_kw)
         self._btn_test.grid(row=0, column=2, padx=4, pady=_pad)
+        _apply_sec_hover(self._btn_test)
 
-        ctk.CTkButton(
+        _btn_save = ctk.CTkButton(
             footer, text="GUARDAR CONFIG",
             command=self._save_settings, **_sec_kw,
-        ).grid(row=0, column=3, padx=4, pady=_pad)
+        )
+        _btn_save.grid(row=0, column=3, padx=4, pady=_pad)
+        _apply_sec_hover(_btn_save)
 
         # Primary CTA — right side
         self._btn_generate = ctk.CTkButton(
@@ -2083,41 +2209,49 @@ class AudioToVideoApp(ctk.CTk):
         _title = title
         _fa_lbl = None
 
+        # ── tab-style header container ──────────────────────────────
+        _tab_wrap = ctk.CTkFrame(parent, fg_color="transparent")
+        _tab_wrap.grid(row=row, column=0, sticky="ew", padx=12, pady=(6, 0))
+        _tab_wrap.grid_columnconfigure(0 if not fa_icon else 1, weight=1)
+
         if fa_icon:
-            _hdr = ctk.CTkFrame(parent, fg_color="transparent")
-            _hdr.grid(row=row, column=0, sticky="ew", padx=8, pady=(2, 0))
-            _hdr.grid_columnconfigure(1, weight=1)
             _fa_lbl = ctk.CTkLabel(
-                _hdr, text=fa_icon, width=22,
+                _tab_wrap, text=fa_icon, width=22,
                 font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(13)),
                 text_color=C_TEXT,
             )
             _fa_lbl.grid(row=0, column=0, padx=(6, 0))
-            btn = ctk.CTkButton(
-                _hdr,
-                text=f"{'\u25bc' if default_open else '\u25b6'}  {title}",
-                anchor="w",
-                fg_color="transparent",
-                hover_color=C_HOVER,
-                text_color=C_TEXT,
-                font=ctk.CTkFont(size=self._fs(12), weight="bold"),
-                height=34,
-                corner_radius=6,
-            )
-            btn.grid(row=0, column=1, sticky="ew")
-        else:
-            btn = ctk.CTkButton(
-                parent,
-                text=f"{'\u25bc' if default_open else '\u25b6'}  {title}",
-                anchor="w",
-                fg_color="transparent",
-                hover_color=C_HOVER,
-                text_color=C_TEXT,
-                font=ctk.CTkFont(size=self._fs(12), weight="bold"),
-                height=34,
-                corner_radius=6,
-            )
-            btn.grid(row=row, column=0, sticky="ew", padx=8, pady=(2, 0))
+            _tab_wrap.grid_columnconfigure(1, weight=1)
+
+        _btn_col = 1 if fa_icon else 0
+
+        # Tab button — active look when open
+        _fg_open   = C_INPUT   # #262626 — Surface High
+        _fg_closed = "transparent"
+        _tc_open   = C_TEXT
+        _tc_closed = C_TEXT_DIM
+
+        btn = ctk.CTkButton(
+            _tab_wrap,
+            text=title,
+            anchor="w",
+            fg_color=_fg_open if default_open else _fg_closed,
+            hover_color=C_HOVER,
+            text_color=_tc_open if default_open else _tc_closed,
+            font=ctk.CTkFont(size=self._fs(12), weight="bold"),
+            height=38,
+            corner_radius=8,
+        )
+        btn.grid(row=0, column=_btn_col, sticky="ew", padx=(0, 0))
+
+        # Accent bottom indicator line (active only)
+        _indicator = ctk.CTkFrame(
+            _tab_wrap,
+            height=2,
+            fg_color=C_ACCENT if default_open else "transparent",
+            corner_radius=0,
+        )
+        _indicator.grid(row=1, column=_btn_col, sticky="ew", padx=4)
 
         card = ctk.CTkFrame(
             parent,
@@ -2127,7 +2261,7 @@ class AudioToVideoApp(ctk.CTk):
             border_color=C_BORDER,
         )
         card.grid_columnconfigure(0, weight=1)
-        card.grid(row=row + 1, column=0, sticky="ew", padx=8, pady=(0, 0))
+        card.grid(row=row + 1, column=0, sticky="ew", padx=12, pady=(0, 0))
         ctk.CTkFrame(card, height=8, fg_color="transparent").grid(row=0, column=0, sticky="ew")
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.grid(row=1, column=0, sticky="ew")
@@ -2137,11 +2271,13 @@ class AudioToVideoApp(ctk.CTk):
         def _toggle() -> None:
             if _open[0]:
                 card.grid_remove()
-                btn.configure(text=f"\u25b6  {_title}")
+                btn.configure(fg_color=_fg_closed, text_color=_tc_closed)
+                _indicator.configure(fg_color="transparent")
                 _open[0] = False
             else:
                 card.grid()
-                btn.configure(text=f"\u25bc  {_title}")
+                btn.configure(fg_color=_fg_open, text_color=_tc_open)
+                _indicator.configure(fg_color=C_ACCENT)
                 _open[0] = True
 
         if not default_open:
@@ -2242,6 +2378,16 @@ class AudioToVideoApp(ctk.CTk):
 
         return outer, {n: d["frame"] for n, d in tab_data.items()}
 
+    def _section_header(self, parent: Any, text: str) -> ctk.CTkFrame:
+        """Nav-tab style section header with accent bottom line. Position with .grid() or .pack()."""
+        hdr = ctk.CTkFrame(parent, fg_color=C_INPUT, corner_radius=0)
+        ctk.CTkLabel(
+            hdr, text=text, text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+        ).pack(anchor="w", padx=16, pady=(12, 10))
+        ctk.CTkFrame(hdr, height=2, fg_color=C_ACCENT, corner_radius=0).pack(fill="x")
+        return hdr
+
     def _file_row(
         self,
         parent: Any,
@@ -2267,14 +2413,16 @@ class AudioToVideoApp(ctk.CTk):
                      text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11))).grid(
             row=0, column=1, sticky="ew", padx=4, pady=3)
-        ctk.CTkButton(
+        _browse_btn = ctk.CTkButton(
             container, text="Browse", width=65, height=26,
-            fg_color=C_BTN_SECONDARY, hover_color=C_HOVER,
-            border_width=1, border_color=C_BORDER,
-            text_color=C_TEXT_DIM, corner_radius=4,
+            fg_color="transparent", hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER,
+            text_color=C_TEXT, corner_radius=4,
             font=ctk.CTkFont(size=self._fs(10)),
             command=command,
-        ).grid(row=0, column=2, padx=(0, 5), pady=4)
+        )
+        _browse_btn.grid(row=0, column=2, padx=(0, 5), pady=4)
+        _apply_sec_hover(_browse_btn)
         return row + 2
 
     def _slider_row(
@@ -2458,21 +2606,18 @@ class AudioToVideoApp(ctk.CTk):
     def _update_mode_buttons(self) -> None:
         """Actualiza el color activo/inactivo de los botones ATV y SLIDE del header."""
         _atv_active = self._current_mode == "Audio \u2192 Video"
-        if hasattr(self, "_frame_mode_atv"):
-            bg = C_ACCENT if _atv_active else "transparent"
-            _t = "#ffffff" if _atv_active else C_TEXT_DIM
-            self._mode_atv_base = bg
-            self._frame_mode_atv.configure(fg_color=bg)
-            self._lbl_mode_atv_icon.configure(text_color=_t)
-            self._lbl_mode_atv_text.configure(text_color=_t)
-        if hasattr(self, "_frame_mode_slide"):
-            _sld = not _atv_active
-            bg = C_ACCENT_SLIDE if _sld else "transparent"
-            _t = "#ffffff" if _sld else C_TEXT_DIM
-            self._mode_slide_base = bg
-            self._frame_mode_slide.configure(fg_color=bg)
-            self._lbl_mode_slide_icon.configure(text_color=_t)
-            self._lbl_mode_slide_text.configure(text_color=_t)
+        for prefix, active in (("atv", _atv_active), ("slide", not _atv_active)):
+            if not hasattr(self, f"_frame_mode_{prefix}"):
+                continue
+            accent = getattr(self, f"_mode_{prefix}_accent")
+            bg  = C_INPUT if active else "transparent"
+            txt = C_TEXT  if active else C_TEXT_DIM
+            ind = accent  if active else "transparent"
+            setattr(self, f"_mode_{prefix}_base", bg)
+            getattr(self, f"_frame_mode_{prefix}").configure(fg_color=bg)
+            getattr(self, f"_bar_mode_{prefix}").configure(fg_color=ind)
+            getattr(self, f"_lbl_mode_{prefix}_icon").configure(text_color=txt)
+            getattr(self, f"_lbl_mode_{prefix}_text").configure(text_color=txt)
 
     def _switch_mode(self, mode: str) -> None:
         """Alterna entre los paneles Audio→Video y Slideshow."""
