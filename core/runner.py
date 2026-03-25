@@ -225,7 +225,20 @@ class Runner:
         output_path = job.output_path
 
         # Construir comando
-        builder = FFmpegBuilder(self.settings)
+        # Resolver texto dinámico antes de construir el builder
+        s = dict(self.settings)
+        if s.get("enable_dyn_text_overlay", False):
+            dyn_mode = s.get("dyn_text_mode", "Texto fijo")
+            if dyn_mode == "Texto fijo":
+                s["_resolved_dyn_text"] = s.get("dyn_text_content", "")
+            elif dyn_mode == "Nombre de canción":
+                s["_resolved_dyn_text"] = job.audio_path.stem
+            else:  # Prefijo + Nombre de canción
+                nm_mode = s.get("naming_mode", "Default")
+                prefix = (s.get("naming_name", "") if nm_mode == "Nombre"
+                          else s.get("naming_prefix", ""))
+                s["_resolved_dyn_text"] = f"{prefix}{job.audio_path.stem}"
+        builder = FFmpegBuilder(s)
         cmd = builder.build_command(
             audio_path=job.audio_path,
             image_path=image_path,
@@ -503,7 +516,30 @@ class ShortsRunner:
         image_path: Path | None,
         short_duration: float,
     ) -> None:
-        builder = FFmpegBuilder(self.settings)
+        # Resolver texto dinámico antes de construir el builder
+        s = dict(self.settings)
+        if s.get("sho_enable_dyn_text_overlay", False):
+            dyn_mode = s.get("sho_dyn_text_mode", "Texto fijo")
+            if dyn_mode == "Texto fijo":
+                s["_resolved_dyn_text"] = s.get("sho_dyn_text_content", "")
+            elif dyn_mode == "Nombre de canción":
+                # Use the output filename stem (which was resolved by NamingManager)
+                s["_resolved_dyn_text"] = job.output_path.stem
+            else:  # Prefijo + Nombre de canción
+                nm_mode = s.get("sho_naming_mode", "Default")
+                prefix = (s.get("sho_naming_name", "") if nm_mode == "Nombre"
+                          else s.get("sho_naming_prefix", ""))
+                s["_resolved_dyn_text"] = f"{prefix}{job.output_path.stem}"
+            # Map sho_dyn_* keys to dyn_* so FFmpegBuilder can find them
+            s["enable_dyn_text_overlay"]   = True
+            s["dyn_text_position"]         = s.get("sho_dyn_text_position", "Bottom")
+            s["dyn_text_margin"]           = s.get("sho_dyn_text_margin", 40)
+            s["dyn_text_font_size"]        = s.get("sho_dyn_text_font_size", 36)
+            s["dyn_text_font"]             = s.get("sho_dyn_text_font", "Arial")
+            s["dyn_text_color"]            = s.get("sho_dyn_text_color", "Blanco")
+            s["dyn_text_glitch_intensity"] = s.get("sho_dyn_text_glitch_intensity", 3)
+            s["dyn_text_glitch_speed"]     = s.get("sho_dyn_text_glitch_speed", 4.0)
+        builder = FFmpegBuilder(s)
         cmd = builder.build_short_cmd(
             audio_path=audio_path,
             image_path=image_path,

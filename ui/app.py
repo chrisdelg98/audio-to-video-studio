@@ -1438,7 +1438,7 @@ class AudioToVideoApp(ctk.CTk):
         _txt_inner.grid_columnconfigure(0, weight=1)
 
         self._var_text_overlay = tk.BooleanVar(value=False)
-        tr = self._check_row(_txt_inner, "Activar texto overlay", self._var_text_overlay,
+        tr = self._check_row(_txt_inner, "Activar texto overlay estático", self._var_text_overlay,
                              0, command=self._toggle_text_overlay_widgets)
 
         self._text_overlay_frame = ctk.CTkFrame(
@@ -1560,6 +1560,149 @@ class AudioToVideoApp(ctk.CTk):
 
         self._text_overlay_frame.grid_remove()
 
+        # --- Texto overlay DINÁMICO (ATV) ---
+        self._var_dyn_text_overlay = tk.BooleanVar(value=False)
+        dyn_tr = tr + 1   # row after the static frame
+        dyn_tr = self._check_row(_txt_inner, "Activar texto overlay dinámico",
+                                 self._var_dyn_text_overlay, dyn_tr,
+                                 command=self._toggle_dyn_text_overlay_widgets)
+        self._dyn_text_overlay_frame = ctk.CTkFrame(
+            _txt_inner, fg_color=C_PANEL, corner_radius=6,
+            border_width=1, border_color=C_BORDER,
+        )
+        self._dyn_text_overlay_frame.grid(row=dyn_tr, column=0, sticky="ew", padx=12, pady=(4, 16))
+        self._dyn_text_overlay_frame.grid_columnconfigure(0, weight=1)
+        dtof = 0
+
+        # Modo dinámico
+        _dyn_mode_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
+        _dyn_mode_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=(8, 4))
+        _dyn_mode_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_dyn_mode_f, text="Fuente del texto:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        _DYN_MODES = ["Texto fijo", "Nombre de canción", "Prefijo + Nombre de canción"]
+        self._var_dyn_text_mode = tk.StringVar(value="Texto fijo")
+        ctk.CTkOptionMenu(
+            _dyn_mode_f, variable=self._var_dyn_text_mode, values=_DYN_MODES,
+            width=210, height=28, font=ctk.CTkFont(size=self._fs(11)),
+            command=lambda _: self._on_dyn_text_mode_change(),
+        ).grid(row=0, column=1, sticky="w", padx=4)
+        dtof += 1
+
+        # Texto fijo (visible only when mode == "Texto fijo")
+        self._dyn_text_fixed_frame = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
+        self._dyn_text_fixed_frame.grid(row=dtof, column=0, sticky="ew", padx=10, pady=(0, 2))
+        self._dyn_text_fixed_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(self._dyn_text_fixed_frame, text="Texto:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
+            row=0, column=0, sticky="w", pady=(4, 0))
+        self._var_dyn_text_content = tk.StringVar()
+        ctk.CTkEntry(self._dyn_text_fixed_frame, textvariable=self._var_dyn_text_content,
+                     placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
+            row=1, column=0, sticky="ew", pady=(2, 4))
+        dtof += 1
+
+        _dyn_font_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
+        _dyn_font_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
+        _dyn_font_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_dyn_font_f, text="Fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        _dyn_fonts = available_fonts() or ["Arial"]
+        self._var_dyn_text_font = tk.StringVar(value=_dyn_fonts[0])
+        ctk.CTkOptionMenu(_dyn_font_f, variable=self._var_dyn_text_font, values=_dyn_fonts,
+                          width=160, height=28,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        dtof += 1
+
+        _TEXT_COLORS_DYN = ["Blanco", "Gris claro", "Gris", "Gris oscuro", "Negro"]
+        _dyn_col_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
+        _dyn_col_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
+        _dyn_col_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_dyn_col_f, text="Color:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        self._var_dyn_text_color = tk.StringVar(value="Blanco")
+        self._dyn_text_color_preview = ctk.CTkLabel(
+            _dyn_col_f, text="", width=16, height=16, corner_radius=8, fg_color="#FFFFFF")
+        self._dyn_text_color_preview.grid(row=0, column=2, padx=(6, 0))
+        _dyn_color_hex_map = {
+            "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+            "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+        }
+        def _update_dyn_color_preview(name: str) -> None:
+            self._dyn_text_color_preview.configure(fg_color=_dyn_color_hex_map.get(name, "#FFFFFF"))
+            self._update_preview_overlay()
+        ctk.CTkOptionMenu(_dyn_col_f, variable=self._var_dyn_text_color, values=_TEXT_COLORS_DYN,
+                          width=140, height=28, command=_update_dyn_color_preview,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        dtof += 1
+
+        _dyn_pos_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
+        _dyn_pos_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
+        ctk.CTkLabel(_dyn_pos_f, text="Posición:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
+        self._var_dyn_text_position = tk.StringVar(value="Top")
+        for _pos in ("Top", "Middle", "Bottom"):
+            ctk.CTkRadioButton(_dyn_pos_f, text=_pos, variable=self._var_dyn_text_position,
+                               value=_pos, font=ctk.CTkFont(size=self._fs(11))).pack(side="left", padx=6)
+        dtof += 1
+
+        _dyn_m_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
+        _dyn_m_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
+        _dyn_m_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_dyn_m_f, text="Margen (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_dyn_text_margin = tk.IntVar(value=40)
+        _dyn_m_lbl = ctk.CTkLabel(_dyn_m_f, text="40", text_color=C_TEXT,
+                                  font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _dyn_m_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_dyn_m_f, from_=10, to=200, variable=self._var_dyn_text_margin,
+                      command=lambda v: _dyn_m_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        dtof += 1
+
+        _dyn_fs_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
+        _dyn_fs_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
+        _dyn_fs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_dyn_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_dyn_text_font_size = tk.IntVar(value=36)
+        _dyn_fs_lbl = ctk.CTkLabel(_dyn_fs_f, text="36", text_color=C_TEXT,
+                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _dyn_fs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_dyn_fs_f, from_=12, to=120, variable=self._var_dyn_text_font_size,
+                      command=lambda v: _dyn_fs_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        dtof += 1
+
+        _dyn_gi_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
+        _dyn_gi_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
+        _dyn_gi_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_dyn_gi_f, text="Glitch (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_dyn_text_glitch_intensity = tk.IntVar(value=3)
+        _dyn_gi_lbl = ctk.CTkLabel(_dyn_gi_f, text="3", text_color=C_TEXT,
+                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _dyn_gi_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_dyn_gi_f, from_=0, to=20, variable=self._var_dyn_text_glitch_intensity,
+                      command=lambda v: _dyn_gi_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        dtof += 1
+
+        _dyn_gs_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
+        _dyn_gs_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=(2, 8))
+        _dyn_gs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_dyn_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_dyn_text_glitch_speed = tk.DoubleVar(value=4.0)
+        _dyn_gs_lbl = ctk.CTkLabel(_dyn_gs_f, text="4.0", text_color=C_TEXT,
+                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _dyn_gs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_dyn_gs_f, from_=0.5, to=20.0, variable=self._var_dyn_text_glitch_speed,
+                      command=lambda v: _dyn_gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+
+        self._dyn_text_overlay_frame.grid_remove()
+
         _refresh = lambda *_: (self._update_preview_overlay()
                                if getattr(self, "_current_mode", "") == "Audio \u2192 Video" else None)
         self._var_text_overlay.trace_add("write", _refresh)
@@ -1569,6 +1712,14 @@ class AudioToVideoApp(ctk.CTk):
         self._var_text_font_size.trace_add("write", _refresh)
         self._var_text_font.trace_add("write", _refresh)
         self._var_text_color.trace_add("write", _refresh)
+        self._var_dyn_text_overlay.trace_add("write", _refresh)
+        self._var_dyn_text_content.trace_add("write", _refresh)
+        self._var_dyn_text_mode.trace_add("write", _refresh)
+        self._var_dyn_text_position.trace_add("write", _refresh)
+        self._var_dyn_text_margin.trace_add("write", _refresh)
+        self._var_dyn_text_font_size.trace_add("write", _refresh)
+        self._var_dyn_text_font.trace_add("write", _refresh)
+        self._var_dyn_text_color.trace_add("write", _refresh)
 
         # ══════════════════════════════════════════════════════════════
         # TAB: SALIDA
@@ -1844,7 +1995,7 @@ class AudioToVideoApp(ctk.CTk):
         self._sl_preview_path:  str = ""
         self._sho_preview_path: str = ""
 
-        # Filmstrip de miniaturas (solo modo multi-imagen, horizontal scrollable)
+        # Filmstrip horizontal — ATV y Slideshow (debajo del preview)
         self._thumb_strip = ctk.CTkScrollableFrame(
             self._preview_frame,
             orientation="horizontal",
@@ -1856,6 +2007,19 @@ class AudioToVideoApp(ctk.CTk):
         self._thumb_strip.grid(row=1, column=0, sticky="ew")
         self._thumb_strip.grid_remove()
         self._thumb_strip_imgs: list[ctk.CTkImage] = []
+
+        # Filmstrip vertical — Shorts (a la derecha del preview)
+        self._thumb_strip_vert = ctk.CTkScrollableFrame(
+            self._preview_frame,
+            orientation="vertical",
+            width=52,
+            fg_color=C_BG,
+            scrollbar_button_color=C_BORDER,
+            scrollbar_button_hover_color=C_HOVER,
+        )
+        self._thumb_strip_vert.grid(row=0, column=1, sticky="ns", rowspan=2)
+        self._thumb_strip_vert.grid_remove()
+        self._thumb_strip_vert_imgs: list[ctk.CTkImage] = []
 
         # Mostrar imagen de fondo por defecto si existe (sin asignarla como selección)
         _default_bg = _BUNDLE_DIR / "defaultbg.png"
@@ -2116,6 +2280,275 @@ class AudioToVideoApp(ctk.CTk):
                          1.01, 1.15, 0, fmt="{:.3f}",
                          tooltip_text="Factor de zoom máximo al final de cada imagen")
         self._sl_zoom_wrapper.grid_remove()
+        sqr += 1
+
+        # --- Texto overlay (Slideshow) ---
+        _sl_sec_txt = ctk.CTkFrame(sqf, fg_color=C_CARD, corner_radius=10,
+                                   border_width=1, border_color=C_BORDER)
+        _sl_sec_txt.grid(row=sqr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sl_sec_txt.grid_columnconfigure(0, weight=1)
+        self._section_header(_sl_sec_txt, "Texto overlay").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _sl_txt_inner = ctk.CTkFrame(_sl_sec_txt, fg_color="transparent")
+        _sl_txt_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
+        _sl_txt_inner.grid_columnconfigure(0, weight=1)
+
+        self._var_sl_text_overlay = tk.BooleanVar(value=False)
+        sl_tr = self._check_row(_sl_txt_inner, "Activar texto overlay estático",
+                                self._var_sl_text_overlay, 0,
+                                command=self._sl_toggle_text_overlay_widgets)
+        self._sl_text_overlay_frame = ctk.CTkFrame(
+            _sl_txt_inner, fg_color=C_PANEL, corner_radius=6,
+            border_width=1, border_color=C_BORDER,
+        )
+        self._sl_text_overlay_frame.grid(row=sl_tr, column=0, sticky="ew", padx=12, pady=(16, 4))
+        self._sl_text_overlay_frame.grid_columnconfigure(0, weight=1)
+        sl_tof = 0
+
+        ctk.CTkLabel(self._sl_text_overlay_frame, text="Texto:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
+            row=sl_tof, column=0, sticky="w", padx=10, pady=(8, 0))
+        sl_tof += 1
+        self._var_sl_text_content = tk.StringVar()
+        ctk.CTkEntry(self._sl_text_overlay_frame, textvariable=self._var_sl_text_content,
+                     placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
+            row=sl_tof, column=0, sticky="ew", padx=10, pady=(2, 6))
+        sl_tof += 1
+
+        _sl_font_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
+        _sl_font_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_font_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_font_f, text="Fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        _sl_fonts = available_fonts() or ["Arial"]
+        self._var_sl_text_font = tk.StringVar(value=_sl_fonts[0])
+        ctk.CTkOptionMenu(_sl_font_f, variable=self._var_sl_text_font, values=_sl_fonts,
+                          width=160, height=28,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        sl_tof += 1
+
+        _sl_col_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
+        _sl_col_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_col_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_col_f, text="Color:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        self._var_sl_text_color = tk.StringVar(value="Blanco")
+        self._sl_text_color_preview = ctk.CTkLabel(
+            _sl_col_f, text="", width=16, height=16, corner_radius=8, fg_color="#FFFFFF")
+        self._sl_text_color_preview.grid(row=0, column=2, padx=(6, 0))
+        _sl_color_hex_map = {
+            "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+            "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+        }
+        def _sl_update_color_preview(name: str) -> None:
+            self._sl_text_color_preview.configure(fg_color=_sl_color_hex_map.get(name, "#FFFFFF"))
+        ctk.CTkOptionMenu(_sl_col_f, variable=self._var_sl_text_color,
+                          values=list(_sl_color_hex_map.keys()), width=140, height=28,
+                          command=_sl_update_color_preview,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        sl_tof += 1
+
+        _sl_pos_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
+        _sl_pos_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
+        ctk.CTkLabel(_sl_pos_f, text="Posición:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
+        self._var_sl_text_position = tk.StringVar(value="Bottom")
+        for _pos in ("Top", "Middle", "Bottom"):
+            ctk.CTkRadioButton(_sl_pos_f, text=_pos, variable=self._var_sl_text_position,
+                               value=_pos, font=ctk.CTkFont(size=self._fs(11))).pack(side="left", padx=6)
+        sl_tof += 1
+
+        _sl_m_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
+        _sl_m_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_m_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_m_f, text="Margen (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sl_text_margin = tk.IntVar(value=40)
+        _sl_m_lbl = ctk.CTkLabel(_sl_m_f, text="40", text_color=C_TEXT,
+                                 font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sl_m_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sl_m_f, from_=10, to=200, variable=self._var_sl_text_margin,
+                      command=lambda v: _sl_m_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        sl_tof += 1
+
+        _sl_fs_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
+        _sl_fs_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_fs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sl_text_font_size = tk.IntVar(value=36)
+        _sl_fs_lbl = ctk.CTkLabel(_sl_fs_f, text="36", text_color=C_TEXT,
+                                  font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sl_fs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sl_fs_f, from_=12, to=120, variable=self._var_sl_text_font_size,
+                      command=lambda v: _sl_fs_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        sl_tof += 1
+
+        _sl_gi_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
+        _sl_gi_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_gi_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_gi_f, text="Glitch (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sl_text_glitch_intensity = tk.IntVar(value=3)
+        _sl_gi_lbl = ctk.CTkLabel(_sl_gi_f, text="3", text_color=C_TEXT,
+                                  font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sl_gi_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sl_gi_f, from_=0, to=20, variable=self._var_sl_text_glitch_intensity,
+                      command=lambda v: _sl_gi_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        sl_tof += 1
+
+        _sl_gs_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
+        _sl_gs_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=(2, 8))
+        _sl_gs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sl_text_glitch_speed = tk.DoubleVar(value=4.0)
+        _sl_gs_lbl = ctk.CTkLabel(_sl_gs_f, text="4.0", text_color=C_TEXT,
+                                  font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sl_gs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sl_gs_f, from_=0.5, to=20.0, variable=self._var_sl_text_glitch_speed,
+                      command=lambda v: _sl_gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        self._sl_text_overlay_frame.grid_remove()
+
+        # --- Texto overlay DINÁMICO (Slideshow) ---
+        self._var_sl_dyn_text_overlay = tk.BooleanVar(value=False)
+        sl_dyn_tr = sl_tr + 1
+        sl_dyn_tr = self._check_row(_sl_txt_inner, "Activar texto overlay dinámico",
+                                    self._var_sl_dyn_text_overlay, sl_dyn_tr,
+                                    command=self._sl_toggle_dyn_text_overlay_widgets)
+        self._sl_dyn_text_overlay_frame = ctk.CTkFrame(
+            _sl_txt_inner, fg_color=C_PANEL, corner_radius=6,
+            border_width=1, border_color=C_BORDER,
+        )
+        self._sl_dyn_text_overlay_frame.grid(row=sl_dyn_tr, column=0, sticky="ew", padx=12, pady=(4, 16))
+        self._sl_dyn_text_overlay_frame.grid_columnconfigure(0, weight=1)
+        sl_dtof = 0
+
+        _sl_dyn_mode_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
+        _sl_dyn_mode_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=(8, 4))
+        _sl_dyn_mode_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_dyn_mode_f, text="Fuente del texto:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        _SL_DYN_MODES = ["Texto fijo", "Nombre de canción", "Prefijo + Nombre de canción"]
+        self._var_sl_dyn_text_mode = tk.StringVar(value="Texto fijo")
+        ctk.CTkOptionMenu(
+            _sl_dyn_mode_f, variable=self._var_sl_dyn_text_mode, values=_SL_DYN_MODES,
+            width=210, height=28, font=ctk.CTkFont(size=self._fs(11)),
+            command=lambda _: self._on_sl_dyn_text_mode_change(),
+        ).grid(row=0, column=1, sticky="w", padx=4)
+        sl_dtof += 1
+
+        self._sl_dyn_text_fixed_frame = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
+        self._sl_dyn_text_fixed_frame.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=(0, 2))
+        self._sl_dyn_text_fixed_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(self._sl_dyn_text_fixed_frame, text="Texto:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
+            row=0, column=0, sticky="w", pady=(4, 0))
+        self._var_sl_dyn_text_content = tk.StringVar()
+        ctk.CTkEntry(self._sl_dyn_text_fixed_frame, textvariable=self._var_sl_dyn_text_content,
+                     placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
+            row=1, column=0, sticky="ew", pady=(2, 4))
+        sl_dtof += 1
+
+        _sl_dyn_font_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
+        _sl_dyn_font_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_dyn_font_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_dyn_font_f, text="Fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        _sl_dyn_fonts = available_fonts() or ["Arial"]
+        self._var_sl_dyn_text_font = tk.StringVar(value=_sl_dyn_fonts[0])
+        ctk.CTkOptionMenu(_sl_dyn_font_f, variable=self._var_sl_dyn_text_font, values=_sl_dyn_fonts,
+                          width=160, height=28,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        sl_dtof += 1
+
+        _sl_dyn_col_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
+        _sl_dyn_col_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_dyn_col_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_dyn_col_f, text="Color:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        self._var_sl_dyn_text_color = tk.StringVar(value="Blanco")
+        self._sl_dyn_text_color_preview = ctk.CTkLabel(
+            _sl_dyn_col_f, text="", width=16, height=16, corner_radius=8, fg_color="#FFFFFF")
+        self._sl_dyn_text_color_preview.grid(row=0, column=2, padx=(6, 0))
+        def _sl_dyn_upd_color(name: str) -> None:
+            self._sl_dyn_text_color_preview.configure(fg_color=_sl_color_hex_map.get(name, "#FFFFFF"))
+        ctk.CTkOptionMenu(_sl_dyn_col_f, variable=self._var_sl_dyn_text_color,
+                          values=list(_sl_color_hex_map.keys()), width=140, height=28,
+                          command=_sl_dyn_upd_color,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        sl_dtof += 1
+
+        _sl_dyn_pos_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
+        _sl_dyn_pos_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
+        ctk.CTkLabel(_sl_dyn_pos_f, text="Posición:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
+        self._var_sl_dyn_text_position = tk.StringVar(value="Top")
+        for _pos in ("Top", "Middle", "Bottom"):
+            ctk.CTkRadioButton(_sl_dyn_pos_f, text=_pos, variable=self._var_sl_dyn_text_position,
+                               value=_pos, font=ctk.CTkFont(size=self._fs(11))).pack(side="left", padx=6)
+        sl_dtof += 1
+
+        _sl_dyn_m_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
+        _sl_dyn_m_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_dyn_m_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_dyn_m_f, text="Margen (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sl_dyn_text_margin = tk.IntVar(value=40)
+        _sl_dyn_m_lbl = ctk.CTkLabel(_sl_dyn_m_f, text="40", text_color=C_TEXT,
+                                     font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sl_dyn_m_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sl_dyn_m_f, from_=10, to=200, variable=self._var_sl_dyn_text_margin,
+                      command=lambda v: _sl_dyn_m_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        sl_dtof += 1
+
+        _sl_dyn_fs_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
+        _sl_dyn_fs_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_dyn_fs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_dyn_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sl_dyn_text_font_size = tk.IntVar(value=36)
+        _sl_dyn_fs_lbl = ctk.CTkLabel(_sl_dyn_fs_f, text="36", text_color=C_TEXT,
+                                      font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sl_dyn_fs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sl_dyn_fs_f, from_=12, to=120, variable=self._var_sl_dyn_text_font_size,
+                      command=lambda v: _sl_dyn_fs_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        sl_dtof += 1
+
+        _sl_dyn_gi_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
+        _sl_dyn_gi_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sl_dyn_gi_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_dyn_gi_f, text="Glitch (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sl_dyn_text_glitch_intensity = tk.IntVar(value=3)
+        _sl_dyn_gi_lbl = ctk.CTkLabel(_sl_dyn_gi_f, text="3", text_color=C_TEXT,
+                                      font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sl_dyn_gi_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sl_dyn_gi_f, from_=0, to=20, variable=self._var_sl_dyn_text_glitch_intensity,
+                      command=lambda v: _sl_dyn_gi_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        sl_dtof += 1
+
+        _sl_dyn_gs_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
+        _sl_dyn_gs_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=(2, 8))
+        _sl_dyn_gs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sl_dyn_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sl_dyn_text_glitch_speed = tk.DoubleVar(value=4.0)
+        _sl_dyn_gs_lbl = ctk.CTkLabel(_sl_dyn_gs_f, text="4.0", text_color=C_TEXT,
+                                      font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sl_dyn_gs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sl_dyn_gs_f, from_=0.5, to=20.0, variable=self._var_sl_dyn_text_glitch_speed,
+                      command=lambda v: _sl_dyn_gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        self._sl_dyn_text_overlay_frame.grid_remove()
+        sqr += 1
 
         # ══════════════════════════════════════════════════════════════
         # TAB: RENDIMIENTO
@@ -2388,7 +2821,7 @@ class AudioToVideoApp(ctk.CTk):
         _txt_inner.grid_columnconfigure(0, weight=1)
 
         self._var_sho_text_overlay = tk.BooleanVar(value=False)
-        txt_r = self._check_row(_txt_inner, "Activar texto overlay",
+        txt_r = self._check_row(_txt_inner, "Activar texto overlay estático",
                                 self._var_sho_text_overlay, 0,
                                 command=self._sho_toggle_text_overlay)
         self._sho_text_overlay_frame = ctk.CTkFrame(
@@ -2513,6 +2946,147 @@ class AudioToVideoApp(ctk.CTk):
             row=0, column=1, sticky="ew", padx=4)
         self._sho_text_overlay_frame.grid_remove()
 
+        # --- Texto overlay DINÁMICO (Shorts) ---
+        self._var_sho_dyn_text_overlay = tk.BooleanVar(value=False)
+        sho_dyn_tr = txt_r + 1
+        sho_dyn_tr = self._check_row(_txt_inner, "Activar texto overlay dinámico",
+                                     self._var_sho_dyn_text_overlay, sho_dyn_tr,
+                                     command=self._sho_toggle_dyn_text_overlay)
+        self._sho_dyn_text_overlay_frame = ctk.CTkFrame(
+            _txt_inner, fg_color=C_PANEL, corner_radius=6,
+            border_width=1, border_color=C_BORDER,
+        )
+        self._sho_dyn_text_overlay_frame.grid(row=sho_dyn_tr, column=0, sticky="ew",
+                                              padx=12, pady=(4, 16))
+        self._sho_dyn_text_overlay_frame.grid_columnconfigure(0, weight=1)
+        sho_dtof = 0
+
+        _sho_dyn_mode_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
+        _sho_dyn_mode_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=(8, 4))
+        _sho_dyn_mode_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sho_dyn_mode_f, text="Fuente del texto:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        _SHO_DYN_MODES = ["Texto fijo", "Nombre de canción", "Prefijo + Nombre de canción"]
+        self._var_sho_dyn_text_mode = tk.StringVar(value="Texto fijo")
+        ctk.CTkOptionMenu(
+            _sho_dyn_mode_f, variable=self._var_sho_dyn_text_mode, values=_SHO_DYN_MODES,
+            width=210, height=28, font=ctk.CTkFont(size=self._fs(11)),
+            command=lambda _: self._on_sho_dyn_text_mode_change(),
+        ).grid(row=0, column=1, sticky="w", padx=4)
+        sho_dtof += 1
+
+        self._sho_dyn_text_fixed_frame = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
+        self._sho_dyn_text_fixed_frame.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=(0, 2))
+        self._sho_dyn_text_fixed_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(self._sho_dyn_text_fixed_frame, text="Texto:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
+            row=0, column=0, sticky="w", pady=(4, 0))
+        self._var_sho_dyn_text_content = tk.StringVar()
+        ctk.CTkEntry(self._sho_dyn_text_fixed_frame, textvariable=self._var_sho_dyn_text_content,
+                     placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
+            row=1, column=0, sticky="ew", pady=(2, 4))
+        sho_dtof += 1
+
+        _sho_dyn_font_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
+        _sho_dyn_font_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sho_dyn_font_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sho_dyn_font_f, text="Fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        _sho_dyn_fonts = available_fonts() or ["Arial"]
+        self._var_sho_dyn_text_font = tk.StringVar(value=_sho_dyn_fonts[0])
+        ctk.CTkOptionMenu(_sho_dyn_font_f, variable=self._var_sho_dyn_text_font, values=_sho_dyn_fonts,
+                          width=160, height=28,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        sho_dtof += 1
+
+        _sho_dyn_col_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
+        _sho_dyn_col_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sho_dyn_col_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sho_dyn_col_f, text="Color:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
+        self._var_sho_dyn_text_color = tk.StringVar(value="Blanco")
+        self._sho_dyn_text_color_preview = ctk.CTkLabel(
+            _sho_dyn_col_f, text="", width=16, height=16, corner_radius=8, fg_color="#FFFFFF")
+        self._sho_dyn_text_color_preview.grid(row=0, column=2, padx=(6, 0))
+        _sho_dyn_color_hex = {
+            "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+            "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+        }
+        def _sho_dyn_upd_color(name: str) -> None:
+            self._sho_dyn_text_color_preview.configure(
+                fg_color=_sho_dyn_color_hex.get(name, "#FFFFFF"))
+        ctk.CTkOptionMenu(_sho_dyn_col_f, variable=self._var_sho_dyn_text_color,
+                          values=list(_sho_dyn_color_hex.keys()), width=140, height=28,
+                          command=_sho_dyn_upd_color,
+                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        sho_dtof += 1
+
+        _sho_dyn_pos_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
+        _sho_dyn_pos_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
+        ctk.CTkLabel(_sho_dyn_pos_f, text="Posición:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
+        self._var_sho_dyn_text_position = tk.StringVar(value="Top")
+        for _pos in ("Top", "Middle", "Bottom"):
+            ctk.CTkRadioButton(_sho_dyn_pos_f, text=_pos, variable=self._var_sho_dyn_text_position,
+                               value=_pos, font=ctk.CTkFont(size=self._fs(11))).pack(side="left", padx=6)
+        sho_dtof += 1
+
+        _sho_dyn_m_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
+        _sho_dyn_m_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sho_dyn_m_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sho_dyn_m_f, text="Margen (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sho_dyn_text_margin = tk.IntVar(value=40)
+        _sho_dyn_m_lbl = ctk.CTkLabel(_sho_dyn_m_f, text="40", text_color=C_TEXT,
+                                      font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sho_dyn_m_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sho_dyn_m_f, from_=10, to=200, variable=self._var_sho_dyn_text_margin,
+                      command=lambda v: _sho_dyn_m_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        sho_dtof += 1
+
+        _sho_dyn_fs_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
+        _sho_dyn_fs_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sho_dyn_fs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sho_dyn_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sho_dyn_text_font_size = tk.IntVar(value=36)
+        _sho_dyn_fs_lbl = ctk.CTkLabel(_sho_dyn_fs_f, text="36", text_color=C_TEXT,
+                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sho_dyn_fs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sho_dyn_fs_f, from_=12, to=120, variable=self._var_sho_dyn_text_font_size,
+                      command=lambda v: _sho_dyn_fs_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        sho_dtof += 1
+
+        _sho_dyn_gi_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
+        _sho_dyn_gi_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
+        _sho_dyn_gi_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sho_dyn_gi_f, text="Glitch (px):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sho_dyn_text_glitch_intensity = tk.IntVar(value=3)
+        _sho_dyn_gi_lbl = ctk.CTkLabel(_sho_dyn_gi_f, text="3", text_color=C_TEXT,
+                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sho_dyn_gi_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sho_dyn_gi_f, from_=0, to=20, variable=self._var_sho_dyn_text_glitch_intensity,
+                      command=lambda v: _sho_dyn_gi_lbl.configure(text=f"{int(float(v))}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        sho_dtof += 1
+
+        _sho_dyn_gs_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
+        _sho_dyn_gs_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=(2, 8))
+        _sho_dyn_gs_f.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_sho_dyn_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
+        self._var_sho_dyn_text_glitch_speed = tk.DoubleVar(value=4.0)
+        _sho_dyn_gs_lbl = ctk.CTkLabel(_sho_dyn_gs_f, text="4.0", text_color=C_TEXT,
+                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
+        _sho_dyn_gs_lbl.grid(row=0, column=2, padx=(4, 0))
+        ctk.CTkSlider(_sho_dyn_gs_f, from_=0.5, to=20.0, variable=self._var_sho_dyn_text_glitch_speed,
+                      command=lambda v: _sho_dyn_gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+            row=0, column=1, sticky="ew", padx=4)
+        self._sho_dyn_text_overlay_frame.grid_remove()
+
         # Traces to refresh preview when any Shorts text setting changes
         _sho_prev = lambda *_: (self._update_preview_overlay()
                                 if getattr(self, "_current_mode", "") == "Shorts" else None)
@@ -2522,6 +3096,32 @@ class AudioToVideoApp(ctk.CTk):
         self._var_sho_text_margin.trace_add("write", _sho_prev)
         self._var_sho_text_font_size.trace_add("write", _sho_prev)
         self._var_sho_text_font.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_overlay.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_content.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_mode.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_position.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_margin.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_font_size.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_font.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_color.trace_add("write", _sho_prev)
+        vr += 1
+
+        # --- Parámetros (fade) ---
+        _sec_par_sho = ctk.CTkFrame(vf, fg_color=C_CARD, corner_radius=10,
+                                    border_width=1, border_color=C_BORDER)
+        _sec_par_sho.grid(row=vr, column=0, sticky="ew", padx=0, pady=(0, 16))
+        _sec_par_sho.grid_columnconfigure(0, weight=1)
+        self._section_header(_sec_par_sho, "Parámetros").grid(
+            row=0, column=0, sticky="ew", padx=0, pady=0)
+        _par_sho_inner = ctk.CTkFrame(_sec_par_sho, fg_color="transparent")
+        _par_sho_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
+        _par_sho_inner.grid_columnconfigure(0, weight=1)
+        self._var_sho_fade_in = tk.DoubleVar(value=0.5)
+        sho_pr = self._slider_row(_par_sho_inner, "Fade in (s):",
+                                  self._var_sho_fade_in, 0, 10, 0, fmt="{:.1f}")
+        self._var_sho_fade_out = tk.DoubleVar(value=0.5)
+        self._slider_row(_par_sho_inner, "Fade out (s):",
+                         self._var_sho_fade_out, 0, 10, sho_pr, fmt="{:.1f}")
         vr += 1
 
         # ══════════════════════════════════════════════════════════════
@@ -3197,10 +3797,39 @@ class AudioToVideoApp(ctk.CTk):
             getattr(self, f"_lbl_mode_{prefix}_icon").configure(text_color=txt)
             getattr(self, f"_lbl_mode_{prefix}_text").configure(text_color=txt)
 
+    def _configure_preview_for_mode(self, mode: str) -> None:
+        """Ajusta el ancho, alto y disposición del frame de preview según el modo activo."""
+        if mode == "Shorts":
+            # Marco vertical 9:16 con strip lateral derecho
+            self._preview_frame.configure(width=255, height=360)
+            self._preview_frame.grid_configure(sticky="n", padx=0)
+            self._preview_frame.grid_columnconfigure(0, weight=0)
+            self._preview_frame.grid_columnconfigure(1, weight=0)
+            self._preview_frame.grid_rowconfigure(0, weight=1)
+            self._lbl_preview.grid_configure(row=0, column=0, sticky="nsew", rowspan=2)
+            # Mostrar strip vertical, ocultar horizontal
+            self._thumb_strip.grid_remove()
+        else:
+            # Marco horizontal 16:9 con strip debajo
+            self._preview_frame.configure(width=0, height=270)
+            self._preview_frame.grid_configure(sticky="ew", padx=16)
+            self._preview_frame.grid_columnconfigure(0, weight=1)
+            self._preview_frame.grid_columnconfigure(1, weight=0)
+            self._preview_frame.grid_rowconfigure(0, weight=1)
+            self._preview_frame.grid_rowconfigure(1, weight=0)
+            self._lbl_preview.grid_configure(row=0, column=0, sticky="nsew", rowspan=1)
+            # Ocultar strip vertical (el horizontal lo gestiona rebuild_thumb_strip)
+            if hasattr(self, "_thumb_strip_vert"):
+                self._thumb_strip_vert.grid_remove()
+
     def _switch_mode(self, mode: str) -> None:
         """Alterna entre los paneles Audio→Video, Slideshow y Shorts."""
         self._current_mode = mode
+        self._configure_preview_for_mode(mode)
         self._update_mode_buttons()
+        # Flush pending geometry events so the preview frame has its correct size
+        # before loading images (avoids canvas being 0px wide after Shorts→ATV)
+        self.update_idletasks()
         # Hide all left panels first
         self._scroll_frame.grid_remove()
         if hasattr(self, "_sl_scroll_frame"):
@@ -3337,32 +3966,36 @@ class AudioToVideoApp(ctk.CTk):
                 self._load_preview(str(imgs[0]))
 
     def _rebuild_thumb_strip_sho(self) -> None:
-        """Repobla el filmstrip con imágenes de la carpeta de Shorts (miniaturas 9:16)."""
-        if not hasattr(self, "_thumb_strip"):
+        """Repobla el filmstrip vertical con imágenes de la carpeta de Shorts (miniaturas 9:16)."""
+        if not hasattr(self, "_thumb_strip_vert"):
             return
-        for w in self._thumb_strip.winfo_children():
+        # Only show the vertical strip when actually in Shorts mode
+        if getattr(self, "_current_mode", "") != "Shorts":
+            self._thumb_strip_vert.grid_remove()
+            return
+        for w in self._thumb_strip_vert.winfo_children():
             w.destroy()
-        self._thumb_strip_imgs.clear()
+        self._thumb_strip_vert_imgs.clear()
         if not getattr(self, "_var_sho_multi_image", tk.BooleanVar(value=False)).get():
-            self._thumb_strip.grid_remove()
+            self._thumb_strip_vert.grid_remove()
             return
         folder = self._var_sho_images_folder.get() if hasattr(self, "_var_sho_images_folder") else ""
         if not folder or not Path(folder).is_dir():
-            self._thumb_strip.grid_remove()
+            self._thumb_strip_vert.grid_remove()
             return
         imgs = get_image_files(folder)
         if not imgs:
-            self._thumb_strip.grid_remove()
+            self._thumb_strip_vert.grid_remove()
             return
-        TW, TH = 32, 56  # 9:16 thumbnail
+        TW, TH = 36, 64  # 9:16 thumbnail
         for i, img_path in enumerate(imgs):
             try:
                 thumb = Image.open(str(img_path))
                 thumb = self._crop_img_to_9_16(thumb, TW, TH)
                 ctk_thumb = ctk.CTkImage(light_image=thumb, dark_image=thumb, size=(TW, TH))
-                self._thumb_strip_imgs.append(ctk_thumb)
+                self._thumb_strip_vert_imgs.append(ctk_thumb)
                 btn = ctk.CTkButton(
-                    self._thumb_strip,
+                    self._thumb_strip_vert,
                     image=ctk_thumb, text="",
                     width=TW + 4, height=TH + 8,
                     fg_color=C_CARD, hover_color=C_HOVER,
@@ -3370,10 +4003,10 @@ class AudioToVideoApp(ctk.CTk):
                     corner_radius=3,
                     command=lambda p=str(img_path): self._load_preview(p),
                 )
-                btn.grid(row=0, column=i, padx=2, pady=2)
+                btn.grid(row=i, column=0, padx=2, pady=2)
             except Exception:
                 pass
-        self._thumb_strip.grid()
+        self._thumb_strip_vert.grid()
 
     def _rebuild_thumb_strip_sl(self) -> None:
         """Repobla el filmstrip con imágenes de la carpeta de slideshow."""
@@ -3451,6 +4084,27 @@ class AudioToVideoApp(ctk.CTk):
             "sl_gpu_encoding": self._var_sl_gpu_encoding.get(),
             "sl_enable_zoom": self._var_sl_zoom.get(),
             "sl_zoom_max": round(self._var_sl_zoom_max.get(), 3),
+            # Text overlay estático (Slideshow)
+            "sl_enable_text_overlay":    self._var_sl_text_overlay.get() if hasattr(self, "_var_sl_text_overlay") else False,
+            "sl_text_content":           self._var_sl_text_content.get() if hasattr(self, "_var_sl_text_content") else "",
+            "sl_text_position":          self._var_sl_text_position.get() if hasattr(self, "_var_sl_text_position") else "Bottom",
+            "sl_text_margin":            int(self._var_sl_text_margin.get()) if hasattr(self, "_var_sl_text_margin") else 40,
+            "sl_text_font_size":         int(self._var_sl_text_font_size.get()) if hasattr(self, "_var_sl_text_font_size") else 36,
+            "sl_text_font":              self._var_sl_text_font.get() if hasattr(self, "_var_sl_text_font") else "Arial",
+            "sl_text_color":             self._var_sl_text_color.get() if hasattr(self, "_var_sl_text_color") else "Blanco",
+            "sl_text_glitch_intensity":  int(self._var_sl_text_glitch_intensity.get()) if hasattr(self, "_var_sl_text_glitch_intensity") else 3,
+            "sl_text_glitch_speed":      round(self._var_sl_text_glitch_speed.get(), 1) if hasattr(self, "_var_sl_text_glitch_speed") else 4.0,
+            # Text overlay dinámico (Slideshow)
+            "sl_enable_dyn_text_overlay": self._var_sl_dyn_text_overlay.get() if hasattr(self, "_var_sl_dyn_text_overlay") else False,
+            "sl_dyn_text_mode":          self._var_sl_dyn_text_mode.get() if hasattr(self, "_var_sl_dyn_text_mode") else "Texto fijo",
+            "sl_dyn_text_content":       self._var_sl_dyn_text_content.get() if hasattr(self, "_var_sl_dyn_text_content") else "",
+            "sl_dyn_text_position":      self._var_sl_dyn_text_position.get() if hasattr(self, "_var_sl_dyn_text_position") else "Bottom",
+            "sl_dyn_text_margin":        int(self._var_sl_dyn_text_margin.get()) if hasattr(self, "_var_sl_dyn_text_margin") else 40,
+            "sl_dyn_text_font_size":     int(self._var_sl_dyn_text_font_size.get()) if hasattr(self, "_var_sl_dyn_text_font_size") else 36,
+            "sl_dyn_text_font":          self._var_sl_dyn_text_font.get() if hasattr(self, "_var_sl_dyn_text_font") else "Arial",
+            "sl_dyn_text_color":         self._var_sl_dyn_text_color.get() if hasattr(self, "_var_sl_dyn_text_color") else "Blanco",
+            "sl_dyn_text_glitch_intensity": int(self._var_sl_dyn_text_glitch_intensity.get()) if hasattr(self, "_var_sl_dyn_text_glitch_intensity") else 3,
+            "sl_dyn_text_glitch_speed":  round(self._var_sl_dyn_text_glitch_speed.get(), 1) if hasattr(self, "_var_sl_dyn_text_glitch_speed") else 4.0,
         })
 
     def _on_generate_slideshow(self) -> None:
@@ -3565,10 +4219,10 @@ class AudioToVideoApp(ctk.CTk):
         else:
             self._sho_multi_img_wrapper.grid_remove()
             self._sho_single_img_wrapper.grid()
-            for w in self._thumb_strip.winfo_children():
+            for w in self._thumb_strip_vert.winfo_children():
                 w.destroy()
-            self._thumb_strip_imgs.clear()
-            self._thumb_strip.grid_remove()
+            self._thumb_strip_vert_imgs.clear()
+            self._thumb_strip_vert.grid_remove()
             if getattr(self, "_current_mode", "") == "Shorts":
                 path = self._var_sho_image.get()
                 if path and Path(path).is_file():
@@ -3696,6 +4350,8 @@ class AudioToVideoApp(ctk.CTk):
             "sho_glitch_speed":     int(self._var_sho_glitch_speed_fx.get()) if hasattr(self, "_var_sho_glitch_speed_fx") else 90,
             "sho_glitch_pulse":     int(self._var_sho_glitch_pulse.get()) if hasattr(self, "_var_sho_glitch_pulse") else 3,
             "sho_normalize_audio":  self._var_sho_normalize.get() if hasattr(self, "_var_sho_normalize") else False,
+            "sho_fade_in":          round(self._var_sho_fade_in.get(), 2) if hasattr(self, "_var_sho_fade_in") else 0.5,
+            "sho_fade_out":         round(self._var_sho_fade_out.get(), 2) if hasattr(self, "_var_sho_fade_out") else 0.5,
             "sho_enable_text_overlay": self._var_sho_text_overlay.get() if hasattr(self, "_var_sho_text_overlay") else False,
             "sho_text_content":     self._var_sho_text_content.get() if hasattr(self, "_var_sho_text_content") else "",
             "sho_text_position":    self._var_sho_text_position.get() if hasattr(self, "_var_sho_text_position") else "Bottom",
@@ -3705,6 +4361,17 @@ class AudioToVideoApp(ctk.CTk):
             "sho_text_color":       self._var_sho_text_color.get() if hasattr(self, "_var_sho_text_color") else "Blanco",
             "sho_text_glitch_intensity": int(self._var_sho_text_glitch_intensity.get()) if hasattr(self, "_var_sho_text_glitch_intensity") else 3,
             "sho_text_glitch_speed": float(self._var_sho_text_glitch_speed.get()) if hasattr(self, "_var_sho_text_glitch_speed") else 4.0,
+            # Text overlay dinámico (Shorts)
+            "sho_enable_dyn_text_overlay": self._var_sho_dyn_text_overlay.get() if hasattr(self, "_var_sho_dyn_text_overlay") else False,
+            "sho_dyn_text_mode":          self._var_sho_dyn_text_mode.get() if hasattr(self, "_var_sho_dyn_text_mode") else "Texto fijo",
+            "sho_dyn_text_content":       self._var_sho_dyn_text_content.get() if hasattr(self, "_var_sho_dyn_text_content") else "",
+            "sho_dyn_text_position":      self._var_sho_dyn_text_position.get() if hasattr(self, "_var_sho_dyn_text_position") else "Bottom",
+            "sho_dyn_text_margin":        int(self._var_sho_dyn_text_margin.get()) if hasattr(self, "_var_sho_dyn_text_margin") else 40,
+            "sho_dyn_text_font_size":     int(self._var_sho_dyn_text_font_size.get()) if hasattr(self, "_var_sho_dyn_text_font_size") else 36,
+            "sho_dyn_text_font":          self._var_sho_dyn_text_font.get() if hasattr(self, "_var_sho_dyn_text_font") else "Arial",
+            "sho_dyn_text_color":         self._var_sho_dyn_text_color.get() if hasattr(self, "_var_sho_dyn_text_color") else "Blanco",
+            "sho_dyn_text_glitch_intensity": int(self._var_sho_dyn_text_glitch_intensity.get()) if hasattr(self, "_var_sho_dyn_text_glitch_intensity") else 3,
+            "sho_dyn_text_glitch_speed":  round(self._var_sho_dyn_text_glitch_speed.get(), 1) if hasattr(self, "_var_sho_dyn_text_glitch_speed") else 4.0,
             "sho_naming_mode":      self._var_sho_naming_mode.get() if hasattr(self, "_var_sho_naming_mode") else "Default",
             "sho_naming_name":       self._var_sho_naming_name.get() if hasattr(self, "_var_sho_naming_name") else "",
             "sho_naming_prefix":    self._var_sho_naming_prefix.get() if hasattr(self, "_var_sho_naming_prefix") else "",
@@ -3991,6 +4658,62 @@ class AudioToVideoApp(ctk.CTk):
         else:
             self._text_overlay_frame.grid_remove()
 
+    def _toggle_dyn_text_overlay_widgets(self) -> None:
+        if self._var_dyn_text_overlay.get():
+            self._dyn_text_overlay_frame.grid()
+        else:
+            self._dyn_text_overlay_frame.grid_remove()
+        if getattr(self, "_current_mode", "") == "Audio \u2192 Video":
+            self._update_preview_overlay()
+
+    def _on_dyn_text_mode_change(self) -> None:
+        mode = self._var_dyn_text_mode.get() if hasattr(self, "_var_dyn_text_mode") else "Texto fijo"
+        if hasattr(self, "_dyn_text_fixed_frame"):
+            if mode == "Texto fijo":
+                self._dyn_text_fixed_frame.grid()
+            else:
+                self._dyn_text_fixed_frame.grid_remove()
+        if getattr(self, "_current_mode", "") == "Audio \u2192 Video":
+            self._update_preview_overlay()
+
+    def _sl_toggle_text_overlay_widgets(self) -> None:
+        if self._var_sl_text_overlay.get():
+            self._sl_text_overlay_frame.grid()
+        else:
+            self._sl_text_overlay_frame.grid_remove()
+
+    def _sl_toggle_dyn_text_overlay_widgets(self) -> None:
+        if self._var_sl_dyn_text_overlay.get():
+            self._sl_dyn_text_overlay_frame.grid()
+        else:
+            self._sl_dyn_text_overlay_frame.grid_remove()
+
+    def _on_sl_dyn_text_mode_change(self) -> None:
+        mode = self._var_sl_dyn_text_mode.get() if hasattr(self, "_var_sl_dyn_text_mode") else "Texto fijo"
+        if hasattr(self, "_sl_dyn_text_fixed_frame"):
+            if mode == "Texto fijo":
+                self._sl_dyn_text_fixed_frame.grid()
+            else:
+                self._sl_dyn_text_fixed_frame.grid_remove()
+
+    def _sho_toggle_dyn_text_overlay(self) -> None:
+        if self._var_sho_dyn_text_overlay.get():
+            self._sho_dyn_text_overlay_frame.grid()
+        else:
+            self._sho_dyn_text_overlay_frame.grid_remove()
+        if getattr(self, "_current_mode", "") == "Shorts":
+            self._update_preview_overlay()
+
+    def _on_sho_dyn_text_mode_change(self) -> None:
+        mode = self._var_sho_dyn_text_mode.get() if hasattr(self, "_var_sho_dyn_text_mode") else "Texto fijo"
+        if hasattr(self, "_sho_dyn_text_fixed_frame"):
+            if mode == "Texto fijo":
+                self._sho_dyn_text_fixed_frame.grid()
+            else:
+                self._sho_dyn_text_fixed_frame.grid_remove()
+        if getattr(self, "_current_mode", "") == "Shorts":
+            self._update_preview_overlay()
+
     def _on_naming_mode_change(self, mode: str) -> None:
         """Muestra u oculta el campo de prefijo y/o la lista según el modo elegido."""
         needs_name   = mode == "Nombre"
@@ -4212,27 +4935,39 @@ class AudioToVideoApp(ctk.CTk):
             img = Image.open(path)
             is_shorts = getattr(self, "_current_mode", "") == "Shorts"
             if is_shorts:
-                # Renderizar a 4× internamente para que el texto sea proporcional
-                # y visible, luego mostrar en el widget a tamaño 1× (203×360).
-                img = self._crop_img_to_9_16(img, target_w=812, target_h=1440)
+                img = self._crop_img_to_9_16(img, target_w=203, target_h=360)
             else:
                 img = self._crop_img_to_16_9(img)  # preview horizontal 16:9
 
-            # Dibujar overlay de texto si está activado
+            # Dibujar overlays de texto (estático y dinámico)
+            is_slideshow = mode == "Slideshow"
             if is_shorts:
-                overlay_active = (hasattr(self, "_var_sho_text_overlay")
-                                  and self._var_sho_text_overlay.get()
-                                  and hasattr(self, "_var_sho_text_content")
-                                  and self._var_sho_text_content.get().strip())
+                static_active = (hasattr(self, "_var_sho_text_overlay")
+                                 and self._var_sho_text_overlay.get()
+                                 and hasattr(self, "_var_sho_text_content")
+                                 and self._var_sho_text_content.get().strip())
+                dyn_active = (hasattr(self, "_var_sho_dyn_text_overlay")
+                              and self._var_sho_dyn_text_overlay.get())
+            elif is_slideshow:
+                static_active = (hasattr(self, "_var_sl_text_overlay")
+                                 and self._var_sl_text_overlay.get()
+                                 and hasattr(self, "_var_sl_text_content")
+                                 and self._var_sl_text_content.get().strip())
+                dyn_active = (hasattr(self, "_var_sl_dyn_text_overlay")
+                              and self._var_sl_dyn_text_overlay.get())
             else:
-                overlay_active = (hasattr(self, "_var_text_overlay")
-                                  and self._var_text_overlay.get()
-                                  and hasattr(self, "_var_text_content")
-                                  and self._var_text_content.get().strip())
-            if overlay_active:
-                self._draw_text_on_preview(img)
+                static_active = (hasattr(self, "_var_text_overlay")
+                                 and self._var_text_overlay.get()
+                                 and hasattr(self, "_var_text_content")
+                                 and self._var_text_content.get().strip())
+                dyn_active = (hasattr(self, "_var_dyn_text_overlay")
+                              and self._var_dyn_text_overlay.get())
+            if static_active:
+                self._draw_text_on_preview(img, dynamic=False)
+            if dyn_active:
+                self._draw_text_on_preview(img, dynamic=True)
 
-            display_size = (203, 360) if is_shorts else img.size
+            display_size = img.size
             ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=display_size)
             self._lbl_preview.configure(image=ctk_img, text="")
             self._lbl_preview.image = ctk_img  # evitar GC
@@ -4257,31 +4992,87 @@ class AudioToVideoApp(ctk.CTk):
                 pass
         threading.Thread(target=_play, daemon=True).start()
 
-    def _draw_text_on_preview(self, img: Image.Image) -> None:
+    def _draw_text_on_preview(self, img: Image.Image, dynamic: bool = False) -> None:
         """Dibuja el texto overlay sobre la imagen de preview."""
         draw = ImageDraw.Draw(img)
-        is_shorts = getattr(self, "_current_mode", "") == "Shorts"
+        mode = getattr(self, "_current_mode", "Audio \u2192 Video")
+        is_shorts = mode == "Shorts"
+        is_slideshow = mode == "Slideshow"
 
-        if is_shorts:
-            text       = self._var_sho_text_content.get().strip()
-            font_size  = self._var_sho_text_font_size.get()
-            font_name  = self._var_sho_text_font.get()
-            margin_val = self._var_sho_text_margin.get()
-            pos        = self._var_sho_text_position.get()
-            color_name = self._var_sho_text_color.get() if hasattr(self, "_var_sho_text_color") else "Blanco"
-            ref_w = 1080.0  # shorts reference width
+        if dynamic:
+            if is_shorts:
+                text_raw   = self._var_sho_dyn_text_content.get().strip() if hasattr(self, "_var_sho_dyn_text_content") else ""
+                dyn_mode   = self._var_sho_dyn_text_mode.get() if hasattr(self, "_var_sho_dyn_text_mode") else "Texto fijo"
+                prefix     = self._var_sho_naming_prefix.get() if hasattr(self, "_var_sho_naming_prefix") else ""
+                font_size  = self._var_sho_dyn_text_font_size.get() if hasattr(self, "_var_sho_dyn_text_font_size") else 36
+                font_name  = self._var_sho_dyn_text_font.get() if hasattr(self, "_var_sho_dyn_text_font") else "Arial"
+                margin_val = self._var_sho_dyn_text_margin.get() if hasattr(self, "_var_sho_dyn_text_margin") else 40
+                pos        = self._var_sho_dyn_text_position.get() if hasattr(self, "_var_sho_dyn_text_position") else "Bottom"
+                color_name = self._var_sho_dyn_text_color.get() if hasattr(self, "_var_sho_dyn_text_color") else "Blanco"
+                # Canvas directo 203×360 → misma relación proporcional que el export 1080×1920
+                ref_w, ref_h_margin = 1080.0, 1920.0
+            elif is_slideshow:
+                text_raw   = self._var_sl_dyn_text_content.get().strip() if hasattr(self, "_var_sl_dyn_text_content") else ""
+                dyn_mode   = self._var_sl_dyn_text_mode.get() if hasattr(self, "_var_sl_dyn_text_mode") else "Texto fijo"
+                prefix     = ""
+                font_size  = self._var_sl_dyn_text_font_size.get() if hasattr(self, "_var_sl_dyn_text_font_size") else 36
+                font_name  = self._var_sl_dyn_text_font.get() if hasattr(self, "_var_sl_dyn_text_font") else "Arial"
+                margin_val = self._var_sl_dyn_text_margin.get() if hasattr(self, "_var_sl_dyn_text_margin") else 40
+                pos        = self._var_sl_dyn_text_position.get() if hasattr(self, "_var_sl_dyn_text_position") else "Bottom"
+                color_name = self._var_sl_dyn_text_color.get() if hasattr(self, "_var_sl_dyn_text_color") else "Blanco"
+                ref_w, ref_h_margin = 1920.0, 1080.0
+            else:
+                text_raw   = self._var_dyn_text_content.get().strip() if hasattr(self, "_var_dyn_text_content") else ""
+                dyn_mode   = self._var_dyn_text_mode.get() if hasattr(self, "_var_dyn_text_mode") else "Texto fijo"
+                nm_mode    = self._var_naming_mode.get() if hasattr(self, "_var_naming_mode") else "Default"
+                prefix     = (self._var_naming_name.get() if nm_mode == "Nombre"
+                              else self._var_naming_prefix.get()) if hasattr(self, "_var_naming_prefix") else ""
+                font_size  = self._var_dyn_text_font_size.get() if hasattr(self, "_var_dyn_text_font_size") else 36
+                font_name  = self._var_dyn_text_font.get() if hasattr(self, "_var_dyn_text_font") else "Arial"
+                margin_val = self._var_dyn_text_margin.get() if hasattr(self, "_var_dyn_text_margin") else 40
+                pos        = self._var_dyn_text_position.get() if hasattr(self, "_var_dyn_text_position") else "Bottom"
+                color_name = self._var_dyn_text_color.get() if hasattr(self, "_var_dyn_text_color") else "Blanco"
+                ref_w, ref_h_margin = 1920.0, 1080.0
+
+            if dyn_mode == "Texto fijo":
+                text = text_raw
+            elif dyn_mode == "Nombre de canci\u00f3n":
+                text = "\u266a Nombre de canci\u00f3n"
+            else:  # Prefijo + Nombre de canción
+                text = f"{prefix} \u266a Nombre" if prefix else "\u266a Prefijo + Nombre"
         else:
-            text       = self._var_text_content.get().strip()
-            font_size  = self._var_text_font_size.get()
-            font_name  = self._var_text_font.get()
-            margin_val = self._var_text_margin.get()
-            pos        = self._var_text_position.get()
-            color_name = self._var_text_color.get() if hasattr(self, "_var_text_color") else "Blanco"
-            ref_w = 1920.0
+            if is_shorts:
+                text       = self._var_sho_text_content.get().strip()
+                font_size  = self._var_sho_text_font_size.get()
+                font_name  = self._var_sho_text_font.get()
+                margin_val = self._var_sho_text_margin.get()
+                pos        = self._var_sho_text_position.get()
+                color_name = self._var_sho_text_color.get() if hasattr(self, "_var_sho_text_color") else "Blanco"
+                # Canvas directo 203×360 → misma relación proporcional que el export 1080×1920
+                ref_w, ref_h_margin = 1080.0, 1920.0
+            elif is_slideshow:
+                text       = self._var_sl_text_content.get().strip() if hasattr(self, "_var_sl_text_content") else ""
+                font_size  = self._var_sl_text_font_size.get() if hasattr(self, "_var_sl_text_font_size") else 36
+                font_name  = self._var_sl_text_font.get() if hasattr(self, "_var_sl_text_font") else "Arial"
+                margin_val = self._var_sl_text_margin.get() if hasattr(self, "_var_sl_text_margin") else 40
+                pos        = self._var_sl_text_position.get() if hasattr(self, "_var_sl_text_position") else "Bottom"
+                color_name = self._var_sl_text_color.get() if hasattr(self, "_var_sl_text_color") else "Blanco"
+                ref_w, ref_h_margin = 1920.0, 1080.0
+            else:
+                text       = self._var_text_content.get().strip()
+                font_size  = self._var_text_font_size.get()
+                font_name  = self._var_text_font.get()
+                margin_val = self._var_text_margin.get()
+                pos        = self._var_text_position.get()
+                color_name = self._var_text_color.get() if hasattr(self, "_var_text_color") else "Blanco"
+                ref_w, ref_h_margin = 1920.0, 1080.0
+
+        if not text:
+            return
 
         w, h = img.size
-        scale   = w / ref_w       # escala de fuente: basada en ancho del video
-        scale_h = h / 1080.0      # escala de margen: referencia universal 1080px
+        scale   = w / ref_w           # escala de fuente basada en ancho de referencia
+        scale_h = h / ref_h_margin    # escala de margen basada en alto de referencia
         fs = max(8, int(font_size * scale))
         font = None
         for ext in (".ttf", ".otf"):
@@ -4663,7 +5454,7 @@ class AudioToVideoApp(ctk.CTk):
             "cpu_mode": self._var_cpu_mode.get(),
             "encode_preset": self._var_encode_preset.get(),
             "gpu_encoding": self._var_gpu_encoding.get(),
-            # Text overlay
+            # Text overlay (estático)
             "enable_text_overlay": self._var_text_overlay.get(),
             "text_content": self._var_text_content.get(),
             "text_position": self._var_text_position.get(),
@@ -4673,6 +5464,17 @@ class AudioToVideoApp(ctk.CTk):
             "text_color": self._var_text_color.get(),
             "text_glitch_intensity": int(self._var_text_glitch_intensity.get()),
             "text_glitch_speed": round(self._var_text_glitch_speed.get(), 1),
+            # Text overlay (dinámico)
+            "enable_dyn_text_overlay": self._var_dyn_text_overlay.get() if hasattr(self, "_var_dyn_text_overlay") else False,
+            "dyn_text_mode":           self._var_dyn_text_mode.get() if hasattr(self, "_var_dyn_text_mode") else "Texto fijo",
+            "dyn_text_content":        self._var_dyn_text_content.get() if hasattr(self, "_var_dyn_text_content") else "",
+            "dyn_text_position":       self._var_dyn_text_position.get() if hasattr(self, "_var_dyn_text_position") else "Bottom",
+            "dyn_text_margin":         int(self._var_dyn_text_margin.get()) if hasattr(self, "_var_dyn_text_margin") else 40,
+            "dyn_text_font_size":      int(self._var_dyn_text_font_size.get()) if hasattr(self, "_var_dyn_text_font_size") else 36,
+            "dyn_text_font":           self._var_dyn_text_font.get() if hasattr(self, "_var_dyn_text_font") else "Arial",
+            "dyn_text_color":          self._var_dyn_text_color.get() if hasattr(self, "_var_dyn_text_color") else "Blanco",
+            "dyn_text_glitch_intensity": int(self._var_dyn_text_glitch_intensity.get()) if hasattr(self, "_var_dyn_text_glitch_intensity") else 3,
+            "dyn_text_glitch_speed":   round(self._var_dyn_text_glitch_speed.get(), 1) if hasattr(self, "_var_dyn_text_glitch_speed") else 4.0,
             # UI
             "theme": self._current_theme,
             "font_size": next(
@@ -4746,6 +5548,25 @@ class AudioToVideoApp(ctk.CTk):
         self._var_text_glitch_intensity.set(s.get("text_glitch_intensity", 3))
         self._var_text_glitch_speed.set(s.get("text_glitch_speed", 4.0))
         self._toggle_text_overlay_widgets()
+        # Dynamic text overlay (ATV)
+        if hasattr(self, "_var_dyn_text_overlay"):
+            self._var_dyn_text_overlay.set(s.get("enable_dyn_text_overlay", False))
+            self._var_dyn_text_mode.set(s.get("dyn_text_mode", "Texto fijo"))
+            self._var_dyn_text_content.set(s.get("dyn_text_content", ""))
+            self._var_dyn_text_position.set(s.get("dyn_text_position", "Bottom"))
+            self._var_dyn_text_margin.set(s.get("dyn_text_margin", 40))
+            self._var_dyn_text_font_size.set(s.get("dyn_text_font_size", 36))
+            self._var_dyn_text_font.set(s.get("dyn_text_font", "Arial"))
+            self._var_dyn_text_color.set(s.get("dyn_text_color", "Blanco"))
+            if hasattr(self, "_dyn_text_color_preview"):
+                self._dyn_text_color_preview.configure(fg_color={
+                    "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+                    "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+                }.get(s.get("dyn_text_color", "Blanco"), "#FFFFFF"))
+            self._var_dyn_text_glitch_intensity.set(s.get("dyn_text_glitch_intensity", 3))
+            self._var_dyn_text_glitch_speed.set(s.get("dyn_text_glitch_speed", 4.0))
+            self._on_dyn_text_mode_change()
+            self._toggle_dyn_text_overlay_widgets()
         # theme/font_size se cargan en __init__ antes de construir la UI
 
         # Cargar preview: imagen única o primera imagen de la carpeta si modo multi
@@ -4781,6 +5602,42 @@ class AudioToVideoApp(ctk.CTk):
             self._var_sl_zoom.set(s.get("sl_enable_zoom", False))
             self._var_sl_zoom_max.set(s.get("sl_zoom_max", 1.05))
             self._sl_update_count()
+            # Static text overlay (Slideshow)
+            if hasattr(self, "_var_sl_text_overlay"):
+                self._var_sl_text_overlay.set(s.get("sl_enable_text_overlay", False))
+                self._var_sl_text_content.set(s.get("sl_text_content", ""))
+                self._var_sl_text_position.set(s.get("sl_text_position", "Bottom"))
+                self._var_sl_text_margin.set(s.get("sl_text_margin", 40))
+                self._var_sl_text_font_size.set(s.get("sl_text_font_size", 36))
+                self._var_sl_text_font.set(s.get("sl_text_font", "Arial"))
+                self._var_sl_text_color.set(s.get("sl_text_color", "Blanco"))
+                if hasattr(self, "_sl_text_color_preview"):
+                    self._sl_text_color_preview.configure(fg_color={
+                        "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+                        "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+                    }.get(s.get("sl_text_color", "Blanco"), "#FFFFFF"))
+                self._var_sl_text_glitch_intensity.set(s.get("sl_text_glitch_intensity", 3))
+                self._var_sl_text_glitch_speed.set(s.get("sl_text_glitch_speed", 4.0))
+                self._sl_toggle_text_overlay_widgets()
+            # Dynamic text overlay (Slideshow)
+            if hasattr(self, "_var_sl_dyn_text_overlay"):
+                self._var_sl_dyn_text_overlay.set(s.get("sl_enable_dyn_text_overlay", False))
+                self._var_sl_dyn_text_mode.set(s.get("sl_dyn_text_mode", "Texto fijo"))
+                self._var_sl_dyn_text_content.set(s.get("sl_dyn_text_content", ""))
+                self._var_sl_dyn_text_position.set(s.get("sl_dyn_text_position", "Bottom"))
+                self._var_sl_dyn_text_margin.set(s.get("sl_dyn_text_margin", 40))
+                self._var_sl_dyn_text_font_size.set(s.get("sl_dyn_text_font_size", 36))
+                self._var_sl_dyn_text_font.set(s.get("sl_dyn_text_font", "Arial"))
+                self._var_sl_dyn_text_color.set(s.get("sl_dyn_text_color", "Blanco"))
+                if hasattr(self, "_sl_dyn_text_color_preview"):
+                    self._sl_dyn_text_color_preview.configure(fg_color={
+                        "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+                        "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+                    }.get(s.get("sl_dyn_text_color", "Blanco"), "#FFFFFF"))
+                self._var_sl_dyn_text_glitch_intensity.set(s.get("sl_dyn_text_glitch_intensity", 3))
+                self._var_sl_dyn_text_glitch_speed.set(s.get("sl_dyn_text_glitch_speed", 4.0))
+                self._on_sl_dyn_text_mode_change()
+                self._sl_toggle_dyn_text_overlay_widgets()
 
         # Shorts settings
         if hasattr(self, "_var_sho_audio"):
@@ -4816,6 +5673,10 @@ class AudioToVideoApp(ctk.CTk):
                 self._var_sho_glitch_pulse.set(s.get("sho_glitch_pulse", 3))
             if hasattr(self, "_var_sho_normalize"):
                 self._var_sho_normalize.set(s.get("sho_normalize_audio", False))
+            if hasattr(self, "_var_sho_fade_in"):
+                self._var_sho_fade_in.set(s.get("sho_fade_in", 0.5))
+            if hasattr(self, "_var_sho_fade_out"):
+                self._var_sho_fade_out.set(s.get("sho_fade_out", 0.5))
             if hasattr(self, "_var_sho_text_overlay"):
                 self._var_sho_text_overlay.set(s.get("sho_enable_text_overlay", False))
                 self._sho_toggle_text_overlay()
@@ -4835,6 +5696,25 @@ class AudioToVideoApp(ctk.CTk):
                 self._var_sho_text_glitch_intensity.set(s.get("sho_text_glitch_intensity", 3))
             if hasattr(self, "_var_sho_text_glitch_speed"):
                 self._var_sho_text_glitch_speed.set(s.get("sho_text_glitch_speed", 4.0))
+            # Dynamic text overlay (Shorts)
+            if hasattr(self, "_var_sho_dyn_text_overlay"):
+                self._var_sho_dyn_text_overlay.set(s.get("sho_enable_dyn_text_overlay", False))
+                self._var_sho_dyn_text_mode.set(s.get("sho_dyn_text_mode", "Texto fijo"))
+                self._var_sho_dyn_text_content.set(s.get("sho_dyn_text_content", ""))
+                self._var_sho_dyn_text_position.set(s.get("sho_dyn_text_position", "Bottom"))
+                self._var_sho_dyn_text_margin.set(s.get("sho_dyn_text_margin", 40))
+                self._var_sho_dyn_text_font_size.set(s.get("sho_dyn_text_font_size", 36))
+                self._var_sho_dyn_text_font.set(s.get("sho_dyn_text_font", "Arial"))
+                self._var_sho_dyn_text_color.set(s.get("sho_dyn_text_color", "Blanco"))
+                if hasattr(self, "_sho_dyn_text_color_preview"):
+                    self._sho_dyn_text_color_preview.configure(fg_color={
+                        "Blanco": "#FFFFFF", "Gris claro": "#D0D0D0",
+                        "Gris": "#808080", "Gris oscuro": "#404040", "Negro": "#000000",
+                    }.get(s.get("sho_dyn_text_color", "Blanco"), "#FFFFFF"))
+                self._var_sho_dyn_text_glitch_intensity.set(s.get("sho_dyn_text_glitch_intensity", 3))
+                self._var_sho_dyn_text_glitch_speed.set(s.get("sho_dyn_text_glitch_speed", 4.0))
+                self._on_sho_dyn_text_mode_change()
+                self._sho_toggle_dyn_text_overlay()
             if hasattr(self, "_var_sho_naming_mode"):
                 self._var_sho_naming_mode.set(s.get("sho_naming_mode", "Default"))
                 self._on_sho_naming_mode_change(self._var_sho_naming_mode.get())

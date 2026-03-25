@@ -187,8 +187,24 @@ class FFmpegBuilder:
             )
         )
 
-        # Texto con glitch
+        # Texto con glitch (estático)
         effects.append(TextOverlayEffect(self.settings))
+
+        # Texto con glitch (dinámico) — el texto ya debe estar pre-resuelto en
+        # settings["_resolved_dyn_text"] antes de construir el builder.
+        if self.settings.get("enable_dyn_text_overlay", False):
+            dyn_map = {
+                "enable_text_overlay":   True,
+                "text_content":          self.settings.get("_resolved_dyn_text", ""),
+                "text_position":         self.settings.get("dyn_text_position", "Bottom"),
+                "text_margin":           self.settings.get("dyn_text_margin", 40),
+                "text_font_size":        self.settings.get("dyn_text_font_size", 36),
+                "text_font":             self.settings.get("dyn_text_font", "Arial"),
+                "text_color":            self.settings.get("dyn_text_color", "Blanco"),
+                "text_glitch_intensity": self.settings.get("dyn_text_glitch_intensity", 3),
+                "text_glitch_speed":     self.settings.get("dyn_text_glitch_speed", 4.0),
+            }
+            effects.append(TextOverlayEffect(dyn_map))
 
         return effects
 
@@ -434,6 +450,16 @@ class FFmpegBuilder:
             "text_color":            s.get("sho_text_color", "Blanco"),
             "text_glitch_intensity": int(s.get("sho_text_glitch_intensity", 3)),
             "text_glitch_speed":     float(s.get("sho_text_glitch_speed", 4.0)),
+            # Dynamic text overlay — use pre-resolved values from runner (sho_ prefix mapped)
+            "enable_dyn_text_overlay":   bool(s.get("enable_dyn_text_overlay", bool(s.get("sho_enable_dyn_text_overlay", False)))),
+            "_resolved_dyn_text":        s.get("_resolved_dyn_text", s.get("sho_dyn_text_content", "")),
+            "dyn_text_position":         s.get("dyn_text_position", s.get("sho_dyn_text_position", "Bottom")),
+            "dyn_text_margin":           int(s.get("dyn_text_margin", s.get("sho_dyn_text_margin", 40))),
+            "dyn_text_font_size":        int(s.get("dyn_text_font_size", s.get("sho_dyn_text_font_size", 36))),
+            "dyn_text_font":             s.get("dyn_text_font", s.get("sho_dyn_text_font", "Arial")),
+            "dyn_text_color":            s.get("dyn_text_color", s.get("sho_dyn_text_color", "Blanco")),
+            "dyn_text_glitch_intensity": int(s.get("dyn_text_glitch_intensity", s.get("sho_dyn_text_glitch_intensity", 3))),
+            "dyn_text_glitch_speed":     float(s.get("dyn_text_glitch_speed", s.get("sho_dyn_text_glitch_speed", 4.0))),
             "gpu_encoding":          use_gpu,
         }
 

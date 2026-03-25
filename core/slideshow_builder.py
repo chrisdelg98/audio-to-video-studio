@@ -17,6 +17,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from effects.text_overlay_effect import TextOverlayEffect
+
 # ── Constantes ──────────────────────────────────────────────────────
 
 RESOLUTIONS: dict[str, tuple[int, int]] = {
@@ -130,6 +132,64 @@ class SlideshowBuilder:
             return ["-c:a", "aac", "-b:a", "320k", "-shortest"]
         return ["-an"]
 
+    def _text_overlay_filters(self, dummy_duration: float = 300.0) -> list[str]:
+        """Devuelve lista de filtros drawtext para los overlays de texto activos."""
+        filters: list[str] = []
+
+        # Estático
+        if self.settings.get("sl_enable_text_overlay", False):
+            static_settings = {
+                "enable_text_overlay":   True,
+                "text_content":          self.settings.get("sl_text_content", ""),
+                "text_position":         self.settings.get("sl_text_position", "Bottom"),
+                "text_margin":           self.settings.get("sl_text_margin", 40),
+                "text_font_size":        self.settings.get("sl_text_font_size", 36),
+                "text_font":             self.settings.get("sl_text_font", "Arial"),
+                "text_color":            self.settings.get("sl_text_color", "Blanco"),
+                "text_glitch_intensity": self.settings.get("sl_text_glitch_intensity", 3),
+                "text_glitch_speed":     self.settings.get("sl_text_glitch_speed", 4.0),
+            }
+            eff = TextOverlayEffect(static_settings)
+            raw = eff.build_filter("[x]", "[y]", dummy_duration)
+            # Extraer la parte del filtro (entre [x] y [y])
+            inner = raw[len("[x]"):-len("[y]")]
+            if inner != "copy":
+                filters.append(inner)
+
+        # Dinámico
+        if self.settings.get("sl_enable_dyn_text_overlay", False):
+            dyn_text = self._resolve_sl_dyn_text()
+            dyn_settings = {
+                "enable_text_overlay":   True,
+                "text_content":          dyn_text,
+                "text_position":         self.settings.get("sl_dyn_text_position", "Bottom"),
+                "text_margin":           self.settings.get("sl_dyn_text_margin", 40),
+                "text_font_size":        self.settings.get("sl_dyn_text_font_size", 36),
+                "text_font":             self.settings.get("sl_dyn_text_font", "Arial"),
+                "text_color":            self.settings.get("sl_dyn_text_color", "Blanco"),
+                "text_glitch_intensity": self.settings.get("sl_dyn_text_glitch_intensity", 3),
+                "text_glitch_speed":     self.settings.get("sl_dyn_text_glitch_speed", 4.0),
+            }
+            eff = TextOverlayEffect(dyn_settings)
+            raw = eff.build_filter("[x]", "[y]", dummy_duration)
+            inner = raw[len("[x]"):-len("[y]")]
+            if inner != "copy":
+                filters.append(inner)
+
+        return filters
+
+    def _resolve_sl_dyn_text(self) -> str:
+        """Resuelve el texto dinámico para Slideshow según el modo seleccionado."""
+        mode = self.settings.get("sl_dyn_text_mode", "Texto fijo")
+        if mode == "Texto fijo":
+            return self.settings.get("sl_dyn_text_content", "")
+        elif mode == "Nombre de canción":
+            # Para Slideshow usamos el nombre de salida configurado
+            return self.settings.get("sl_output_name", "slideshow")
+        else:  # Prefijo + Nombre de canción
+            # Slideshow no tiene prefijo de naming; usamos el nombre de salida
+            return self.settings.get("sl_output_name", "slideshow")
+
     # ── Estrategia: concat demuxer (sin transición) ──────────────────
 
     def _build_concat(
@@ -157,6 +217,9 @@ class SlideshowBuilder:
             cmd += ["-i", str(audio_path)]
 
         vf = f"{self._scale_crop()},fps={DEFAULT_FPS}"
+        text_filters = self._text_overlay_filters()
+        if text_filters:
+            vf += "," + ",".join(text_filters)
         cmd += ["-vf", vf]
         cmd += self._codec_args()
         cmd += self._audio_args(audio_path)
@@ -220,6 +283,13 @@ class SlideshowBuilder:
 
         filter_complex = ";".join(parts)
         final_label    = "xout" if n > 1 else "v0"
+
+        # Texto overlay (estático y/o dinámico)
+        total_dur = n * duration
+        text_filters = self._text_overlay_filters(dummy_duration=total_dur)
+        if text_filters:
+            filter_complex += f";[{final_label}]{','.join(text_filters)}[vtxt]"
+            final_label = "vtxt"
 
         cmd += ["-filter_complex", filter_complex]
         cmd += ["-map", f"[{final_label}]"]
