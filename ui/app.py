@@ -89,6 +89,8 @@ FA_EYE     = "\uf06e"   # eye
 FA_WRENCH  = "\uf0ad"   # wrench
 FA_BOLT    = "\uf0e7"   # bolt (rendimiento)
 FA_IMAGES  = "\uf302"   # images (slideshow)
+FA_CHEVRON_DOWN  = "\uf078"   # chevron-down (expanded)
+FA_CHEVRON_RIGHT = "\uf054"   # chevron-right (collapsed)
 
 
 # ── Tema ────────────────────────────────────────────────────────────────────
@@ -3545,13 +3547,72 @@ class AudioToVideoApp(ctk.CTk):
         return outer, {n: d["frame"] for n, d in tab_data.items()}
 
     def _section_header(self, parent: Any, text: str) -> ctk.CTkFrame:
-        """Nav-tab style section header with accent bottom line. Position with .grid() or .pack()."""
+        """Collapsible section header with chevron toggle.
+
+        Clicking the header or chevron toggles visibility of all sibling
+        widgets inside *parent* (everything except the header itself).
+        """
         hdr = ctk.CTkFrame(parent, fg_color=C_INPUT, corner_radius=0)
+
+        # Inner row: title on left, chevron on right
+        row = ctk.CTkFrame(hdr, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=(10, 8))
+        row.grid_columnconfigure(0, weight=1)
+
         ctk.CTkLabel(
-            hdr, text=text, text_color=C_TEXT,
+            row, text=text, text_color=C_TEXT,
             font=ctk.CTkFont(size=self._fs(13), weight="bold"),
-        ).pack(anchor="w", padx=16, pady=(12, 10))
-        ctk.CTkFrame(hdr, height=2, fg_color=C_ACCENT, corner_radius=0).pack(fill="x")
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+
+        chevron = ctk.CTkLabel(
+            row, text=FA_CHEVRON_DOWN,
+            text_color=C_ACCENT,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(11)),
+            cursor="hand2",
+        )
+        chevron.grid(row=0, column=1, sticky="e")
+
+        accent_line = ctk.CTkFrame(hdr, height=2, fg_color=C_ACCENT, corner_radius=0)
+        accent_line.pack(fill="x")
+
+        # State kept in a mutable container so the closure can update it
+        state: dict = {"collapsed": False, "pack_info": {}}
+
+        def _toggle(_event=None):
+            state["collapsed"] = not state["collapsed"]
+            chevron.configure(
+                text=FA_CHEVRON_RIGHT if state["collapsed"] else FA_CHEVRON_DOWN
+            )
+            for child in parent.winfo_children():
+                if child is hdr:
+                    continue
+                if state["collapsed"]:
+                    mgr = child.winfo_manager()
+                    if mgr == "grid":
+                        child.grid_remove()
+                    elif mgr == "pack":
+                        try:
+                            state["pack_info"][id(child)] = child.pack_info()
+                        except Exception:
+                            pass
+                        child.pack_forget()
+                else:
+                    pid = id(child)
+                    if pid in state["pack_info"]:
+                        info = state["pack_info"].pop(pid)
+                        info.pop("in", None)
+                        child.pack(**info)
+                    else:
+                        child.grid()
+
+        # Make header and chevron clickable
+        for w in (hdr, row, chevron):
+            w.bind("<Button-1>", _toggle)
+        # Also bind the title label
+        for w in row.winfo_children():
+            w.bind("<Button-1>", _toggle)
+
         return hdr
 
     def _file_row(
