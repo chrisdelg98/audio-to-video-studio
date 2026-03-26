@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 _STARTUPINFO = None
 if os.name == "nt":
@@ -139,3 +140,99 @@ def format_duration(seconds: float) -> str:
     if h > 0:
         return f"{h:02d}:{m:02d}:{s:02d}"
     return f"{m:02d}:{s:02d}"
+
+
+def _run_merge_cmd(cmd: list[str]) -> None:
+    """Ejecuta un comando FFmpeg de merge; lanza RuntimeError si falla."""
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        startupinfo=_STARTUPINFO,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"FFmpeg merge falló (código {result.returncode}):\n{result.stderr[-2000:]}"
+        )
+
+
+def merge_audio_files(
+    paths: list[Path],
+    crossfade_s: float,
+    out_path: Path,
+    on_log: Callable[[str], None] | None = None,
+) -> Path:
+    """Combina N archivos de audio en un único WAV (PCM s16le).
+
+    crossfade_s == 0  →  concat demuxer (bit-perfect, sin re-encode).
+    crossfade_s > 0   →  filtro acrossfade encadenado (fade triangular en cada empalme).
+
+    Retorna out_path.
+    """
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if len(paths) == 1:
+        if on_log:
+            on_log("    Audio único: convirtiendo a WAV…")
+        _run_merge_cmd([
+            "ffmpeg", "-y", "-i", str(paths[0]),
+            "-acodec", "pcm_s16le", str(out_path),
+        ])
+        return out_path
+
+    if crossfade_s <= 0.0:
+        # Concat demuxer — fastest, no quality loss
+        concat_path = out_path.with_suffix(".concat_list.txt")
+        try:
+            with open(concat_path, "w", encoding="utf-8") as fh:
+                for p in paths:
+                    safe = str(p.resolve()).replace("\\", "/")
+                    fh.write(f"file '{safe}'\n")
+            if on_log:
+                on_log(f"    Concatenando {len(paths)} audios (sin crossfade)…")
+            _run_merge_cmd([
+                "ffmpeg", "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", str(concat_path),
+                "-acodec", "pcm_s16le",
+                str(out_path),
+            ])
+        finally:
+            try:
+                concat_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return out_path
+
+    # acrossfade filter chain: [0:a][1:a]acrossfade=...[m01]; [m01][2:a]acrossfade=...[m02]; ...
+    n = len(paths)
+    inputs: list[str] = []
+    for p in paths:
+        inputs += ["-i", str(p)]
+
+    filter_parts: list[str] = []
+    prev = "[0:a]"
+    for i in range(1, n):
+        label_out = f"[m{i:02d}]" if i < n - 1 else "[outa]"
+        filter_parts.append(
+            f"{prev}[{i}:a]acrossfade=d={crossfade_s}:c1=tri:c2=tri{label_out}"
+        )
+        prev = label_out
+
+    filter_complex = ";".join(filter_parts)
+    if on_log:
+        on_log(f"    Mezclando {n} audios con crossfade de {crossfade_s}s…")
+    _run_merge_cmd(
+        ["ffmpeg", "-y"]
+        + inputs
+        + [
+            "-filter_complex", filter_complex,
+            "-map", "[outa]",
+            "-acodec", "pcm_s16le",
+            str(out_path),
+        ]
+    )
+    return out_path

@@ -60,7 +60,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "images_folder": "",
     # Slideshow mode
     "sl_images_folder": "",
+    "sl_audio_enabled": False,
     "sl_audio_file": "",
+    "sl_audio_mode": "file",
+    "sl_audio_folder": "",
+    "sl_crossfade": 2.0,
     "sl_output_folder": "",
     "sl_output_name": "slideshow",
     "sl_duration": 5.0,
@@ -110,8 +114,8 @@ _SEED_PRESETS: dict[str, dict[str, Any]] = {
 # Keys que NO se guardan en presets (son rutas de archivo específicas del proyecto)
 _PRESET_EXCLUDED_KEYS = {
     "audio_folder", "background_image", "output_folder", "images_folder", "multi_image",
-    # Slideshow paths (project-specific)
-    "sl_images_folder", "sl_audio_file", "sl_output_folder",
+    # Slideshow paths / state (project-specific)
+    "sl_images_folder", "sl_audio_file", "sl_audio_folder", "sl_audio_enabled", "sl_output_folder",
     # Shorts paths (project-specific)
     "sho_audio_file", "sho_background_image", "sho_images_folder", "sho_output_folder",
     "sho_multi_image",

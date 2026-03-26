@@ -11,6 +11,7 @@ Soporta:
 
 from __future__ import annotations
 
+import math
 import os
 import random
 import tempfile
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from effects.text_overlay_effect import TextOverlayEffect
+from core.utils import get_audio_duration
 
 # ── Constantes ──────────────────────────────────────────────────────
 
@@ -98,9 +100,35 @@ class SlideshowBuilder:
         transition = self.settings.get("sl_transition", "Ninguna")
         duration = float(self.settings.get("sl_duration", 5.0))
 
+        # Expand image list so the slideshow covers the full audio duration
+        image_paths = self._loop_images_to_audio(image_paths, duration, audio_path)
+
         if transition == "Ninguna":
             return self._build_concat(image_paths, audio_path, output_path, duration)
         return self._build_xfade(image_paths, audio_path, output_path, duration, transition)
+
+    # ── Helpers ──────────────────────────────────────────────────────
+
+    def _loop_images_to_audio(
+        self,
+        image_paths: list[Path],
+        duration: float,
+        audio_path: Path | None,
+    ) -> list[Path]:
+        """Repite la secuencia de imágenes las veces necesarias para cubrir la duración del audio.
+        Si no hay audio, o no se puede leer su duración, devuelve la lista original.
+        """
+        if not audio_path or not image_paths:
+            return image_paths
+        try:
+            audio_dur = get_audio_duration(audio_path)
+        except Exception:
+            return image_paths
+        seq_dur = len(image_paths) * duration
+        if seq_dur >= audio_dur:
+            return image_paths
+        loops = math.ceil(audio_dur / seq_dur)
+        return image_paths * loops
 
     # ── Filtros internos ─────────────────────────────────────────────
 
@@ -119,11 +147,13 @@ class SlideshowBuilder:
         preset  = self.settings.get("sl_encode_preset", "slow")
         gpu     = self.settings.get("sl_gpu_encoding", False)
         if gpu:
-            return ["-c:v", "h264_nvenc", "-cq", str(crf), "-preset", "p5"]
+            return ["-c:v", "h264_nvenc", "-cq", str(crf), "-preset", "p5",
+                    "-pix_fmt", "yuv420p"]
         return [
             "-c:v", "libx264",
             "-crf", str(crf),
             "-preset", preset,
+            "-pix_fmt", "yuv420p",
             "-threads", str(threads),
         ]
 

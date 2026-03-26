@@ -1289,7 +1289,7 @@ class AudioToVideoApp(ctk.CTk):
         _create_mode_btn(FA_FILM,   "ATV",   _atv_active,      C_ACCENT,        lambda: self._switch_mode("Audio \u2192 Video"), "atv")
         _create_mode_btn(FA_SHORTS, "SHORTS", self._current_mode == "Shorts",
                          C_ACCENT_SHORTS, lambda: self._switch_mode("Shorts"), "shorts")
-        _create_mode_btn(FA_IMAGES, "SLIDE", not _atv_active,  C_ACCENT_SLIDE,  lambda: self._switch_mode("Slideshow"),          "slide")
+        _create_mode_btn(FA_IMAGES, "SLIDESHOW", not _atv_active,  C_ACCENT_SLIDE,  lambda: self._switch_mode("Slideshow"), "slide")
         
 
         # ── Badge de estado del entorno ──────────────────────────────
@@ -2399,9 +2399,74 @@ class AudioToVideoApp(ctk.CTk):
         self._sl_audio_wrapper = ctk.CTkFrame(_dir_inner, fg_color="transparent")
         self._sl_audio_wrapper.grid(row=ar, column=0, sticky="ew")
         self._sl_audio_wrapper.grid_columnconfigure(0, weight=1)
+
+        # ── Mode radio: Un archivo / Carpeta de audios ───────────────
+        self._var_sl_audio_mode = tk.StringVar(value="file")
+        _radio_row = ctk.CTkFrame(self._sl_audio_wrapper, fg_color="transparent")
+        _radio_row.grid(row=0, column=0, sticky="ew", padx=12, pady=(6, 2))
+        ctk.CTkRadioButton(
+            _radio_row, text="Un archivo", variable=self._var_sl_audio_mode,
+            value="file", command=self._sl_toggle_audio_mode,
+            fg_color=C_ACCENT_SLIDE, hover_color=C_ACCENT_SLIDE_H,
+            text_color=C_TEXT, font=ctk.CTkFont(size=self._fs(11)),
+        ).pack(side="left", padx=(0, 16))
+        ctk.CTkRadioButton(
+            _radio_row, text="Carpeta de audios", variable=self._var_sl_audio_mode,
+            value="folder", command=self._sl_toggle_audio_mode,
+            fg_color=C_ACCENT_SLIDE, hover_color=C_ACCENT_SLIDE_H,
+            text_color=C_TEXT, font=ctk.CTkFont(size=self._fs(11)),
+        ).pack(side="left")
+
+        # ── Single-file sub-frame ─────────────────────────────────────
+        self._sl_single_audio_frame = ctk.CTkFrame(self._sl_audio_wrapper, fg_color="transparent")
+        self._sl_single_audio_frame.grid(row=1, column=0, sticky="ew")
+        self._sl_single_audio_frame.grid_columnconfigure(0, weight=1)
         self._var_sl_audio_file = tk.StringVar()
-        self._file_row(self._sl_audio_wrapper, "Archivo de audio:", self._var_sl_audio_file,
+        self._file_row(self._sl_single_audio_frame, "Archivo de audio:", self._var_sl_audio_file,
                        self._sl_browse_audio_file, 0)
+
+        # ── Folder sub-frame ──────────────────────────────────────────
+        self._sl_folder_audio_frame = ctk.CTkFrame(self._sl_audio_wrapper, fg_color="transparent")
+        self._sl_folder_audio_frame.grid(row=1, column=0, sticky="ew")
+        self._sl_folder_audio_frame.grid_columnconfigure(0, weight=1)
+        self._var_sl_audio_folder = tk.StringVar()
+        self._file_row(self._sl_folder_audio_frame, "Carpeta de audios:", self._var_sl_audio_folder,
+                       self._sl_browse_audio_folder, 0)
+        self._sl_audio_folder_lbl = ctk.CTkLabel(
+            self._sl_folder_audio_frame, text="",
+            text_color=C_MUTED, font=ctk.CTkFont(size=self._fs(10)), anchor="w",
+        )
+        self._sl_audio_folder_lbl.grid(row=2, column=0, sticky="w", padx=14, pady=(0, 4))
+        self._sl_folder_audio_frame.grid_remove()  # hidden until folder mode selected
+
+        # ── Crossfade slider ──────────────────────────────────────────
+        self._var_sl_crossfade = tk.DoubleVar(value=2.0)
+        _xf_row = ctk.CTkFrame(self._sl_audio_wrapper, fg_color="transparent")
+        _xf_row.grid(row=2, column=0, sticky="ew", padx=12, pady=(8, 6))
+        _xf_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            _xf_row, text="Crossfade (s):", text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        _xf_val_lbl = ctk.CTkLabel(
+            _xf_row, text="2.0s", text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)), width=50,
+        )
+        _xf_val_lbl.grid(row=0, column=2, padx=(4, 0))
+
+        def _update_xf_lbl(v: str) -> None:
+            try:
+                _xf_val_lbl.configure(text=f"{float(v):.1f}s")
+            except ValueError:
+                pass
+
+        ctk.CTkSlider(
+            _xf_row, from_=0.0, to=5.0, number_of_steps=10,
+            variable=self._var_sl_crossfade, command=_update_xf_lbl,
+            fg_color=C_INPUT, progress_color=C_ACCENT_SLIDE,
+            button_color=C_ACCENT_SLIDE, button_hover_color=C_ACCENT_SLIDE_H,
+        ).grid(row=0, column=1, sticky="ew", padx=8)
+
         self._sl_audio_wrapper.grid_remove()
         ar += 1
 
@@ -4375,14 +4440,25 @@ class AudioToVideoApp(ctk.CTk):
             self._rebuild_thumb_strip_sl()
             # Audio label para Slideshow
             if hasattr(self, "_var_sl_audio_enabled") and self._var_sl_audio_enabled.get():
-                af = self._var_sl_audio_file.get() if hasattr(self, "_var_sl_audio_file") else ""
-                if af and Path(af).is_file():
-                    _sl_name = Path(af).stem
-                    _sl_label = (_sl_name[:48] + "\u2026") if len(_sl_name) > 48 else _sl_name
-                    self._lbl_audio_count.configure(
-                        text=f"\u266b Audio: {_sl_label}", text_color=C_ACCENT_SLIDE)
+                mode = self._var_sl_audio_mode.get() if hasattr(self, "_var_sl_audio_mode") else "file"
+                if mode == "folder":
+                    folder = self._var_sl_audio_folder.get() if hasattr(self, "_var_sl_audio_folder") else ""
+                    if folder and Path(folder).is_dir():
+                        n = len(get_audio_files(folder))
+                        self._lbl_audio_count.configure(
+                            text=f"\u266b Audios: {n} archivo(s)",
+                            text_color=C_ACCENT_SLIDE if n > 0 else C_MUTED)
+                    else:
+                        self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
                 else:
-                    self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
+                    af = self._var_sl_audio_file.get() if hasattr(self, "_var_sl_audio_file") else ""
+                    if af and Path(af).is_file():
+                        _sl_name = Path(af).stem
+                        _sl_label = (_sl_name[:48] + "\u2026") if len(_sl_name) > 48 else _sl_name
+                        self._lbl_audio_count.configure(
+                            text=f"\u266b Audio: {_sl_label}", text_color=C_ACCENT_SLIDE)
+                    else:
+                        self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
             else:
                 self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
 
@@ -4422,6 +4498,34 @@ class AudioToVideoApp(ctk.CTk):
         )
         if path:
             self._var_sl_audio_file.set(path)
+
+    def _sl_browse_audio_folder(self) -> None:
+        path = filedialog.askdirectory(title="Seleccionar carpeta de audios")
+        if path:
+            self._var_sl_audio_folder.set(path)
+            self._sl_update_audio_folder_count()
+
+    def _sl_toggle_audio_mode(self) -> None:
+        if self._var_sl_audio_mode.get() == "file":
+            self._sl_single_audio_frame.grid()
+            self._sl_folder_audio_frame.grid_remove()
+        else:
+            self._sl_single_audio_frame.grid_remove()
+            self._sl_folder_audio_frame.grid()
+            self._sl_update_audio_folder_count()
+
+    def _sl_update_audio_folder_count(self) -> None:
+        if not hasattr(self, "_sl_audio_folder_lbl"):
+            return
+        folder = self._var_sl_audio_folder.get()
+        if folder and Path(folder).is_dir():
+            n = len(get_audio_files(folder))
+            self._sl_audio_folder_lbl.configure(
+                text=f"\u25a3 Audios detectados: {n} archivo(s)",
+                text_color=C_ACCENT_SLIDE if n > 0 else C_MUTED,
+            )
+        else:
+            self._sl_audio_folder_lbl.configure(text="", text_color=C_MUTED)
 
     def _sl_browse_output_folder(self) -> None:
         path = filedialog.askdirectory(title="Seleccionar carpeta de salida")
@@ -4512,10 +4616,12 @@ class AudioToVideoApp(ctk.CTk):
         folder = self._var_sl_images_folder.get() if hasattr(self, "_var_sl_images_folder") else ""
         if not folder or not Path(folder).is_dir():
             self._thumb_strip.grid_remove()
+            self._preview_frame.configure(height=270)
             return
         imgs = get_image_files(folder)
         if not imgs:
             self._thumb_strip.grid_remove()
+            self._preview_frame.configure(height=270)
             return
         TW, TH = 56, 32
         for i, img_path in enumerate(imgs):
@@ -4536,6 +4642,7 @@ class AudioToVideoApp(ctk.CTk):
                 btn.grid(row=0, column=i, padx=2, pady=2)
             except Exception:
                 pass
+        self._preview_frame.configure(height=320)
         self._thumb_strip.grid()
 
     def _validate_slideshow_inputs(self) -> bool:
@@ -4554,9 +4661,16 @@ class AudioToVideoApp(ctk.CTk):
         if not out_name:
             errors.append("• Ingresa un nombre para el archivo de salida.")
         if self._var_sl_audio_enabled.get():
-            af = self._var_sl_audio_file.get()
-            if not af or not Path(af).is_file():
-                errors.append("• Selecciona un archivo de audio v\u00e1lido.")
+            if self._var_sl_audio_mode.get() == "file":
+                af = self._var_sl_audio_file.get()
+                if not af or not Path(af).is_file():
+                    errors.append("• Selecciona un archivo de audio v\u00e1lido.")
+            else:
+                af = self._var_sl_audio_folder.get()
+                if not af or not Path(af).is_dir():
+                    errors.append("• Selecciona una carpeta de audios v\u00e1lida.")
+                elif not get_audio_files(af):
+                    errors.append("• La carpeta de audios no contiene archivos soportados.")
         if errors:
             messagebox.showerror("Campos requeridos", "\n".join(errors))
             return False
@@ -4565,8 +4679,13 @@ class AudioToVideoApp(ctk.CTk):
     def _collect_slideshow_settings(self) -> None:
         self.settings.update({
             "sl_images_folder": self._var_sl_images_folder.get(),
+            "sl_audio_enabled": self._var_sl_audio_enabled.get(),
+            "sl_audio_mode": self._var_sl_audio_mode.get(),
             "sl_audio_file": self._var_sl_audio_file.get()
-                if self._var_sl_audio_enabled.get() else "",
+                if (self._var_sl_audio_enabled.get() and self._var_sl_audio_mode.get() == "file") else "",
+            "sl_audio_folder": self._var_sl_audio_folder.get()
+                if (self._var_sl_audio_enabled.get() and self._var_sl_audio_mode.get() == "folder") else "",
+            "sl_crossfade": round(self._var_sl_crossfade.get(), 1),
             "sl_output_folder": self._var_sl_output_folder.get(),
             "sl_output_name": self._var_sl_output_name.get().strip() or "slideshow",
             "sl_duration": round(self._var_sl_duration.get(), 1),
@@ -4621,9 +4740,11 @@ class AudioToVideoApp(ctk.CTk):
         imgs = get_image_files(self._var_sl_images_folder.get())
         audio_path: Path | None = None
         if self._var_sl_audio_enabled.get():
-            af = self._var_sl_audio_file.get()
-            if af and Path(af).is_file():
-                audio_path = Path(af)
+            if self._var_sl_audio_mode.get() == "file":
+                af = self._var_sl_audio_file.get()
+                if af and Path(af).is_file():
+                    audio_path = Path(af)
+            # folder mode: audio_path stays None; SlideshowRunner handles the merge
 
         out_name = self._var_sl_output_name.get().strip() or "slideshow"
         out_path = Path(self._var_sl_output_folder.get()) / f"{out_name}.mp4"
@@ -5053,14 +5174,17 @@ class AudioToVideoApp(ctk.CTk):
         self._thumb_strip_imgs.clear()
         if not self._var_multi_image.get():
             self._thumb_strip.grid_remove()
+            self._preview_frame.configure(height=270)
             return
         folder = self._var_images_folder.get()
         if not folder or not Path(folder).is_dir():
             self._thumb_strip.grid_remove()
+            self._preview_frame.configure(height=270)
             return
         imgs = get_image_files(folder)
         if not imgs:
             self._thumb_strip.grid_remove()
+            self._preview_frame.configure(height=270)
             return
         TW, TH = 56, 32  # 16:9 thumbnail size
         for i, img_path in enumerate(imgs):
@@ -5081,6 +5205,7 @@ class AudioToVideoApp(ctk.CTk):
                 btn.grid(row=0, column=i, padx=2, pady=2)
             except Exception:
                 pass
+        self._preview_frame.configure(height=320)
         self._thumb_strip.grid()
 
     def _open_image_assignment(self) -> None:
@@ -6298,6 +6423,18 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_var_sl_images_folder"):
             self._var_sl_images_folder.set(s.get("sl_images_folder", ""))
             self._var_sl_audio_file.set(s.get("sl_audio_file", ""))
+            if hasattr(self, "_var_sl_audio_mode"):
+                self._var_sl_audio_mode.set(s.get("sl_audio_mode", "file"))
+                self._var_sl_audio_folder.set(s.get("sl_audio_folder", ""))
+                self._var_sl_crossfade.set(s.get("sl_crossfade", 2.0))
+                self._sl_toggle_audio_mode()
+                self._sl_update_audio_folder_count()
+            # Restore audio-enabled state (infer from paths if key absent)
+            audio_enabled = bool(s.get("sl_audio_enabled", False))
+            if not audio_enabled:
+                audio_enabled = bool(s.get("sl_audio_file") or s.get("sl_audio_folder"))
+            self._var_sl_audio_enabled.set(audio_enabled)
+            self._sl_toggle_audio()
             self._var_sl_output_folder.set(s.get("sl_output_folder", ""))
             self._var_sl_output_name.set(s.get("sl_output_name", "slideshow"))
             self._var_sl_duration.set(s.get("sl_duration", 5.0))

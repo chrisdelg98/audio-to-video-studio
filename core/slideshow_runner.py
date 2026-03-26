@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core.slideshow_builder import SlideshowBuilder
-from core.utils import ensure_dir
+from core.utils import ensure_dir, get_audio_files, merge_audio_files
 
 # Ocultar consola en modo windowed (PyInstaller --windowed)
 _STARTUPINFO = None
@@ -94,6 +94,34 @@ class SlideshowRunner:
     ) -> None:
         builder = SlideshowBuilder(self.settings)
 
+        # ── Pre-step: merge audio folder if requested ─────────────────────
+        merge_temp: Path | None = None
+        if (
+            audio_path is None
+            and self.settings.get("sl_audio_enabled", False)
+            and self.settings.get("sl_audio_mode") == "folder"
+            and self.settings.get("sl_audio_folder")
+        ):
+            folder = Path(self.settings["sl_audio_folder"])
+            audio_files = get_audio_files(folder)
+            if audio_files:
+                merge_temp = output_path.parent / f"_merge_tmp_{output_path.stem}.wav"
+                crossfade_s = float(self.settings.get("sl_crossfade", 2.0))
+                self.on_log(
+                    f"  → Mezclando {len(audio_files)} pistas de audio "
+                    f"(crossfade: {crossfade_s}s)…"
+                )
+                try:
+                    audio_path = merge_audio_files(
+                        audio_files, crossfade_s, merge_temp, on_log=self.on_log
+                    )
+                except Exception as exc:
+                    self.on_log(f"❌ Error mezclando audios: {exc}")
+                    self.on_finished(False)
+                    return
+            else:
+                self.on_log("⚠ La carpeta de audios está vacía — se generará sin audio.")
+
         self.on_log(f"▶ Construyendo slideshow con {len(image_paths)} imágenes...")
         self.on_log(f"  → Transición: {self.settings.get('sl_transition', 'Ninguna')}")
         self.on_log(f"  → Duración por imagen: {self.settings.get('sl_duration', 5)}s")
@@ -155,5 +183,10 @@ class SlideshowRunner:
             if temp_file is not None:
                 try:
                     Path(temp_file).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            if merge_temp is not None:
+                try:
+                    merge_temp.unlink(missing_ok=True)
                 except OSError:
                     pass
