@@ -74,9 +74,14 @@ class TextOverlayEffect(BaseEffect):
 
     # ------------------------------------------------------------------
 
-    def build_filter(self, label_in: str, label_out: str, duration: float) -> str:
+    def get_filter_chain(self, duration: float) -> str:
+        """Retorna solo la cadena de drawtext (sin labels).
+
+        Usado por FFmpegBuilder para fusionar overlays consecutivos en un
+        solo segmento del filter_complex, evitando copias intermedias de frames.
+        """
         if not self.enabled or not self.text.strip():
-            return f"{label_in}copy{label_out}"
+            return ""
 
         # Escapar caracteres especiales para drawtext
         safe = (
@@ -130,5 +135,10 @@ class TextOverlayEffect(BaseEffect):
             f":shadowcolor={sc}@0.7:shadowx=2:shadowy=2"
         )
 
-        chain = ",".join(layers)
+        return ",".join(layers)
+
+    def build_filter(self, label_in: str, label_out: str, duration: float) -> str:
+        chain = self.get_filter_chain(duration)
+        if not chain:
+            return f"{label_in}copy{label_out}"
         return f"{label_in}{chain}{label_out}"

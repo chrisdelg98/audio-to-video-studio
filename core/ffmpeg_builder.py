@@ -367,9 +367,24 @@ class FFmpegBuilder:
         current_label = "[vbase]"
         label_counter = 0
 
+        # Acumular cadenas de TextOverlay consecutivos para fusionarlos
+        # en un solo segmento `,`-separado.  Esto evita el buffer/copia
+        # intermedia de frames completos entre segmentos (`;`).
+        pending_text_chains: list[str] = []
+
+        def _flush_text():
+            nonlocal current_label, label_counter
+            if not pending_text_chains:
+                return
+            merged = ",".join(pending_text_chains)
+            next_label = f"[v{label_counter}]"
+            parts.append(f"{current_label}{merged}{next_label}")
+            current_label = next_label
+            label_counter += 1
+            pending_text_chains.clear()
+
         # Aplicar efectos secuencialmente
         # OverlayEffect se maneja al final (necesita stream extra)
-        # TextOverlayEffect es un filtro puro (no necesita stream extra)
         for effect in effects:
             if isinstance(effect, OverlayEffect):
                 continue
@@ -377,10 +392,23 @@ class FFmpegBuilder:
             if not effect.enabled:
                 continue
 
+            # TextOverlayEffect: acumular para fusionar en un solo segmento
+            if isinstance(effect, TextOverlayEffect):
+                chain = effect.get_filter_chain(duration)
+                if chain:
+                    pending_text_chains.append(chain)
+                continue
+
+            # Efecto no-texto: vaciar textos pendientes antes
+            _flush_text()
+
             next_label = f"[v{label_counter}]"
             parts.append(effect.build_filter(current_label, next_label, duration))
             current_label = next_label
             label_counter += 1
+
+        # Vaciar textos pendientes al final de la cadena
+        _flush_text()
 
         # Aplicar overlay al final si existe
         if overlay_input_index is not None:
