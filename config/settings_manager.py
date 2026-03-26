@@ -112,6 +112,9 @@ _PRESET_EXCLUDED_KEYS = {
     "audio_folder", "background_image", "output_folder", "images_folder", "multi_image",
     # Slideshow paths (project-specific)
     "sl_images_folder", "sl_audio_file", "sl_output_folder",
+    # Shorts paths (project-specific)
+    "sho_audio_file", "sho_background_image", "sho_images_folder", "sho_output_folder",
+    "sho_multi_image",
 }
 
 
@@ -227,3 +230,45 @@ class SettingsManager:
             new_presets[new_name if k == old_name else k] = v
         self._presets = new_presets
         self._save_presets()
+
+    def export_preset(self, name: str, file_path: str | Path) -> None:
+        """Exporta un preset a un archivo JSON externo."""
+        if name not in self._presets:
+            raise ValueError(f"Preset '{name}' no existe.")
+        data = {name: self._presets[name]}
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except OSError as exc:
+            raise RuntimeError(f"No se pudo exportar el preset: {exc}") from exc
+
+    def import_presets(self, file_path: str | Path) -> list[str]:
+        """Importa presets desde un archivo JSON externo.
+
+        Returns the list of preset names that were successfully imported.
+        Skips keys in _PRESET_EXCLUDED_KEYS. Renames duplicates with ' (2)', ' (3)', etc.
+        """
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            raise RuntimeError(f"No se pudo leer el archivo: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError("Formato de archivo inválido: se esperaba un objeto JSON.")
+        imported: list[str] = []
+        for raw_name, preset_data in data.items():
+            if not isinstance(preset_data, dict):
+                continue
+            filtered = {k: v for k, v in preset_data.items() if k not in _PRESET_EXCLUDED_KEYS}
+            # Resolve duplicate name
+            name = str(raw_name)
+            if name in self._presets:
+                counter = 2
+                while f"{name} ({counter})" in self._presets:
+                    counter += 1
+                name = f"{name} ({counter})"
+            self._presets[name] = filtered
+            imported.append(name)
+        if imported:
+            self._save_presets()
+        return imported

@@ -92,6 +92,8 @@ FA_BOLT    = "\uf0e7"   # bolt (rendimiento)
 FA_IMAGES  = "\uf302"   # images (slideshow)
 FA_CHEVRON_DOWN  = "\uf078"   # chevron-down (expanded)
 FA_CHEVRON_RIGHT = "\uf054"   # chevron-right (collapsed)
+FA_DOWNLOAD      = "\uf019"   # download (arrow-down-to-line)
+FA_UPLOAD        = "\uf093"   # upload (arrow-up-from-bracket)
 
 
 # ── Tema ────────────────────────────────────────────────────────────────────
@@ -226,27 +228,9 @@ def _val_to_pct(v: float, lo: float, hi: float) -> str:
     return f"{int(round((v - lo) / rng * 100))}%"
 
 
-def _init_scrollbar(frame: "ctk.CTkScrollableFrame", width: int = 6) -> None:
-    """Style the scrollbar and auto-hide it when all content fits."""
-    sb = frame._scrollbar
-    sb.configure(width=width, fg_color="#252525",
-                 button_color="#606060", button_hover_color="#909090")
-    sb.grid_configure(padx=(4, 2))
-
-    def _check(*_):
-        try:
-            bbox = frame._parent_canvas.bbox("all")
-            content_h = (bbox[3] - bbox[1]) if bbox else 0
-            visible_h = frame._parent_canvas.winfo_height()
-            if content_h > visible_h + 2:
-                sb.grid()
-            else:
-                sb.grid_remove()
-        except Exception:
-            pass
-
-    frame._parent_canvas.bind("<Configure>", _check, add="+")
-    frame.after(300, _check)
+def _init_scrollbar(frame: "ctk.CTkScrollableFrame", width: int = 6) -> None:  # noqa: ARG001
+    """Hide the built-in scrollbar — scrolling is done via mouse wheel only."""
+    frame._scrollbar.grid_remove()
 
 
 def _apply_sec_hover(btn: "ctk.CTkButton") -> None:
@@ -955,6 +939,7 @@ class AudioToVideoApp(ctk.CTk):
     WINDOW_TITLE = "ATV Studio"
     WINDOW_SIZE = "1280x800"
     MIN_SIZE = (1100, 700)
+    SCROLL_SPEED = 3.75   # Multiplicador de velocidad del scroll con rueda del ratón
 
     def __init__(self) -> None:
         # Desactivar manipulación de título antes de que CTk la aplique
@@ -1039,6 +1024,42 @@ class AudioToVideoApp(ctk.CTk):
             row=2, column=0, sticky="ew"
         )
         self._build_footer()
+        self._setup_fast_scroll()
+
+    def _setup_fast_scroll(self) -> None:
+        """Override CTkScrollableFrame's mouse-wheel handler using SCROLL_SPEED multiplier."""
+        import platform
+        _os = platform.system()
+        spd = self.SCROLL_SPEED
+
+        def _fast_wheel(event: "tk.Event") -> None:  # type: ignore[name-defined]
+            widget = event.widget
+            # Walk up to find the canvas that belongs to a CTkScrollableFrame
+            while widget:
+                try:
+                    canvas = widget._parent_canvas  # type: ignore[attr-defined]
+                    if _os == "Windows":
+                        canvas.yview_scroll(int(-event.delta / (120 // spd)), "units")
+                    elif _os == "Darwin":
+                        canvas.yview_scroll(int(-event.delta * spd), "units")
+                    else:
+                        if event.num == 4:
+                            canvas.yview_scroll(-spd, "units")
+                        elif event.num == 5:
+                            canvas.yview_scroll(spd, "units")
+                    return  # handled
+                except AttributeError:
+                    pass
+                try:
+                    widget = widget.master
+                except AttributeError:
+                    break
+
+        if _os == "Linux":
+            self.bind_all("<Button-4>", _fast_wheel, add="+")
+            self.bind_all("<Button-5>", _fast_wheel, add="+")
+        else:
+            self.bind_all("<MouseWheel>", _fast_wheel, add="+")
 
     # --- Header -------------------------------------------------------
 
@@ -1526,7 +1547,9 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(self._overlay_frame, text="Opacidad:",
                      text_color=C_MUTED, font=ctk.CTkFont(size=self._fs(11))).pack(side="left", padx=(8, 2))
         ctk.CTkSlider(self._overlay_frame, from_=0.0, to=1.0,
-                      variable=self._var_overlay_opacity, width=80).pack(side="left")
+                      variable=self._var_overlay_opacity, width=80,
+                      fg_color=C_INPUT, progress_color=C_ACCENT,
+                      button_color=C_ACCENT, button_hover_color=C_ACCENT_H).pack(side="left")
         self._overlay_frame.grid_remove()
         vr += 1
 
@@ -1553,7 +1576,7 @@ class AudioToVideoApp(ctk.CTk):
         self._text_overlay_frame.grid_columnconfigure(0, weight=1)
         tof = 0
 
-        ctk.CTkLabel(self._text_overlay_frame, text="Texto:", text_color=C_MUTED,
+        ctk.CTkLabel(self._text_overlay_frame, text="Texto:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
             row=tof, column=0, sticky="w", padx=10, pady=(8, 0))
         tof += 1
@@ -1566,7 +1589,7 @@ class AudioToVideoApp(ctk.CTk):
         font_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
         font_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         font_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(font_f, text="Fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         _fonts = available_fonts() or ["Arial"]
         self._var_text_font = tk.StringVar(value=_fonts[0])
@@ -1579,7 +1602,7 @@ class AudioToVideoApp(ctk.CTk):
         col_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
         col_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         col_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(col_f, text="Color:", text_color=C_MUTED,
+        ctk.CTkLabel(col_f, text="Color:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         self._var_text_color = tk.StringVar(value="Blanco")
         self._text_color_preview = ctk.CTkLabel(
@@ -1599,7 +1622,7 @@ class AudioToVideoApp(ctk.CTk):
 
         pos_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
         pos_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
-        ctk.CTkLabel(pos_f, text="Posición:", text_color=C_MUTED,
+        ctk.CTkLabel(pos_f, text="Posición:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
         self._var_text_position = tk.StringVar(value="Bottom")
         for _pos in ("Top", "Middle", "Bottom"):
@@ -1610,13 +1633,15 @@ class AudioToVideoApp(ctk.CTk):
         m_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
         m_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         m_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(m_f, text="Margen (px):", text_color=C_MUTED,
+        ctk.CTkLabel(m_f, text="Margen (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_text_margin = tk.IntVar(value=40)
         _m_lbl = ctk.CTkLabel(m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                               font=ctk.CTkFont(size=self._fs(11)), width=40)
         _m_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(m_f, from_=10, to=120, variable=self._var_text_margin,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
@@ -1624,13 +1649,15 @@ class AudioToVideoApp(ctk.CTk):
         fs_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
         fs_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         fs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(fs_f, text="Tamaño fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_text_font_size = tk.IntVar(value=36)
         _fs_lbl = ctk.CTkLabel(fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _fs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(fs_f, from_=12, to=72, variable=self._var_text_font_size,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
@@ -1638,13 +1665,15 @@ class AudioToVideoApp(ctk.CTk):
         gi_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
         gi_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         gi_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(gi_f, text="Glitch (px):", text_color=C_MUTED,
+        ctk.CTkLabel(gi_f, text="Glitch (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_text_glitch_intensity = tk.IntVar(value=3)
         _gi_lbl = ctk.CTkLabel(gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _gi_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(gi_f, from_=0, to=10, variable=self._var_text_glitch_intensity,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
@@ -1652,13 +1681,15 @@ class AudioToVideoApp(ctk.CTk):
         gs_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
         gs_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=(2, 8))
         gs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+        ctk.CTkLabel(gs_f, text="Velocidad glitch:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_text_glitch_speed = tk.DoubleVar(value=4.0)
         _gs_lbl = ctk.CTkLabel(gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _gs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(gs_f, from_=0.5, to=12.0, variable=self._var_text_glitch_speed,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
 
@@ -1682,7 +1713,7 @@ class AudioToVideoApp(ctk.CTk):
         _dyn_mode_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
         _dyn_mode_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=(8, 4))
         _dyn_mode_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_dyn_mode_f, text="Fuente del texto:", text_color=C_MUTED,
+        ctk.CTkLabel(_dyn_mode_f, text="Fuente del texto:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         _DYN_MODES = ["Texto fijo", "Nombre de canción", "Prefijo + Nombre de canción"]
         self._var_dyn_text_mode = tk.StringVar(value="Texto fijo")
@@ -1697,7 +1728,7 @@ class AudioToVideoApp(ctk.CTk):
         self._dyn_text_fixed_frame = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
         self._dyn_text_fixed_frame.grid(row=dtof, column=0, sticky="ew", padx=10, pady=(0, 2))
         self._dyn_text_fixed_frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self._dyn_text_fixed_frame, text="Texto:", text_color=C_MUTED,
+        ctk.CTkLabel(self._dyn_text_fixed_frame, text="Texto:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
             row=0, column=0, sticky="w", pady=(4, 0))
         self._var_dyn_text_content = tk.StringVar()
@@ -1709,7 +1740,7 @@ class AudioToVideoApp(ctk.CTk):
         _dyn_font_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
         _dyn_font_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
         _dyn_font_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_dyn_font_f, text="Fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_dyn_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         _dyn_fonts = available_fonts() or ["Arial"]
         self._var_dyn_text_font = tk.StringVar(value=_dyn_fonts[0])
@@ -1722,7 +1753,7 @@ class AudioToVideoApp(ctk.CTk):
         _dyn_col_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
         _dyn_col_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
         _dyn_col_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_dyn_col_f, text="Color:", text_color=C_MUTED,
+        ctk.CTkLabel(_dyn_col_f, text="Color:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         self._var_dyn_text_color = tk.StringVar(value="Blanco")
         self._dyn_text_color_preview = ctk.CTkLabel(
@@ -1742,7 +1773,7 @@ class AudioToVideoApp(ctk.CTk):
 
         _dyn_pos_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
         _dyn_pos_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
-        ctk.CTkLabel(_dyn_pos_f, text="Posición:", text_color=C_MUTED,
+        ctk.CTkLabel(_dyn_pos_f, text="Posición:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
         self._var_dyn_text_position = tk.StringVar(value="Top")
         for _pos in ("Top", "Middle", "Bottom"):
@@ -1753,13 +1784,15 @@ class AudioToVideoApp(ctk.CTk):
         _dyn_m_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
         _dyn_m_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
         _dyn_m_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_dyn_m_f, text="Margen (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_dyn_m_f, text="Margen (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_dyn_text_margin = tk.IntVar(value=40)
         _dyn_m_lbl = ctk.CTkLabel(_dyn_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
         _dyn_m_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_dyn_m_f, from_=10, to=120, variable=self._var_dyn_text_margin,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _dyn_m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         dtof += 1
@@ -1767,13 +1800,15 @@ class AudioToVideoApp(ctk.CTk):
         _dyn_fs_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
         _dyn_fs_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
         _dyn_fs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_dyn_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_dyn_fs_f, text="Tamaño fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_dyn_text_font_size = tk.IntVar(value=36)
         _dyn_fs_lbl = ctk.CTkLabel(_dyn_fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                    font=ctk.CTkFont(size=self._fs(11)), width=40)
         _dyn_fs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_dyn_fs_f, from_=12, to=72, variable=self._var_dyn_text_font_size,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _dyn_fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         dtof += 1
@@ -1781,13 +1816,15 @@ class AudioToVideoApp(ctk.CTk):
         _dyn_gi_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
         _dyn_gi_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=2)
         _dyn_gi_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_dyn_gi_f, text="Glitch (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_dyn_gi_f, text="Glitch (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_dyn_text_glitch_intensity = tk.IntVar(value=3)
         _dyn_gi_lbl = ctk.CTkLabel(_dyn_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                    font=ctk.CTkFont(size=self._fs(11)), width=40)
         _dyn_gi_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_dyn_gi_f, from_=0, to=10, variable=self._var_dyn_text_glitch_intensity,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _dyn_gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         dtof += 1
@@ -1795,13 +1832,15 @@ class AudioToVideoApp(ctk.CTk):
         _dyn_gs_f = ctk.CTkFrame(self._dyn_text_overlay_frame, fg_color="transparent")
         _dyn_gs_f.grid(row=dtof, column=0, sticky="ew", padx=10, pady=(2, 8))
         _dyn_gs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_dyn_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+        ctk.CTkLabel(_dyn_gs_f, text="Velocidad glitch:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_dyn_text_glitch_speed = tk.DoubleVar(value=4.0)
         _dyn_gs_lbl = ctk.CTkLabel(_dyn_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                    font=ctk.CTkFont(size=self._fs(11)), width=40)
         _dyn_gs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_dyn_gs_f, from_=0.5, to=12.0, variable=self._var_dyn_text_glitch_speed,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _dyn_gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
 
@@ -1846,8 +1885,13 @@ class AudioToVideoApp(ctk.CTk):
         self._preset_container.grid_columnconfigure(0, weight=1)
         self._preset_tiles_frame = ctk.CTkFrame(self._preset_container, fg_color="transparent")
         self._preset_tiles_frame.grid(row=0, column=0, sticky="ew", pady=(0, 4))
-        _plus_frame = ctk.CTkFrame(self._preset_container, fg_color=C_BTN_SECONDARY, corner_radius=6)
-        _plus_frame.grid(row=1, column=0, sticky="ew", padx=6)
+        _actions_row = ctk.CTkFrame(self._preset_container, fg_color="transparent")
+        _actions_row.grid(row=1, column=0, sticky="ew", padx=6, pady=(4, 0))
+        _actions_row.grid_columnconfigure(0, weight=1)
+        _actions_row.grid_columnconfigure(1, weight=1)
+
+        _plus_frame = ctk.CTkFrame(_actions_row, fg_color=C_BTN_SECONDARY, corner_radius=6)
+        _plus_frame.grid(row=0, column=0, sticky="ew", padx=(0, 4))
         _plus_frame.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
             _plus_frame, text=FA_PLUS, width=24,
@@ -1861,6 +1905,23 @@ class AudioToVideoApp(ctk.CTk):
             font=ctk.CTkFont(size=self._fs(11)),
             command=self._create_new_preset,
         ).grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=2)
+
+        _imp_frame = ctk.CTkFrame(_actions_row, fg_color=C_BTN_SECONDARY, corner_radius=6)
+        _imp_frame.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        _imp_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            _imp_frame, text=FA_UPLOAD, width=24,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+            text_color=C_TEXT,
+        ).grid(row=0, column=0, padx=(10, 0), pady=6)
+        ctk.CTkButton(
+            _imp_frame, text="Importar", height=30,
+            fg_color="transparent", hover_color=C_HOVER,
+            text_color=C_TEXT, corner_radius=6, anchor="w",
+            font=ctk.CTkFont(size=self._fs(11)),
+            command=self._import_presets,
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=2)
+
         self._rebuild_preset_tiles()
         sr += 1
 
@@ -2139,16 +2200,17 @@ class AudioToVideoApp(ctk.CTk):
                 pass
 
         # Info de audios detectados (pegado justo debajo del preview)
+        _audio_lbl_wrap = ctk.CTkFrame(frame, fg_color="transparent", width=1, height=26)
+        _audio_lbl_wrap.grid(row=1, column=0, sticky="ew", padx=16, pady=(6, 0))
+        _audio_lbl_wrap.grid_propagate(False)
         self._lbl_audio_count = ctk.CTkLabel(
-            frame,
+            _audio_lbl_wrap,
             text="Audios: \u2014",
             font=ctk.CTkFont(size=self._fs(11)),
             text_color=C_MUTED,
-            justify="left",
             anchor="w",
-            width=1,
         )
-        self._lbl_audio_count.grid(row=1, column=0, sticky="ew", padx=16, pady=(6, 0))
+        self._lbl_audio_count.pack(fill="both", expand=True)
 
         # Process Logs
         _logs_hdr = ctk.CTkFrame(frame, fg_color="transparent")
@@ -2479,7 +2541,7 @@ class AudioToVideoApp(ctk.CTk):
         self._sl_text_overlay_frame.grid_columnconfigure(0, weight=1)
         sl_tof = 0
 
-        ctk.CTkLabel(self._sl_text_overlay_frame, text="Texto:", text_color=C_MUTED,
+        ctk.CTkLabel(self._sl_text_overlay_frame, text="Texto:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
             row=sl_tof, column=0, sticky="w", padx=10, pady=(8, 0))
         sl_tof += 1
@@ -2492,7 +2554,7 @@ class AudioToVideoApp(ctk.CTk):
         _sl_font_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
         _sl_font_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
         _sl_font_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_font_f, text="Fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         _sl_fonts = available_fonts() or ["Arial"]
         self._var_sl_text_font = tk.StringVar(value=_sl_fonts[0])
@@ -2504,7 +2566,7 @@ class AudioToVideoApp(ctk.CTk):
         _sl_col_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
         _sl_col_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
         _sl_col_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_col_f, text="Color:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_col_f, text="Color:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         self._var_sl_text_color = tk.StringVar(value="Blanco")
         self._sl_text_color_preview = ctk.CTkLabel(
@@ -2524,7 +2586,7 @@ class AudioToVideoApp(ctk.CTk):
 
         _sl_pos_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
         _sl_pos_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
-        ctk.CTkLabel(_sl_pos_f, text="Posición:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_pos_f, text="Posición:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
         self._var_sl_text_position = tk.StringVar(value="Bottom")
         for _pos in ("Top", "Middle", "Bottom"):
@@ -2535,13 +2597,15 @@ class AudioToVideoApp(ctk.CTk):
         _sl_m_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
         _sl_m_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
         _sl_m_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_m_f, text="Margen (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_m_f, text="Margen (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_text_margin = tk.IntVar(value=40)
         _sl_m_lbl = ctk.CTkLabel(_sl_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                                  font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_m_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sl_m_f, from_=10, to=120, variable=self._var_sl_text_margin,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sl_m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_tof += 1
@@ -2549,13 +2613,15 @@ class AudioToVideoApp(ctk.CTk):
         _sl_fs_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
         _sl_fs_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
         _sl_fs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_fs_f, text="Tamaño fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_text_font_size = tk.IntVar(value=36)
         _sl_fs_lbl = ctk.CTkLabel(_sl_fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_fs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sl_fs_f, from_=12, to=72, variable=self._var_sl_text_font_size,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sl_fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_tof += 1
@@ -2563,13 +2629,15 @@ class AudioToVideoApp(ctk.CTk):
         _sl_gi_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
         _sl_gi_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=2)
         _sl_gi_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_gi_f, text="Glitch (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_gi_f, text="Glitch (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_text_glitch_intensity = tk.IntVar(value=3)
         _sl_gi_lbl = ctk.CTkLabel(_sl_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_gi_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sl_gi_f, from_=0, to=10, variable=self._var_sl_text_glitch_intensity,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sl_gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_tof += 1
@@ -2577,13 +2645,15 @@ class AudioToVideoApp(ctk.CTk):
         _sl_gs_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
         _sl_gs_f.grid(row=sl_tof, column=0, sticky="ew", padx=10, pady=(2, 8))
         _sl_gs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_gs_f, text="Velocidad glitch:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_text_glitch_speed = tk.DoubleVar(value=4.0)
         _sl_gs_lbl = ctk.CTkLabel(_sl_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_gs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sl_gs_f, from_=0.5, to=12.0, variable=self._var_sl_text_glitch_speed,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sl_gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
         self._sl_text_overlay_frame.grid_remove()
@@ -2605,7 +2675,7 @@ class AudioToVideoApp(ctk.CTk):
         _sl_dyn_mode_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
         _sl_dyn_mode_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=(8, 4))
         _sl_dyn_mode_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_dyn_mode_f, text="Fuente del texto:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_dyn_mode_f, text="Fuente del texto:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         _SL_DYN_MODES = ["Texto fijo", "Nombre de canción", "Prefijo + Nombre de canción"]
         self._var_sl_dyn_text_mode = tk.StringVar(value="Texto fijo")
@@ -2619,7 +2689,7 @@ class AudioToVideoApp(ctk.CTk):
         self._sl_dyn_text_fixed_frame = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
         self._sl_dyn_text_fixed_frame.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=(0, 2))
         self._sl_dyn_text_fixed_frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self._sl_dyn_text_fixed_frame, text="Texto:", text_color=C_MUTED,
+        ctk.CTkLabel(self._sl_dyn_text_fixed_frame, text="Texto:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
             row=0, column=0, sticky="w", pady=(4, 0))
         self._var_sl_dyn_text_content = tk.StringVar()
@@ -2631,7 +2701,7 @@ class AudioToVideoApp(ctk.CTk):
         _sl_dyn_font_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
         _sl_dyn_font_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sl_dyn_font_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_dyn_font_f, text="Fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_dyn_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         _sl_dyn_fonts = available_fonts() or ["Arial"]
         self._var_sl_dyn_text_font = tk.StringVar(value=_sl_dyn_fonts[0])
@@ -2643,7 +2713,7 @@ class AudioToVideoApp(ctk.CTk):
         _sl_dyn_col_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
         _sl_dyn_col_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sl_dyn_col_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_dyn_col_f, text="Color:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_dyn_col_f, text="Color:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         self._var_sl_dyn_text_color = tk.StringVar(value="Blanco")
         self._sl_dyn_text_color_preview = ctk.CTkLabel(
@@ -2659,7 +2729,7 @@ class AudioToVideoApp(ctk.CTk):
 
         _sl_dyn_pos_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
         _sl_dyn_pos_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
-        ctk.CTkLabel(_sl_dyn_pos_f, text="Posición:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_dyn_pos_f, text="Posición:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
         self._var_sl_dyn_text_position = tk.StringVar(value="Top")
         for _pos in ("Top", "Middle", "Bottom"):
@@ -2670,13 +2740,15 @@ class AudioToVideoApp(ctk.CTk):
         _sl_dyn_m_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
         _sl_dyn_m_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sl_dyn_m_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_dyn_m_f, text="Margen (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_dyn_m_f, text="Margen (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_dyn_text_margin = tk.IntVar(value=40)
         _sl_dyn_m_lbl = ctk.CTkLabel(_sl_dyn_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                                      font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_dyn_m_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sl_dyn_m_f, from_=10, to=120, variable=self._var_sl_dyn_text_margin,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sl_dyn_m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_dtof += 1
@@ -2684,13 +2756,15 @@ class AudioToVideoApp(ctk.CTk):
         _sl_dyn_fs_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
         _sl_dyn_fs_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sl_dyn_fs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_dyn_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_dyn_fs_f, text="Tamaño fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_dyn_text_font_size = tk.IntVar(value=36)
         _sl_dyn_fs_lbl = ctk.CTkLabel(_sl_dyn_fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_dyn_fs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sl_dyn_fs_f, from_=12, to=72, variable=self._var_sl_dyn_text_font_size,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sl_dyn_fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_dtof += 1
@@ -2698,13 +2772,15 @@ class AudioToVideoApp(ctk.CTk):
         _sl_dyn_gi_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
         _sl_dyn_gi_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sl_dyn_gi_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_dyn_gi_f, text="Glitch (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_dyn_gi_f, text="Glitch (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_dyn_text_glitch_intensity = tk.IntVar(value=3)
         _sl_dyn_gi_lbl = ctk.CTkLabel(_sl_dyn_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_dyn_gi_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sl_dyn_gi_f, from_=0, to=10, variable=self._var_sl_dyn_text_glitch_intensity,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sl_dyn_gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_dtof += 1
@@ -2712,13 +2788,15 @@ class AudioToVideoApp(ctk.CTk):
         _sl_dyn_gs_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
         _sl_dyn_gs_f.grid(row=sl_dtof, column=0, sticky="ew", padx=10, pady=(2, 8))
         _sl_dyn_gs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sl_dyn_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+        ctk.CTkLabel(_sl_dyn_gs_f, text="Velocidad glitch:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_dyn_text_glitch_speed = tk.DoubleVar(value=4.0)
         _sl_dyn_gs_lbl = ctk.CTkLabel(_sl_dyn_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_dyn_gs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sl_dyn_gs_f, from_=0.5, to=12.0, variable=self._var_sl_dyn_text_glitch_speed,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sl_dyn_gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
         self._sl_dyn_text_overlay_frame.grid_remove()
@@ -3065,7 +3143,7 @@ class AudioToVideoApp(ctk.CTk):
         self._sho_text_overlay_frame.grid_columnconfigure(0, weight=1)
         tof = 0
 
-        ctk.CTkLabel(self._sho_text_overlay_frame, text="Texto:", text_color=C_MUTED,
+        ctk.CTkLabel(self._sho_text_overlay_frame, text="Texto:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
             row=tof, column=0, sticky="w", padx=10, pady=(8, 0))
         tof += 1
@@ -3078,7 +3156,7 @@ class AudioToVideoApp(ctk.CTk):
         _font_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
         _font_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         _font_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_font_f, text="Fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         _sho_fonts = available_fonts() or ["Arial"]
         self._var_sho_text_font = tk.StringVar(value=_sho_fonts[0])
@@ -3091,7 +3169,7 @@ class AudioToVideoApp(ctk.CTk):
         _col_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
         _col_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         _col_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_col_f, text="Color:", text_color=C_MUTED,
+        ctk.CTkLabel(_col_f, text="Color:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         self._var_sho_text_color = tk.StringVar(value="Blanco")
         self._sho_text_color_preview = ctk.CTkLabel(
@@ -3113,7 +3191,7 @@ class AudioToVideoApp(ctk.CTk):
 
         _pos_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
         _pos_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
-        ctk.CTkLabel(_pos_f, text="Posición:", text_color=C_MUTED,
+        ctk.CTkLabel(_pos_f, text="Posición:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
         self._var_sho_text_position = tk.StringVar(value="Bottom")
         for _pos in ("Top", "Middle", "Bottom"):
@@ -3125,13 +3203,15 @@ class AudioToVideoApp(ctk.CTk):
         _m_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
         _m_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         _m_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_m_f, text="Margen (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_m_f, text="Margen (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_text_margin = tk.IntVar(value=40)
         _m_lbl = ctk.CTkLabel(_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                               font=ctk.CTkFont(size=self._fs(11)), width=40)
         _m_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_m_f, from_=10, to=120, variable=self._var_sho_text_margin,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
@@ -3139,13 +3219,15 @@ class AudioToVideoApp(ctk.CTk):
         _fsz_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
         _fsz_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         _fsz_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_fsz_f, text="Tamaño fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_fsz_f, text="Tamaño fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_text_font_size = tk.IntVar(value=36)
         _fsz_lbl = ctk.CTkLabel(_fsz_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                 font=ctk.CTkFont(size=self._fs(11)), width=40)
         _fsz_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_fsz_f, from_=12, to=72, variable=self._var_sho_text_font_size,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _fsz_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
@@ -3153,13 +3235,15 @@ class AudioToVideoApp(ctk.CTk):
         _gi_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
         _gi_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=2)
         _gi_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_gi_f, text="Glitch (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_gi_f, text="Glitch (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_text_glitch_intensity = tk.IntVar(value=3)
         _gi_lbl = ctk.CTkLabel(_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _gi_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_gi_f, from_=0, to=10, variable=self._var_sho_text_glitch_intensity,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
@@ -3167,13 +3251,15 @@ class AudioToVideoApp(ctk.CTk):
         _gs_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
         _gs_f.grid(row=tof, column=0, sticky="ew", padx=10, pady=(2, 8))
         _gs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+        ctk.CTkLabel(_gs_f, text="Velocidad glitch:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_text_glitch_speed = tk.DoubleVar(value=4.0)
         _gs_lbl = ctk.CTkLabel(_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _gs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_gs_f, from_=0.5, to=12.0, variable=self._var_sho_text_glitch_speed,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
         self._sho_text_overlay_frame.grid_remove()
@@ -3196,7 +3282,7 @@ class AudioToVideoApp(ctk.CTk):
         _sho_dyn_mode_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
         _sho_dyn_mode_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=(8, 4))
         _sho_dyn_mode_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sho_dyn_mode_f, text="Fuente del texto:", text_color=C_MUTED,
+        ctk.CTkLabel(_sho_dyn_mode_f, text="Fuente del texto:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         _SHO_DYN_MODES = ["Texto fijo", "Nombre de canción", "Prefijo + Nombre de canción"]
         self._var_sho_dyn_text_mode = tk.StringVar(value="Texto fijo")
@@ -3210,7 +3296,7 @@ class AudioToVideoApp(ctk.CTk):
         self._sho_dyn_text_fixed_frame = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
         self._sho_dyn_text_fixed_frame.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=(0, 2))
         self._sho_dyn_text_fixed_frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self._sho_dyn_text_fixed_frame, text="Texto:", text_color=C_MUTED,
+        ctk.CTkLabel(self._sho_dyn_text_fixed_frame, text="Texto:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(
             row=0, column=0, sticky="w", pady=(4, 0))
         self._var_sho_dyn_text_content = tk.StringVar()
@@ -3222,7 +3308,7 @@ class AudioToVideoApp(ctk.CTk):
         _sho_dyn_font_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
         _sho_dyn_font_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sho_dyn_font_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sho_dyn_font_f, text="Fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_sho_dyn_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         _sho_dyn_fonts = available_fonts() or ["Arial"]
         self._var_sho_dyn_text_font = tk.StringVar(value=_sho_dyn_fonts[0])
@@ -3234,7 +3320,7 @@ class AudioToVideoApp(ctk.CTk):
         _sho_dyn_col_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
         _sho_dyn_col_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sho_dyn_col_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sho_dyn_col_f, text="Color:", text_color=C_MUTED,
+        ctk.CTkLabel(_sho_dyn_col_f, text="Color:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
         self._var_sho_dyn_text_color = tk.StringVar(value="Blanco")
         self._sho_dyn_text_color_preview = ctk.CTkLabel(
@@ -3255,7 +3341,7 @@ class AudioToVideoApp(ctk.CTk):
 
         _sho_dyn_pos_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
         _sho_dyn_pos_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
-        ctk.CTkLabel(_sho_dyn_pos_f, text="Posición:", text_color=C_MUTED,
+        ctk.CTkLabel(_sho_dyn_pos_f, text="Posición:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").pack(side="left")
         self._var_sho_dyn_text_position = tk.StringVar(value="Top")
         for _pos in ("Top", "Middle", "Bottom"):
@@ -3266,13 +3352,15 @@ class AudioToVideoApp(ctk.CTk):
         _sho_dyn_m_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
         _sho_dyn_m_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sho_dyn_m_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sho_dyn_m_f, text="Margen (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_sho_dyn_m_f, text="Margen (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_dyn_text_margin = tk.IntVar(value=40)
         _sho_dyn_m_lbl = ctk.CTkLabel(_sho_dyn_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sho_dyn_m_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sho_dyn_m_f, from_=10, to=120, variable=self._var_sho_dyn_text_margin,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sho_dyn_m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sho_dtof += 1
@@ -3280,13 +3368,15 @@ class AudioToVideoApp(ctk.CTk):
         _sho_dyn_fs_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
         _sho_dyn_fs_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sho_dyn_fs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sho_dyn_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
+        ctk.CTkLabel(_sho_dyn_fs_f, text="Tamaño fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_dyn_text_font_size = tk.IntVar(value=36)
         _sho_dyn_fs_lbl = ctk.CTkLabel(_sho_dyn_fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                        font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sho_dyn_fs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sho_dyn_fs_f, from_=12, to=72, variable=self._var_sho_dyn_text_font_size,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sho_dyn_fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sho_dtof += 1
@@ -3294,13 +3384,15 @@ class AudioToVideoApp(ctk.CTk):
         _sho_dyn_gi_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
         _sho_dyn_gi_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=2)
         _sho_dyn_gi_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sho_dyn_gi_f, text="Glitch (px):", text_color=C_MUTED,
+        ctk.CTkLabel(_sho_dyn_gi_f, text="Glitch (px):", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_dyn_text_glitch_intensity = tk.IntVar(value=3)
         _sho_dyn_gi_lbl = ctk.CTkLabel(_sho_dyn_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                        font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sho_dyn_gi_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sho_dyn_gi_f, from_=0, to=10, variable=self._var_sho_dyn_text_glitch_intensity,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sho_dyn_gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sho_dtof += 1
@@ -3308,13 +3400,15 @@ class AudioToVideoApp(ctk.CTk):
         _sho_dyn_gs_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
         _sho_dyn_gs_f.grid(row=sho_dtof, column=0, sticky="ew", padx=10, pady=(2, 8))
         _sho_dyn_gs_f.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(_sho_dyn_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
+        ctk.CTkLabel(_sho_dyn_gs_f, text="Velocidad glitch:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_dyn_text_glitch_speed = tk.DoubleVar(value=4.0)
         _sho_dyn_gs_lbl = ctk.CTkLabel(_sho_dyn_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                        font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sho_dyn_gs_lbl.grid(row=0, column=2, padx=(4, 0))
         ctk.CTkSlider(_sho_dyn_gs_f, from_=0.5, to=12.0, variable=self._var_sho_dyn_text_glitch_speed,
+                      fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
+                      button_hover_color=C_ACCENT_H,
                       command=lambda v: _sho_dyn_gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
         self._sho_dyn_text_overlay_frame.grid_remove()
@@ -3931,7 +4025,7 @@ class AudioToVideoApp(ctk.CTk):
         inner.grid(row=row, column=0, sticky="ew", padx=12, pady=(8, 8))
         inner.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(inner, text=label, text_color=C_MUTED,
+        ctk.CTkLabel(inner, text=label, text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(
             row=0, column=0, sticky="w"
         )
@@ -3946,7 +4040,7 @@ class AudioToVideoApp(ctk.CTk):
 
         init_text = _to_pct(var.get()) if pct else fmt.format(var.get())
         val_label = ctk.CTkLabel(inner, text=init_text,
-                                 text_color=C_ACCENT, font=ctk.CTkFont(size=self._fs(11)), width=50)
+                                 text_color=C_TEXT, font=ctk.CTkFont(size=self._fs(11)), width=50)
         val_label.grid(row=0, column=2, padx=(4, 0))
 
         def _update(v: str) -> None:
@@ -3958,7 +4052,7 @@ class AudioToVideoApp(ctk.CTk):
 
         slider_kwargs: dict = dict(
             from_=from_, to=to, variable=var, command=_update,
-            progress_color=C_ACCENT, button_color=C_ACCENT,
+            fg_color=C_INPUT, progress_color=C_ACCENT, button_color=C_ACCENT,
             button_hover_color=C_ACCENT_H,
         )
         if number_of_steps is not None:
@@ -4237,15 +4331,7 @@ class AudioToVideoApp(ctk.CTk):
                 if img and Path(img).is_file():
                     self._load_preview(img)
             self._rebuild_thumb_strip_sho()
-            # Audio label para Shorts
-            af = self._var_sho_audio.get() if hasattr(self, "_var_sho_audio") else ""
-            if af and Path(af).is_file():
-                _sho_name = Path(af).stem
-                _sho_label = (_sho_name[:48] + "\u2026") if len(_sho_name) > 48 else _sho_name
-                self._lbl_audio_count.configure(
-                    text=f"\u266b Audio: {_sho_label}", text_color=C_ACCENT_SHORTS)
-            else:
-                self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
+            self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
 
     def _sl_browse_images_folder(self) -> None:
         path = filedialog.askdirectory(title="Seleccionar carpeta de im\u00e1genes")
@@ -5147,6 +5233,7 @@ class AudioToVideoApp(ctk.CTk):
             _fa_btn_font = ctk.CTkFont(family=_FA_FAMILY, size=self._fs(13))
             for icon, color, hover, cmd in [
                 (FA_SAVE, C_BTN_OK, "#3aad6a", lambda n=name: self._overwrite_preset(n)),
+                (FA_DOWNLOAD, "#4a6a8a", "#5a7a9a", lambda n=name: self._export_preset(n)),
                 (FA_EDIT, C_ACCENT, C_ACCENT_H, lambda n=name: self._rename_preset(n)),
                 (FA_TRASH, C_BTN_DANGER, "#e05050", lambda n=name: self._delete_preset(n)),
             ]:
@@ -5212,6 +5299,41 @@ class AudioToVideoApp(ctk.CTk):
             self._log(f"✏️ Preset '{old_name}' → '{new_name}'.")
         except ValueError as e:
             messagebox.showerror("Error", str(e))
+
+    def _export_preset(self, name: str) -> None:
+        """Exporta un preset individual a un archivo JSON."""
+        path = filedialog.asksaveasfilename(
+            title=f"Exportar preset '{name}'",
+            initialfile=f"{name}.json",
+            defaultextension=".json",
+            filetypes=[("JSON", "*.json"), ("Todos los archivos", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            self.settings.export_preset(name, path)
+            self._log(f"📤 Preset '{name}' exportado → {path}")
+        except RuntimeError as e:
+            messagebox.showerror("Error al exportar", str(e))
+
+    def _import_presets(self) -> None:
+        """Importa uno o más presets desde un archivo JSON."""
+        path = filedialog.askopenfilename(
+            title="Importar presets",
+            filetypes=[("JSON", "*.json"), ("Todos los archivos", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            imported = self.settings.import_presets(path)
+            if imported:
+                self._rebuild_preset_tiles()
+                names_str = ", ".join(f"'{n}'" for n in imported)
+                self._log(f"📥 Preset(s) importado(s): {names_str}")
+            else:
+                messagebox.showwarning("Sin datos", "El archivo no contenía presets válidos.")
+        except (RuntimeError, ValueError) as e:
+            messagebox.showerror("Error al importar", str(e))
 
     def _update_audio_count(self, folder: str) -> None:
         try:
