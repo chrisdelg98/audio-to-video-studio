@@ -2155,6 +2155,7 @@ class AudioToVideoApp(ctk.CTk):
             font=ctk.CTkFont(size=12),
         )
         self._lbl_preview.grid(row=0, column=0, sticky="nsew")
+        self._lbl_preview.bind("<Double-Button-1>", lambda _e: self._open_fullscreen_preview())
         self._preview_img_path: str = ""  # ruta original para re-renderizar overlay
         # Rutas de preview por modo — cada modo guarda su propio estado
         self._atv_preview_path: str = ""
@@ -5393,6 +5394,103 @@ class AudioToVideoApp(ctk.CTk):
         left = (new_w - target_w) // 2
         top = (new_h - target_h) // 2
         return img.crop((left, top, left + target_w, top + target_h))
+
+    def _open_fullscreen_preview(self) -> None:
+        """Abre el preview en pantalla completa con los overlays de texto aplicados."""
+        mode = getattr(self, "_current_mode", "Audio \u2192 Video")
+        if mode == "Shorts":
+            path = getattr(self, "_sho_preview_path", "")
+        elif mode == "Slideshow":
+            path = getattr(self, "_sl_preview_path", "")
+        else:
+            path = getattr(self, "_atv_preview_path", "")
+        if not path:
+            return
+        try:
+            from PIL import Image as _Image
+            img_raw = _Image.open(path)
+        except Exception:
+            return
+
+        # Compute the largest image that fits 90 % of screen
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        if mode == "Shorts":
+            max_h = int(sh * 0.9)
+            max_w = int(max_h * 9 / 16)
+            if max_w > int(sw * 0.9):
+                max_w = int(sw * 0.9)
+                max_h = int(max_w * 16 / 9)
+            img = self._crop_img_to_9_16(img_raw, target_w=max_w, target_h=max_h)
+        else:
+            max_w = int(sw * 0.9)
+            max_h = int(max_w * 9 / 16)
+            if max_h > int(sh * 0.9):
+                max_h = int(sh * 0.9)
+                max_w = int(max_h * 16 / 9)
+            img = self._crop_img_to_16_9(img_raw, target_w=max_w, target_h=max_h)
+
+        # Draw overlays at the large size (scaling is image-width-based, auto-correct)
+        is_shorts = mode == "Shorts"
+        is_slideshow = mode == "Slideshow"
+        if is_shorts:
+            static_active = (hasattr(self, "_var_sho_text_overlay")
+                             and self._var_sho_text_overlay.get()
+                             and hasattr(self, "_var_sho_text_content")
+                             and self._var_sho_text_content.get().strip())
+            dyn_active = (hasattr(self, "_var_sho_dyn_text_overlay")
+                          and self._var_sho_dyn_text_overlay.get())
+        elif is_slideshow:
+            static_active = (hasattr(self, "_var_sl_text_overlay")
+                             and self._var_sl_text_overlay.get()
+                             and hasattr(self, "_var_sl_text_content")
+                             and self._var_sl_text_content.get().strip())
+            dyn_active = (hasattr(self, "_var_sl_dyn_text_overlay")
+                          and self._var_sl_dyn_text_overlay.get())
+        else:
+            static_active = (hasattr(self, "_var_text_overlay")
+                             and self._var_text_overlay.get()
+                             and hasattr(self, "_var_text_content")
+                             and self._var_text_content.get().strip())
+            dyn_active = (hasattr(self, "_var_dyn_text_overlay")
+                          and self._var_dyn_text_overlay.get())
+        if static_active:
+            self._draw_text_on_preview(img, dynamic=False)
+        if dyn_active:
+            self._draw_text_on_preview(img, dynamic=True)
+
+        ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Preview")
+        dlg.configure(fg_color="#000000")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        lbl = ctk.CTkLabel(dlg, image=ctk_img, text="")
+        lbl.image = ctk_img  # avoid GC
+        lbl.pack()
+
+        hint = ctk.CTkLabel(
+            dlg, text="Doble clic o Esc para cerrar",
+            text_color="#888888", font=ctk.CTkFont(size=11),
+        )
+        hint.pack(pady=(0, 6))
+
+        def _close(_e=None):
+            dlg.grab_release()
+            dlg.destroy()
+
+        dlg.bind("<Escape>", _close)
+        lbl.bind("<Double-Button-1>", _close)
+
+        # Center on screen
+        dlg.update_idletasks()
+        dw = dlg.winfo_reqwidth()
+        dh = dlg.winfo_reqheight()
+        x = (sw - dw) // 2
+        y = (sh - dh) // 2
+        dlg.geometry(f"+{x}+{y}")
 
     def _update_preview_overlay(self) -> None:
         """Re-renderiza el preview con overlay de texto si está activo."""
