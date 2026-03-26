@@ -933,6 +933,114 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
                 row_f.grid_remove()
 
 
+class PresetsDialog(ctk.CTkToplevel):
+    """Ventana global de gestión de presets (accesible desde cualquier modo)."""
+
+    def __init__(self, app: "AudioToVideoApp") -> None:
+        super().__init__(app)
+        self._app = app
+        self.title("Gestionar Presets")
+        self.resizable(True, True)
+        self.minsize(560, 420)
+        self.geometry("700x520")
+        self.configure(fg_color=C_BG)
+        self._build()
+        # Expose tiles frame to app so _rebuild_preset_tiles populates this dialog
+        app._preset_tiles_frame = self._tiles_frame
+        app._rebuild_preset_tiles()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.grab_set()
+        self.after(60, self._center)
+
+    def _center(self) -> None:
+        self.update_idletasks()
+        pw = self._app.winfo_width()
+        ph = self._app.winfo_height()
+        px = self._app.winfo_x()
+        py = self._app.winfo_y()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        self.geometry(f"{w}x{h}+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+
+    def _build(self) -> None:
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        # ── Header ──────────────────────────────────────────────────
+        hdr = ctk.CTkFrame(self, fg_color=C_CARD, corner_radius=0, height=46)
+        hdr.grid(row=0, column=0, sticky="ew")
+        hdr.grid_propagate(False)
+        ctk.CTkLabel(
+            hdr, text=FA_SLIDERS,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=14),
+            text_color=C_ACCENT,
+        ).pack(side="left", padx=(14, 6), pady=8)
+        ctk.CTkLabel(
+            hdr, text="Presets",
+            font=ctk.CTkFont(size=14, weight="bold"), text_color=C_TEXT,
+        ).pack(side="left", pady=8)
+        ctk.CTkLabel(
+            hdr, text="Clic en un preset para aplicarlo",
+            font=ctk.CTkFont(size=11), text_color=C_MUTED,
+        ).pack(side="left", padx=(12, 0), pady=8)
+        ctk.CTkFrame(hdr, height=1, fg_color=C_BORDER, corner_radius=0).pack(
+            side="bottom", fill="x"
+        )
+
+        # ── Scrollable tiles area ────────────────────────────────────
+        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        scroll.grid(row=1, column=0, sticky="nsew", padx=16, pady=(12, 4))
+        scroll.grid_columnconfigure(0, weight=1)
+        _init_scrollbar(scroll)
+
+        self._tiles_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        self._tiles_frame.grid(row=0, column=0, sticky="ew")
+        self._tiles_frame.grid_columnconfigure(0, weight=1)
+        self._tiles_frame.grid_columnconfigure(1, weight=1)
+
+        # ── Footer actions ───────────────────────────────────────────
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.grid(row=2, column=0, sticky="ew", padx=16, pady=(4, 14))
+        footer.grid_columnconfigure(0, weight=1)
+        footer.grid_columnconfigure(1, weight=1)
+
+        _plus_frame = ctk.CTkFrame(footer, fg_color=C_BTN_SECONDARY, corner_radius=6)
+        _plus_frame.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        _plus_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            _plus_frame, text=FA_PLUS, width=24,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=12), text_color=C_TEXT,
+        ).grid(row=0, column=0, padx=(10, 0), pady=6)
+        ctk.CTkButton(
+            _plus_frame, text="Nuevo preset", height=30,
+            fg_color="transparent", hover_color=C_HOVER,
+            text_color=C_TEXT, corner_radius=6, anchor="w",
+            font=ctk.CTkFont(size=12),
+            command=self._app._create_new_preset,
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=2)
+
+        _imp_frame = ctk.CTkFrame(footer, fg_color=C_BTN_SECONDARY, corner_radius=6)
+        _imp_frame.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        _imp_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            _imp_frame, text=FA_UPLOAD, width=24,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=12), text_color=C_TEXT,
+        ).grid(row=0, column=0, padx=(10, 0), pady=6)
+        ctk.CTkButton(
+            _imp_frame, text="Importar", height=30,
+            fg_color="transparent", hover_color=C_HOVER,
+            text_color=C_TEXT, corner_radius=6, anchor="w",
+            font=ctk.CTkFont(size=12),
+            command=self._app._import_presets,
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=2)
+
+    def _on_close(self) -> None:
+        self._app._preset_tiles_frame = None
+        self._app._presets_dialog = None
+        self.grab_release()
+        self.destroy()
+
+
 class AudioToVideoApp(ctk.CTk):
     """Ventana principal de la aplicación."""
 
@@ -957,6 +1065,8 @@ class AudioToVideoApp(ctk.CTk):
         self._sho_image_paths: list[Path] = []
         self._sho_used_names: set[str] = set()
         self._sho_last_run_names: list[str] = []
+        self._presets_dialog: PresetsDialog | None = None
+        self._preset_tiles_frame: ctk.CTkFrame | None = None
         self._log_queue: list[str] = []
         self._log_lock = threading.Lock()
 
@@ -1208,6 +1318,19 @@ class AudioToVideoApp(ctk.CTk):
             border_width=1, border_color=C_BORDER,
         )
         ctrl.grid(row=0, column=5, padx=(4, 14))
+
+        # ── Presets button ────────────────────────────────────────
+        ctk.CTkButton(
+            ctrl, text=FA_SLIDERS, width=30, height=26,
+            fg_color="transparent", hover_color=C_HOVER,
+            text_color=C_TEXT_DIM,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=13),
+            corner_radius=4,
+            command=self._open_presets_dialog,
+        ).pack(side="left", padx=(4, 0), pady=4)
+        ctk.CTkFrame(ctrl, width=1, height=18, fg_color=C_BORDER).pack(
+            side="left", padx=5, pady=4
+        )
 
         _theme_icon = FA_SUN if self._current_theme == "Dark" else FA_MOON
         self._btn_theme = ctk.CTkButton(
@@ -1872,58 +1995,6 @@ class AudioToVideoApp(ctk.CTk):
         sf.grid_columnconfigure(0, weight=1)
         _init_scrollbar(sf)
         sr = 0
-
-        # --- Presets ---
-        _sec_pre = ctk.CTkFrame(sf, fg_color=C_CARD, corner_radius=10,
-                                border_width=1, border_color=C_BORDER)
-        _sec_pre.grid(row=sr, column=0, sticky="ew", padx=0, pady=(0, 16))
-        _sec_pre.grid_columnconfigure(0, weight=1)
-        self._section_header(_sec_pre, "Presets").grid(
-            row=0, column=0, sticky="ew", padx=0, pady=0)
-        self._preset_container = ctk.CTkFrame(_sec_pre, fg_color="transparent")
-        self._preset_container.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
-        self._preset_container.grid_columnconfigure(0, weight=1)
-        self._preset_tiles_frame = ctk.CTkFrame(self._preset_container, fg_color="transparent")
-        self._preset_tiles_frame.grid(row=0, column=0, sticky="ew", pady=(0, 4))
-        _actions_row = ctk.CTkFrame(self._preset_container, fg_color="transparent")
-        _actions_row.grid(row=1, column=0, sticky="ew", padx=6, pady=(4, 0))
-        _actions_row.grid_columnconfigure(0, weight=1)
-        _actions_row.grid_columnconfigure(1, weight=1)
-
-        _plus_frame = ctk.CTkFrame(_actions_row, fg_color=C_BTN_SECONDARY, corner_radius=6)
-        _plus_frame.grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        _plus_frame.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(
-            _plus_frame, text=FA_PLUS, width=24,
-            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
-            text_color=C_TEXT,
-        ).grid(row=0, column=0, padx=(10, 0), pady=6)
-        ctk.CTkButton(
-            _plus_frame, text="Nuevo preset", height=30,
-            fg_color="transparent", hover_color=C_HOVER,
-            text_color=C_TEXT, corner_radius=6, anchor="w",
-            font=ctk.CTkFont(size=self._fs(11)),
-            command=self._create_new_preset,
-        ).grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=2)
-
-        _imp_frame = ctk.CTkFrame(_actions_row, fg_color=C_BTN_SECONDARY, corner_radius=6)
-        _imp_frame.grid(row=0, column=1, sticky="ew", padx=(4, 0))
-        _imp_frame.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(
-            _imp_frame, text=FA_UPLOAD, width=24,
-            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
-            text_color=C_TEXT,
-        ).grid(row=0, column=0, padx=(10, 0), pady=6)
-        ctk.CTkButton(
-            _imp_frame, text="Importar", height=30,
-            fg_color="transparent", hover_color=C_HOVER,
-            text_color=C_TEXT, corner_radius=6, anchor="w",
-            font=ctk.CTkFont(size=self._fs(11)),
-            command=self._import_presets,
-        ).grid(row=0, column=1, sticky="ew", padx=(0, 4), pady=2)
-
-        self._rebuild_preset_tiles()
-        sr += 1
 
         # --- Naming ---
         _sec_name = ctk.CTkFrame(sf, fg_color=C_CARD, corner_radius=10,
@@ -5193,8 +5264,20 @@ class AudioToVideoApp(ctk.CTk):
     # Preset management — tiles
     # ------------------------------------------------------------------
 
+    def _open_presets_dialog(self) -> None:
+        """Abre (o enfoca) el diálogo global de gestión de presets."""
+        if self._presets_dialog and self._presets_dialog.winfo_exists():
+            self._presets_dialog.focus()
+            return
+        self._presets_dialog = PresetsDialog(self)
+
     def _rebuild_preset_tiles(self) -> None:
         """Reconstruye los tiles de presets en grid de 2 columnas."""
+        if (
+            self._preset_tiles_frame is None
+            or not self._preset_tiles_frame.winfo_exists()
+        ):
+            return
         for w in self._preset_tiles_frame.winfo_children():
             w.destroy()
         self._preset_tiles_frame.grid_columnconfigure(0, weight=1)
