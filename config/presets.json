@@ -1,11 +1,8 @@
 {
   "Default": {
-    "zoom_max": 1.04,
-    "zoom_speed": 600,
     "fade_in": 3.0,
     "fade_out": 3.0,
     "resolution": "1080p",
-    "enable_zoom": true,
     "enable_glitch": true,
     "glitch_intensity": 4,
     "glitch_speed": 300,

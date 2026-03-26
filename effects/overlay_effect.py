@@ -57,21 +57,33 @@ class OverlayEffect(BaseEffect):
             f"{label_out}"
         )
 
-    def get_overlay_input_filter(self, input_index: int, duration: float) -> str:
+    def get_overlay_input_filter(
+        self,
+        input_index: int,
+        duration: float,
+        width: int = 0,
+        height: int = 0,
+    ) -> str:
         """
         Genera el filtro de entrada para el overlay (loop + escala + opacidad).
 
         Args:
             input_index: Índice del input de overlay en el comando FFmpeg.
             duration:    Duración total del video en segundos.
+            width:       Ancho destino; si >0 se pre-escala el overlay.
+            height:      Alto destino; si >0 se pre-escala el overlay.
 
         Returns:
             Fragmento de filter_complex para preparar el stream de overlay.
         """
         opacity = self.params["opacity"]
+        # Pre-escalar overlay a la resolución de salida evita que
+        # el filtro overlay reescale cada frame en tiempo real.
+        scale = f"scale={width}:{height}," if width > 0 and height > 0 else ""
         # loop=-1 hace loop infinito, cut en 0 para arrancar desde el primer frame
         return (
             f"[{input_index}:v]loop=-1:size=32767:start=0,"
+            f"{scale}"
             f"format=rgba,"
             f"colorchannelmixer=aa={opacity:.2f}"
             f"[ovr]"

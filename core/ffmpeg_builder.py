@@ -15,10 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from effects.base_effect import BaseEffect
+from effects.breath_effect import BreathEffect
+from effects.color_shift_effect import ColorShiftEffect
 from effects.glitch_effect import GlitchEffect
+from effects.light_zoom_effect import LightZoomEffect
 from effects.overlay_effect import OverlayEffect
 from effects.text_overlay_effect import TextOverlayEffect
-from effects.zoom_effect import ZoomEffect
+from effects.vignette_effect import VignetteEffect
 
 
 # Resoluciones soportadas (horizontal)
@@ -91,6 +94,40 @@ class FFmpegBuilder:
         self.width = width
         self.height = height
         self.fps = DEFAULT_FPS
+        self._temp_files: list[Path] = []
+
+    def cleanup(self) -> None:
+        """Elimina archivos temporales creados durante la construcción."""
+        for f in self._temp_files:
+            try:
+                f.unlink(missing_ok=True)
+            except OSError:
+                pass
+        self._temp_files.clear()
+
+    def _prebake_vignette(
+        self,
+        effects: list[BaseEffect],
+        image_path: str,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> str:
+        """Pre-aplica viñeta a la imagen fuente con PIL (costo 0 en FFmpeg).
+
+        Si la viñeta está habilitada, genera una imagen temporal con la viñeta
+        integrada y desactiva el efecto en la cadena de filtros.
+        """
+        w = width or self.width
+        h = height or self.height
+        for eff in effects:
+            if isinstance(eff, VignetteEffect) and eff.enabled and eff.intensity > 0:
+                tmp = VignetteEffect.bake_to_image(
+                    Path(image_path), w, h, eff.intensity,
+                )
+                self._temp_files.append(tmp)
+                eff.enabled = False
+                return str(tmp)
+        return image_path
 
     # ------------------------------------------------------------------
     # API pública
@@ -116,9 +153,10 @@ class FFmpegBuilder:
             Lista de strings lista para subprocess.run().
         """
         effects = self._build_effects()
+        baked = self._prebake_vignette(effects, str(image_path))
         return self._assemble_command(
             audio_path=str(audio_path),
-            image_path=str(image_path),
+            image_path=baked,
             output_path=str(output_path),
             duration=duration,
             effects=effects,
@@ -137,9 +175,10 @@ class FFmpegBuilder:
         Construye un comando FFmpeg para un preview corto (por defecto 10 segundos).
         """
         effects = self._build_effects()
+        baked = self._prebake_vignette(effects, str(image_path))
         return self._assemble_command(
             audio_path=str(audio_path),
-            image_path=str(image_path),
+            image_path=baked,
             output_path=str(output_path),
             duration=min(duration, preview_duration),
             effects=effects,
@@ -154,16 +193,37 @@ class FFmpegBuilder:
         """Instancia los efectos según la configuración."""
         effects: list[BaseEffect] = []
 
-        # Zoom dinámico
         use_gpu = self.settings.get("gpu_encoding", False)
+
+        # --- Efectos ligeros ---
         effects.append(
-            ZoomEffect(
-                enabled=self.settings.get("enable_zoom", True),
-                zoom_max=float(self.settings.get("zoom_max", 1.02)),
-                zoom_speed=int(self.settings.get("zoom_speed", 300)),
+            BreathEffect(
+                enabled=self.settings.get("enable_breath", False),
+                intensity=float(self.settings.get("breath_intensity", 0.04)),
+                speed=float(self.settings.get("breath_speed", 1.0)),
+            )
+        )
+        effects.append(
+            LightZoomEffect(
+                enabled=self.settings.get("enable_light_zoom", False),
+                zoom_max=float(self.settings.get("light_zoom_max", 1.04)),
+                speed=float(self.settings.get("light_zoom_speed", 0.5)),
                 width=self.width,
                 height=self.height,
                 fps=self.fps,
+            )
+        )
+        effects.append(
+            VignetteEffect(
+                enabled=self.settings.get("enable_vignette", False),
+                intensity=float(self.settings.get("vignette_intensity", 0.4)),
+            )
+        )
+        effects.append(
+            ColorShiftEffect(
+                enabled=self.settings.get("enable_color_shift", False),
+                amount=float(self.settings.get("color_shift_amount", 15.0)),
+                speed=float(self.settings.get("color_shift_speed", 0.5)),
             )
         )
 
@@ -367,50 +427,42 @@ class FFmpegBuilder:
         current_label = "[vbase]"
         label_counter = 0
 
-        # Acumular cadenas de TextOverlay consecutivos para fusionarlos
-        # en un solo segmento `,`-separado.  Esto evita el buffer/copia
-        # intermedia de frames completos entre segmentos (`;`).
-        pending_text_chains: list[str] = []
-
-        def _flush_text():
-            nonlocal current_label, label_counter
-            if not pending_text_chains:
-                return
-            merged = ",".join(pending_text_chains)
-            next_label = f"[v{label_counter}]"
-            parts.append(f"{current_label}{merged}{next_label}")
-            current_label = next_label
-            label_counter += 1
-            pending_text_chains.clear()
-
         # Aplicar efectos secuencialmente
-        # OverlayEffect se maneja al final (necesita stream extra)
+        # OverlayEffect y TextOverlayEffect se manejan aparte
         for effect in effects:
-            if isinstance(effect, OverlayEffect):
+            if isinstance(effect, (OverlayEffect, TextOverlayEffect)):
                 continue
 
             if not effect.enabled:
                 continue
-
-            # TextOverlayEffect: acumular para fusionar en un solo segmento
-            if isinstance(effect, TextOverlayEffect):
-                chain = effect.get_filter_chain(duration)
-                if chain:
-                    pending_text_chains.append(chain)
-                continue
-
-            # Efecto no-texto: vaciar textos pendientes antes
-            _flush_text()
 
             next_label = f"[v{label_counter}]"
             parts.append(effect.build_filter(current_label, next_label, duration))
             current_label = next_label
             label_counter += 1
 
-        # Vaciar textos pendientes al final de la cadena
-        _flush_text()
+        # ── Text overlays via drawtext fusion ─────────────────────
+        # Collect consecutive TextOverlayEffects and merge their drawtext
+        # chains into a single comma-separated segment (zero intermediate
+        # frame copies — each drawtext operates in-place on the buffer).
+        pending_text_chains: list[str] = []
+        for effect in effects:
+            if not isinstance(effect, TextOverlayEffect):
+                continue
+            if not effect.enabled:
+                continue
+            chain = effect.get_filter_chain(duration)
+            if chain:
+                pending_text_chains.append(chain)
 
-        # Aplicar overlay al final si existe
+        if pending_text_chains:
+            fused = ",".join(pending_text_chains)
+            next_label = f"[v{label_counter}]"
+            parts.append(f"{current_label}{fused}{next_label}")
+            current_label = next_label
+            label_counter += 1
+
+        # Aplicar overlay de video al final si existe
         if overlay_input_index is not None:
             overlay_eff: OverlayEffect | None = None
             for eff in effects:
@@ -420,7 +472,9 @@ class FFmpegBuilder:
 
             if overlay_eff is not None:
                 # Preparar stream de overlay
-                parts.append(overlay_eff.get_overlay_input_filter(overlay_input_index, duration))
+                parts.append(overlay_eff.get_overlay_input_filter(
+                    overlay_input_index, duration, self.width, self.height,
+                ))
 
                 # Aplicar overlay
                 next_label = f"[v{label_counter}]"
@@ -461,9 +515,17 @@ class FFmpegBuilder:
         # Map sho_* effect keys to standard keys for _build_effects
         short_settings: dict = {
             **s,
-            "enable_zoom":           bool(s.get("sho_enable_zoom", True)),
-            "zoom_max":              float(s.get("sho_zoom_max", 1.02)),
-            "zoom_speed":            int(s.get("sho_zoom_speed", 300)),
+            "enable_breath":         bool(s.get("sho_enable_breath", False)),
+            "breath_intensity":      float(s.get("sho_breath_intensity", 0.04)),
+            "breath_speed":          float(s.get("sho_breath_speed", 1.0)),
+            "enable_light_zoom":     bool(s.get("sho_enable_light_zoom", False)),
+            "light_zoom_max":        float(s.get("sho_light_zoom_max", 1.04)),
+            "light_zoom_speed":      float(s.get("sho_light_zoom_speed", 0.5)),
+            "enable_vignette":       bool(s.get("sho_enable_vignette", False)),
+            "vignette_intensity":    float(s.get("sho_vignette_intensity", 0.4)),
+            "enable_color_shift":    bool(s.get("sho_enable_color_shift", False)),
+            "color_shift_amount":    float(s.get("sho_color_shift_amount", 15.0)),
+            "color_shift_speed":     float(s.get("sho_color_shift_speed", 0.5)),
             "enable_glitch":         bool(s.get("sho_enable_glitch", False)),
             "glitch_intensity":      int(s.get("sho_glitch_intensity", 4)),
             "glitch_speed":          int(s.get("sho_glitch_speed", 90)),
@@ -496,6 +558,15 @@ class FFmpegBuilder:
         eff_builder.settings = short_settings
         eff_builder.width, eff_builder.height, eff_builder.fps = w, h, DEFAULT_FPS
         effects = eff_builder._build_effects()
+
+        # Pre-bake vignette para costo 0 en FFmpeg
+        for eff in effects:
+            if isinstance(eff, VignetteEffect) and eff.enabled and eff.intensity > 0:
+                tmp = VignetteEffect.bake_to_image(Path(image_path), w, h, eff.intensity)
+                self._temp_files.append(tmp)
+                image_path = str(tmp)
+                eff.enabled = False
+                break
 
         cmd = [
             "ffmpeg", "-y",

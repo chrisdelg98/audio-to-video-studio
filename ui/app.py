@@ -23,6 +23,7 @@ Principios:
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import threading
 import tkinter as tk
@@ -215,6 +216,14 @@ def _animate_widget(widget, props: dict, steps: int = 10, delay: int = 14, _step
         _ANIM_JOBS[wid] = job
     except Exception:
         _ANIM_JOBS.pop(wid, None)
+
+
+def _val_to_pct(v: float, lo: float, hi: float) -> str:
+    """Convert a real value to a percentage string given its range."""
+    rng = hi - lo
+    if rng == 0:
+        return "0%"
+    return f"{int(round((v - lo) / rng * 100))}%"
 
 
 def _apply_sec_hover(btn: "ctk.CTkButton") -> None:
@@ -952,7 +961,19 @@ class AudioToVideoApp(ctk.CTk):
         ctk.set_appearance_mode(saved_theme)
 
         self._setup_window()
+        # Load slider ranges from config
+        self._slider_ranges: dict = {}
+        _ranges_path = _BUNDLE_DIR / "config" / "slider_ranges.json"
+        if _ranges_path.exists():
+            try:
+                self._slider_ranges = json.loads(_ranges_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        # Section toggle callbacks (for collapsing all on startup)
+        self._section_toggles: list = []
         self._build_ui()
+        # Collapse all sections after UI is fully built
+        self.after_idle(self._collapse_all_sections)
         self._load_settings_to_ui()
 
         # Silenciar errores de widgets destruidos en callbacks pendientes (CTk interno)
@@ -984,6 +1005,7 @@ class AudioToVideoApp(ctk.CTk):
     # ──────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        self._section_toggles = []
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -1330,12 +1352,12 @@ class AudioToVideoApp(ctk.CTk):
         _par_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _par_inner.grid_columnconfigure(0, weight=1)
         self._var_fade_in = tk.DoubleVar(value=2.0)
-        pr = self._slider_row(_par_inner, "Fade in (s):", self._var_fade_in, 0, 10, 0, fmt="{:.1f}")
+        pr = self._slider_row(_par_inner, "Fade in (s):", self._var_fade_in, 0, 5, 0, fmt="{:.1f}")
         self._var_fade_out = tk.DoubleVar(value=2.0)
-        pr = self._slider_row(_par_inner, "Fade out (s):", self._var_fade_out, 0, 10, pr, fmt="{:.1f}")
+        pr = self._slider_row(_par_inner, "Fade out (s):", self._var_fade_out, 0, 5, pr, fmt="{:.1f}")
         self._var_crf = tk.IntVar(value=18)
         pr = self._slider_row(
-            _par_inner, "Calidad CRF:", self._var_crf, 0, 51, pr, fmt="{:.0f}",
+            _par_inner, "Calidad CRF:", self._var_crf, 0, 51, pr, fmt="{:.0f}", pct=True,
             tooltip_text=(
                 "CRF (Constant Rate Factor) — controla la calidad del video.\n\n"
                 "• 0  → Lossless (sin pérdida). Archivo enorme.\n"
@@ -1359,28 +1381,85 @@ class AudioToVideoApp(ctk.CTk):
         _fx_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _fx_inner.grid_columnconfigure(0, weight=1)
 
-        self._var_zoom = tk.BooleanVar(value=True)
+        self._var_breath = tk.BooleanVar(value=False)
+        self._var_light_zoom = tk.BooleanVar(value=False)
+        self._var_vignette = tk.BooleanVar(value=False)
+        self._var_color_shift = tk.BooleanVar(value=False)
         self._var_glitch = tk.BooleanVar(value=False)
         self._var_overlay = tk.BooleanVar(value=False)
         self._var_normalize = tk.BooleanVar(value=False)
         fr = 0
-        fr = self._check_row(_fx_inner, "Zoom dinámico", self._var_zoom, fr)
 
-        self._zoom_settings_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
-        self._zoom_settings_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
-        self._zoom_settings_frame.grid_columnconfigure(0, weight=1)
-        self._var_zoom_max = tk.DoubleVar(value=1.02)
-        self._var_zoom_speed = tk.IntVar(value=300)
-        zr = 0
-        zr = self._slider_row(self._zoom_settings_frame, "Zoom máximo:",
-                               self._var_zoom_max, 1.0, 1.1, zr, fmt="{:.3f}", number_of_steps=200)
-        zr = self._slider_row(self._zoom_settings_frame, "Velocidad zoom:",
-                               self._var_zoom_speed, 100, 700, zr, fmt="{:.0f}")
-        if not self._var_zoom.get():
-            self._zoom_settings_frame.grid_remove()
-        self._var_zoom.trace_add("write", lambda *_: (
-            self._zoom_settings_frame.grid() if self._var_zoom.get()
-            else self._zoom_settings_frame.grid_remove()
+        # -- Fade respiración --
+        fr = self._check_row(_fx_inner, "Fade respiración (brillo)", self._var_breath, fr)
+        self._breath_settings_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._breath_settings_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._breath_settings_frame.grid_columnconfigure(0, weight=1)
+        self._var_breath_intensity = tk.DoubleVar(value=0.04)
+        self._var_breath_speed = tk.DoubleVar(value=1.0)
+        br = 0
+        br = self._slider_row(self._breath_settings_frame, "Intensidad:",
+                               self._var_breath_intensity, 0.01, 0.08, br, fmt="{:.3f}", number_of_steps=70, pct=True)
+        br = self._slider_row(self._breath_settings_frame, "Velocidad:",
+                               self._var_breath_speed, 0.1, 2.0, br, fmt="{:.1f}", number_of_steps=19, pct=True)
+        self._breath_settings_frame.grid_remove()
+        self._var_breath.trace_add("write", lambda *_: (
+            self._breath_settings_frame.grid() if self._var_breath.get()
+            else self._breath_settings_frame.grid_remove()
+        ))
+        fr += 1
+
+        # -- Zoom ligero --
+        fr = self._check_row(_fx_inner, "Zoom ligero (crop)", self._var_light_zoom, fr)
+        self._light_zoom_settings_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._light_zoom_settings_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._light_zoom_settings_frame.grid_columnconfigure(0, weight=1)
+        self._var_light_zoom_max = tk.DoubleVar(value=1.04)
+        self._var_light_zoom_speed = tk.DoubleVar(value=0.5)
+        lzr = 0
+        lzr = self._slider_row(self._light_zoom_settings_frame, "Zoom máx:",
+                               self._var_light_zoom_max, 1.01, 1.08, lzr, fmt="{:.3f}", number_of_steps=70, pct=True)
+        lzr = self._slider_row(self._light_zoom_settings_frame, "Velocidad:",
+                               self._var_light_zoom_speed, 0.1, 1.5, lzr, fmt="{:.1f}", number_of_steps=14, pct=True)
+        self._light_zoom_settings_frame.grid_remove()
+        self._var_light_zoom.trace_add("write", lambda *_: (
+            self._light_zoom_settings_frame.grid() if self._var_light_zoom.get()
+            else self._light_zoom_settings_frame.grid_remove()
+        ))
+        fr += 1
+
+        # -- Viñeta --
+        fr = self._check_row(_fx_inner, "Viñeta (bordes)", self._var_vignette, fr)
+        self._vignette_settings_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._vignette_settings_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._vignette_settings_frame.grid_columnconfigure(0, weight=1)
+        self._var_vignette_intensity = tk.DoubleVar(value=0.4)
+        vir = 0
+        vir = self._slider_row(self._vignette_settings_frame, "Intensidad:",
+                               self._var_vignette_intensity, 0.0, 1.0, vir, fmt="{:.1f}", number_of_steps=100, pct=True)
+        self._vignette_settings_frame.grid_remove()
+        self._var_vignette.trace_add("write", lambda *_: (
+            self._vignette_settings_frame.grid() if self._var_vignette.get()
+            else self._vignette_settings_frame.grid_remove()
+        ))
+        fr += 1
+
+        # -- Color shift --
+        fr = self._check_row(_fx_inner, "Color shift (hue)", self._var_color_shift, fr)
+        self._color_shift_settings_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._color_shift_settings_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._color_shift_settings_frame.grid_columnconfigure(0, weight=1)
+        self._var_color_shift_amount = tk.DoubleVar(value=15.0)
+        self._var_color_shift_speed = tk.DoubleVar(value=0.5)
+        csr = 0
+        csr = self._slider_row(self._color_shift_settings_frame, "Cantidad (°):",
+                               self._var_color_shift_amount, 1.0, 45.0, csr, fmt="{:.0f}", pct=True)
+        csr = self._slider_row(self._color_shift_settings_frame, "Velocidad:",
+                               self._var_color_shift_speed, 0.1, 2.0, csr, fmt="{:.1f}", number_of_steps=19, pct=True)
+        self._color_shift_settings_frame.grid_remove()
+        self._var_color_shift.trace_add("write", lambda *_: (
+            self._color_shift_settings_frame.grid() if self._var_color_shift.get()
+            else self._color_shift_settings_frame.grid_remove()
         ))
         fr += 1
 
@@ -1394,11 +1473,11 @@ class AudioToVideoApp(ctk.CTk):
         self._var_glitch_pulse = tk.IntVar(value=3)
         gr = 0
         gr = self._slider_row(self._glitch_settings_frame, "Intensidad:",
-                               self._var_glitch_intensity, 1, 20, gr, fmt="{:.0f}")
+                               self._var_glitch_intensity, 1, 10, gr, fmt="{:.0f}", pct=True)
         gr = self._slider_row(self._glitch_settings_frame, "Frecuencia (frames):",
-                               self._var_glitch_speed, 20, 300, gr, fmt="{:.0f}")
+                               self._var_glitch_speed, 20, 180, gr, fmt="{:.0f}", pct=True)
         gr = self._slider_row(self._glitch_settings_frame, "Duración pulso:",
-                               self._var_glitch_pulse, 1, 10, gr, fmt="{:.0f}")
+                               self._var_glitch_pulse, 1, 6, gr, fmt="{:.0f}", pct=True)
         if not self._var_glitch.get():
             self._glitch_settings_frame.grid_remove()
         self._var_glitch.trace_add("write", lambda *_: (
@@ -1511,11 +1590,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(m_f, text="Margen (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_text_margin = tk.IntVar(value=40)
-        _m_lbl = ctk.CTkLabel(m_f, text="40", text_color=C_TEXT,
+        _m_lbl = ctk.CTkLabel(m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                               font=ctk.CTkFont(size=self._fs(11)), width=40)
         _m_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(m_f, from_=10, to=200, variable=self._var_text_margin,
-                      command=lambda v: _m_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(m_f, from_=10, to=120, variable=self._var_text_margin,
+                      command=lambda v: _m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
 
@@ -1525,11 +1604,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(fs_f, text="Tamaño fuente:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_text_font_size = tk.IntVar(value=36)
-        _fs_lbl = ctk.CTkLabel(fs_f, text="36", text_color=C_TEXT,
+        _fs_lbl = ctk.CTkLabel(fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _fs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(fs_f, from_=12, to=120, variable=self._var_text_font_size,
-                      command=lambda v: _fs_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(fs_f, from_=12, to=72, variable=self._var_text_font_size,
+                      command=lambda v: _fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
 
@@ -1539,11 +1618,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(gi_f, text="Glitch (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_text_glitch_intensity = tk.IntVar(value=3)
-        _gi_lbl = ctk.CTkLabel(gi_f, text="3", text_color=C_TEXT,
+        _gi_lbl = ctk.CTkLabel(gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _gi_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(gi_f, from_=0, to=20, variable=self._var_text_glitch_intensity,
-                      command=lambda v: _gi_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(gi_f, from_=0, to=10, variable=self._var_text_glitch_intensity,
+                      command=lambda v: _gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
 
@@ -1553,11 +1632,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(gs_f, text="Velocidad glitch:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_text_glitch_speed = tk.DoubleVar(value=4.0)
-        _gs_lbl = ctk.CTkLabel(gs_f, text="4.0", text_color=C_TEXT,
+        _gs_lbl = ctk.CTkLabel(gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _gs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(gs_f, from_=0.5, to=20.0, variable=self._var_text_glitch_speed,
-                      command=lambda v: _gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+        ctk.CTkSlider(gs_f, from_=0.5, to=12.0, variable=self._var_text_glitch_speed,
+                      command=lambda v: _gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
 
         self._text_overlay_frame.grid_remove()
@@ -1654,11 +1733,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_dyn_m_f, text="Margen (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_dyn_text_margin = tk.IntVar(value=40)
-        _dyn_m_lbl = ctk.CTkLabel(_dyn_m_f, text="40", text_color=C_TEXT,
+        _dyn_m_lbl = ctk.CTkLabel(_dyn_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
         _dyn_m_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_dyn_m_f, from_=10, to=200, variable=self._var_dyn_text_margin,
-                      command=lambda v: _dyn_m_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_dyn_m_f, from_=10, to=120, variable=self._var_dyn_text_margin,
+                      command=lambda v: _dyn_m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         dtof += 1
 
@@ -1668,11 +1747,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_dyn_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_dyn_text_font_size = tk.IntVar(value=36)
-        _dyn_fs_lbl = ctk.CTkLabel(_dyn_fs_f, text="36", text_color=C_TEXT,
+        _dyn_fs_lbl = ctk.CTkLabel(_dyn_fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                    font=ctk.CTkFont(size=self._fs(11)), width=40)
         _dyn_fs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_dyn_fs_f, from_=12, to=120, variable=self._var_dyn_text_font_size,
-                      command=lambda v: _dyn_fs_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_dyn_fs_f, from_=12, to=72, variable=self._var_dyn_text_font_size,
+                      command=lambda v: _dyn_fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         dtof += 1
 
@@ -1682,11 +1761,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_dyn_gi_f, text="Glitch (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_dyn_text_glitch_intensity = tk.IntVar(value=3)
-        _dyn_gi_lbl = ctk.CTkLabel(_dyn_gi_f, text="3", text_color=C_TEXT,
+        _dyn_gi_lbl = ctk.CTkLabel(_dyn_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                    font=ctk.CTkFont(size=self._fs(11)), width=40)
         _dyn_gi_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_dyn_gi_f, from_=0, to=20, variable=self._var_dyn_text_glitch_intensity,
-                      command=lambda v: _dyn_gi_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_dyn_gi_f, from_=0, to=10, variable=self._var_dyn_text_glitch_intensity,
+                      command=lambda v: _dyn_gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         dtof += 1
 
@@ -1696,11 +1775,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_dyn_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_dyn_text_glitch_speed = tk.DoubleVar(value=4.0)
-        _dyn_gs_lbl = ctk.CTkLabel(_dyn_gs_f, text="4.0", text_color=C_TEXT,
+        _dyn_gs_lbl = ctk.CTkLabel(_dyn_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                    font=ctk.CTkFont(size=self._fs(11)), width=40)
         _dyn_gs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_dyn_gs_f, from_=0.5, to=20.0, variable=self._var_dyn_text_glitch_speed,
-                      command=lambda v: _dyn_gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+        ctk.CTkSlider(_dyn_gs_f, from_=0.5, to=12.0, variable=self._var_dyn_text_glitch_speed,
+                      command=lambda v: _dyn_gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
 
         self._dyn_text_overlay_frame.grid_remove()
@@ -2271,17 +2350,84 @@ class AudioToVideoApp(ctk.CTk):
         _fx_inner = ctk.CTkFrame(_sec_fx, fg_color="transparent")
         _fx_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _fx_inner.grid_columnconfigure(0, weight=1)
-        self._var_sl_zoom = tk.BooleanVar(value=False)
-        fxr = self._check_row(_fx_inner, "Zoom suave por imagen", self._var_sl_zoom, 0,
-                              command=self._sl_toggle_zoom)
-        self._sl_zoom_wrapper = ctk.CTkFrame(_fx_inner, fg_color="transparent")
-        self._sl_zoom_wrapper.grid(row=fxr, column=0, sticky="ew")
-        self._sl_zoom_wrapper.grid_columnconfigure(0, weight=1)
-        self._var_sl_zoom_max = tk.DoubleVar(value=1.05)
-        self._slider_row(self._sl_zoom_wrapper, "Zoom máx:", self._var_sl_zoom_max,
-                         1.01, 1.15, 0, fmt="{:.3f}",
-                         tooltip_text="Factor de zoom máximo al final de cada imagen")
-        self._sl_zoom_wrapper.grid_remove()
+        self._var_sl_breath = tk.BooleanVar(value=False)
+        self._var_sl_light_zoom = tk.BooleanVar(value=False)
+        self._var_sl_vignette = tk.BooleanVar(value=False)
+        self._var_sl_color_shift = tk.BooleanVar(value=False)
+        fxr = 0
+
+        # Fade respiración
+        fxr = self._check_row(_fx_inner, "Fade respiración (brillo)", self._var_sl_breath, fxr)
+        self._sl_breath_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sl_breath_frame.grid(row=fxr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sl_breath_frame.grid_columnconfigure(0, weight=1)
+        self._var_sl_breath_intensity = tk.DoubleVar(value=0.04)
+        self._var_sl_breath_speed = tk.DoubleVar(value=1.0)
+        sbr = 0
+        sbr = self._slider_row(self._sl_breath_frame, "Intensidad:",
+                               self._var_sl_breath_intensity, 0.01, 0.08, sbr, fmt="{:.3f}", number_of_steps=70, pct=True)
+        sbr = self._slider_row(self._sl_breath_frame, "Velocidad:",
+                               self._var_sl_breath_speed, 0.1, 2.0, sbr, fmt="{:.1f}", number_of_steps=19, pct=True)
+        self._sl_breath_frame.grid_remove()
+        self._var_sl_breath.trace_add("write", lambda *_: (
+            self._sl_breath_frame.grid() if self._var_sl_breath.get()
+            else self._sl_breath_frame.grid_remove()
+        ))
+        fxr += 1
+
+        # Zoom ligero
+        fxr = self._check_row(_fx_inner, "Zoom ligero (crop)", self._var_sl_light_zoom, fxr)
+        self._sl_light_zoom_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sl_light_zoom_frame.grid(row=fxr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sl_light_zoom_frame.grid_columnconfigure(0, weight=1)
+        self._var_sl_light_zoom_max = tk.DoubleVar(value=1.04)
+        self._var_sl_light_zoom_speed = tk.DoubleVar(value=0.5)
+        slzr = 0
+        slzr = self._slider_row(self._sl_light_zoom_frame, "Zoom máx:",
+                               self._var_sl_light_zoom_max, 1.01, 1.08, slzr, fmt="{:.3f}", number_of_steps=70, pct=True)
+        slzr = self._slider_row(self._sl_light_zoom_frame, "Velocidad:",
+                               self._var_sl_light_zoom_speed, 0.1, 1.5, slzr, fmt="{:.1f}", number_of_steps=14, pct=True)
+        self._sl_light_zoom_frame.grid_remove()
+        self._var_sl_light_zoom.trace_add("write", lambda *_: (
+            self._sl_light_zoom_frame.grid() if self._var_sl_light_zoom.get()
+            else self._sl_light_zoom_frame.grid_remove()
+        ))
+        fxr += 1
+
+        # Viñeta
+        fxr = self._check_row(_fx_inner, "Viñeta (bordes)", self._var_sl_vignette, fxr)
+        self._sl_vignette_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sl_vignette_frame.grid(row=fxr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sl_vignette_frame.grid_columnconfigure(0, weight=1)
+        self._var_sl_vignette_intensity = tk.DoubleVar(value=0.4)
+        svr = 0
+        svr = self._slider_row(self._sl_vignette_frame, "Intensidad:",
+                               self._var_sl_vignette_intensity, 0.0, 1.0, svr, fmt="{:.1f}", number_of_steps=100, pct=True)
+        self._sl_vignette_frame.grid_remove()
+        self._var_sl_vignette.trace_add("write", lambda *_: (
+            self._sl_vignette_frame.grid() if self._var_sl_vignette.get()
+            else self._sl_vignette_frame.grid_remove()
+        ))
+        fxr += 1
+
+        # Color shift
+        fxr = self._check_row(_fx_inner, "Color shift (hue)", self._var_sl_color_shift, fxr)
+        self._sl_color_shift_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sl_color_shift_frame.grid(row=fxr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sl_color_shift_frame.grid_columnconfigure(0, weight=1)
+        self._var_sl_color_shift_amount = tk.DoubleVar(value=15.0)
+        self._var_sl_color_shift_speed = tk.DoubleVar(value=0.5)
+        scsr = 0
+        scsr = self._slider_row(self._sl_color_shift_frame, "Cantidad (°):",
+                               self._var_sl_color_shift_amount, 1.0, 45.0, scsr, fmt="{:.0f}", pct=True)
+        scsr = self._slider_row(self._sl_color_shift_frame, "Velocidad:",
+                               self._var_sl_color_shift_speed, 0.1, 2.0, scsr, fmt="{:.1f}", number_of_steps=19, pct=True)
+        self._sl_color_shift_frame.grid_remove()
+        self._var_sl_color_shift.trace_add("write", lambda *_: (
+            self._sl_color_shift_frame.grid() if self._var_sl_color_shift.get()
+            else self._sl_color_shift_frame.grid_remove()
+        ))
+        fxr += 1
         sqr += 1
 
         # --- Texto overlay (Slideshow) ---
@@ -2366,11 +2512,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sl_m_f, text="Margen (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_text_margin = tk.IntVar(value=40)
-        _sl_m_lbl = ctk.CTkLabel(_sl_m_f, text="40", text_color=C_TEXT,
+        _sl_m_lbl = ctk.CTkLabel(_sl_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                                  font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_m_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sl_m_f, from_=10, to=200, variable=self._var_sl_text_margin,
-                      command=lambda v: _sl_m_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_sl_m_f, from_=10, to=120, variable=self._var_sl_text_margin,
+                      command=lambda v: _sl_m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_tof += 1
 
@@ -2380,11 +2526,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sl_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_text_font_size = tk.IntVar(value=36)
-        _sl_fs_lbl = ctk.CTkLabel(_sl_fs_f, text="36", text_color=C_TEXT,
+        _sl_fs_lbl = ctk.CTkLabel(_sl_fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_fs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sl_fs_f, from_=12, to=120, variable=self._var_sl_text_font_size,
-                      command=lambda v: _sl_fs_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_sl_fs_f, from_=12, to=72, variable=self._var_sl_text_font_size,
+                      command=lambda v: _sl_fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_tof += 1
 
@@ -2394,11 +2540,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sl_gi_f, text="Glitch (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_text_glitch_intensity = tk.IntVar(value=3)
-        _sl_gi_lbl = ctk.CTkLabel(_sl_gi_f, text="3", text_color=C_TEXT,
+        _sl_gi_lbl = ctk.CTkLabel(_sl_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_gi_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sl_gi_f, from_=0, to=20, variable=self._var_sl_text_glitch_intensity,
-                      command=lambda v: _sl_gi_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_sl_gi_f, from_=0, to=10, variable=self._var_sl_text_glitch_intensity,
+                      command=lambda v: _sl_gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_tof += 1
 
@@ -2408,11 +2554,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sl_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_text_glitch_speed = tk.DoubleVar(value=4.0)
-        _sl_gs_lbl = ctk.CTkLabel(_sl_gs_f, text="4.0", text_color=C_TEXT,
+        _sl_gs_lbl = ctk.CTkLabel(_sl_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                   font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_gs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sl_gs_f, from_=0.5, to=20.0, variable=self._var_sl_text_glitch_speed,
-                      command=lambda v: _sl_gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+        ctk.CTkSlider(_sl_gs_f, from_=0.5, to=12.0, variable=self._var_sl_text_glitch_speed,
+                      command=lambda v: _sl_gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
         self._sl_text_overlay_frame.grid_remove()
 
@@ -2501,11 +2647,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sl_dyn_m_f, text="Margen (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_dyn_text_margin = tk.IntVar(value=40)
-        _sl_dyn_m_lbl = ctk.CTkLabel(_sl_dyn_m_f, text="40", text_color=C_TEXT,
+        _sl_dyn_m_lbl = ctk.CTkLabel(_sl_dyn_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                                      font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_dyn_m_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sl_dyn_m_f, from_=10, to=200, variable=self._var_sl_dyn_text_margin,
-                      command=lambda v: _sl_dyn_m_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_sl_dyn_m_f, from_=10, to=120, variable=self._var_sl_dyn_text_margin,
+                      command=lambda v: _sl_dyn_m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_dtof += 1
 
@@ -2515,11 +2661,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sl_dyn_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_dyn_text_font_size = tk.IntVar(value=36)
-        _sl_dyn_fs_lbl = ctk.CTkLabel(_sl_dyn_fs_f, text="36", text_color=C_TEXT,
+        _sl_dyn_fs_lbl = ctk.CTkLabel(_sl_dyn_fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_dyn_fs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sl_dyn_fs_f, from_=12, to=120, variable=self._var_sl_dyn_text_font_size,
-                      command=lambda v: _sl_dyn_fs_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_sl_dyn_fs_f, from_=12, to=72, variable=self._var_sl_dyn_text_font_size,
+                      command=lambda v: _sl_dyn_fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_dtof += 1
 
@@ -2529,11 +2675,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sl_dyn_gi_f, text="Glitch (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_dyn_text_glitch_intensity = tk.IntVar(value=3)
-        _sl_dyn_gi_lbl = ctk.CTkLabel(_sl_dyn_gi_f, text="3", text_color=C_TEXT,
+        _sl_dyn_gi_lbl = ctk.CTkLabel(_sl_dyn_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_dyn_gi_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sl_dyn_gi_f, from_=0, to=20, variable=self._var_sl_dyn_text_glitch_intensity,
-                      command=lambda v: _sl_dyn_gi_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_sl_dyn_gi_f, from_=0, to=10, variable=self._var_sl_dyn_text_glitch_intensity,
+                      command=lambda v: _sl_dyn_gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sl_dtof += 1
 
@@ -2543,11 +2689,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sl_dyn_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sl_dyn_text_glitch_speed = tk.DoubleVar(value=4.0)
-        _sl_dyn_gs_lbl = ctk.CTkLabel(_sl_dyn_gs_f, text="4.0", text_color=C_TEXT,
+        _sl_dyn_gs_lbl = ctk.CTkLabel(_sl_dyn_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sl_dyn_gs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sl_dyn_gs_f, from_=0.5, to=20.0, variable=self._var_sl_dyn_text_glitch_speed,
-                      command=lambda v: _sl_dyn_gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+        ctk.CTkSlider(_sl_dyn_gs_f, from_=0.5, to=12.0, variable=self._var_sl_dyn_text_glitch_speed,
+                      command=lambda v: _sl_dyn_gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
         self._sl_dyn_text_overlay_frame.grid_remove()
         sqr += 1
@@ -2601,7 +2747,7 @@ class AudioToVideoApp(ctk.CTk):
 
         self._var_sl_crf = tk.IntVar(value=18)
         self._slider_row(_perf_inner, "Calidad (CRF):", self._var_sl_crf,
-                         0, 51, 2, fmt="{:.0f}",
+                         0, 51, 2, fmt="{:.0f}", pct=True,
                          tooltip_text="0=máxima calidad, 18=alta, 28=media, 51=mínima")
 
         self._var_sl_gpu_encoding = tk.BooleanVar(value=False)
@@ -2763,24 +2909,82 @@ class AudioToVideoApp(ctk.CTk):
         _fx_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
         _fx_inner.grid_columnconfigure(0, weight=1)
 
-        self._var_sho_zoom = tk.BooleanVar(value=True)
-        fr = self._check_row(_fx_inner, "Zoom dinámico", self._var_sho_zoom, 0)
-        self._sho_zoom_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
-        self._sho_zoom_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
-        self._sho_zoom_frame.grid_columnconfigure(0, weight=1)
-        self._var_sho_zoom_max = tk.DoubleVar(value=1.02)
-        self._var_sho_zoom_speed = tk.IntVar(value=300)
-        zr = 0
-        zr = self._slider_row(self._sho_zoom_frame, "Zoom máximo:",
-                              self._var_sho_zoom_max, 1.0, 1.1, zr, fmt="{:.3f}",
-                              number_of_steps=200)
-        self._slider_row(self._sho_zoom_frame, "Velocidad zoom:",
-                         self._var_sho_zoom_speed, 100, 700, zr, fmt="{:.0f}")
-        if not self._var_sho_zoom.get():
-            self._sho_zoom_frame.grid_remove()
-        self._var_sho_zoom.trace_add("write", lambda *_: (
-            self._sho_zoom_frame.grid() if self._var_sho_zoom.get()
-            else self._sho_zoom_frame.grid_remove()
+        self._var_sho_breath = tk.BooleanVar(value=False)
+        self._var_sho_light_zoom = tk.BooleanVar(value=False)
+        self._var_sho_vignette = tk.BooleanVar(value=False)
+        self._var_sho_color_shift = tk.BooleanVar(value=False)
+        fr = 0
+
+        # Fade respiración
+        fr = self._check_row(_fx_inner, "Fade respiración (brillo)", self._var_sho_breath, fr)
+        self._sho_breath_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sho_breath_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sho_breath_frame.grid_columnconfigure(0, weight=1)
+        self._var_sho_breath_intensity = tk.DoubleVar(value=0.04)
+        self._var_sho_breath_speed = tk.DoubleVar(value=1.0)
+        sbr = 0
+        sbr = self._slider_row(self._sho_breath_frame, "Intensidad:",
+                               self._var_sho_breath_intensity, 0.01, 0.08, sbr, fmt="{:.3f}", number_of_steps=70, pct=True)
+        sbr = self._slider_row(self._sho_breath_frame, "Velocidad:",
+                               self._var_sho_breath_speed, 0.1, 2.0, sbr, fmt="{:.1f}", number_of_steps=19, pct=True)
+        self._sho_breath_frame.grid_remove()
+        self._var_sho_breath.trace_add("write", lambda *_: (
+            self._sho_breath_frame.grid() if self._var_sho_breath.get()
+            else self._sho_breath_frame.grid_remove()
+        ))
+        fr += 1
+
+        # Zoom ligero
+        fr = self._check_row(_fx_inner, "Zoom ligero (crop)", self._var_sho_light_zoom, fr)
+        self._sho_light_zoom_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sho_light_zoom_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sho_light_zoom_frame.grid_columnconfigure(0, weight=1)
+        self._var_sho_light_zoom_max = tk.DoubleVar(value=1.04)
+        self._var_sho_light_zoom_speed = tk.DoubleVar(value=0.5)
+        slzr = 0
+        slzr = self._slider_row(self._sho_light_zoom_frame, "Zoom máx:",
+                               self._var_sho_light_zoom_max, 1.01, 1.08, slzr, fmt="{:.3f}", number_of_steps=70, pct=True)
+        slzr = self._slider_row(self._sho_light_zoom_frame, "Velocidad:",
+                               self._var_sho_light_zoom_speed, 0.1, 1.5, slzr, fmt="{:.1f}", number_of_steps=14, pct=True)
+        self._sho_light_zoom_frame.grid_remove()
+        self._var_sho_light_zoom.trace_add("write", lambda *_: (
+            self._sho_light_zoom_frame.grid() if self._var_sho_light_zoom.get()
+            else self._sho_light_zoom_frame.grid_remove()
+        ))
+        fr += 1
+
+        # Viñeta
+        fr = self._check_row(_fx_inner, "Viñeta (bordes)", self._var_sho_vignette, fr)
+        self._sho_vignette_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sho_vignette_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sho_vignette_frame.grid_columnconfigure(0, weight=1)
+        self._var_sho_vignette_intensity = tk.DoubleVar(value=0.4)
+        svr = 0
+        svr = self._slider_row(self._sho_vignette_frame, "Intensidad:",
+                               self._var_sho_vignette_intensity, 0.0, 1.0, svr, fmt="{:.1f}", number_of_steps=100, pct=True)
+        self._sho_vignette_frame.grid_remove()
+        self._var_sho_vignette.trace_add("write", lambda *_: (
+            self._sho_vignette_frame.grid() if self._var_sho_vignette.get()
+            else self._sho_vignette_frame.grid_remove()
+        ))
+        fr += 1
+
+        # Color shift
+        fr = self._check_row(_fx_inner, "Color shift (hue)", self._var_sho_color_shift, fr)
+        self._sho_color_shift_frame = ctk.CTkFrame(_fx_inner, fg_color="transparent")
+        self._sho_color_shift_frame.grid(row=fr, column=0, sticky="ew", padx=12, pady=(0, 4))
+        self._sho_color_shift_frame.grid_columnconfigure(0, weight=1)
+        self._var_sho_color_shift_amount = tk.DoubleVar(value=15.0)
+        self._var_sho_color_shift_speed = tk.DoubleVar(value=0.5)
+        scsr = 0
+        scsr = self._slider_row(self._sho_color_shift_frame, "Cantidad (°):",
+                               self._var_sho_color_shift_amount, 1.0, 45.0, scsr, fmt="{:.0f}", pct=True)
+        scsr = self._slider_row(self._sho_color_shift_frame, "Velocidad:",
+                               self._var_sho_color_shift_speed, 0.1, 2.0, scsr, fmt="{:.1f}", number_of_steps=19, pct=True)
+        self._sho_color_shift_frame.grid_remove()
+        self._var_sho_color_shift.trace_add("write", lambda *_: (
+            self._sho_color_shift_frame.grid() if self._var_sho_color_shift.get()
+            else self._sho_color_shift_frame.grid_remove()
         ))
         fr += 1
 
@@ -2794,11 +2998,11 @@ class AudioToVideoApp(ctk.CTk):
         self._var_sho_glitch_pulse = tk.IntVar(value=3)
         gr = 0
         gr = self._slider_row(self._sho_glitch_frame, "Intensidad:",
-                              self._var_sho_glitch_intensity, 1, 20, gr, fmt="{:.0f}")
+                              self._var_sho_glitch_intensity, 1, 10, gr, fmt="{:.0f}", pct=True)
         gr = self._slider_row(self._sho_glitch_frame, "Frecuencia (frames):",
-                              self._var_sho_glitch_speed_fx, 20, 300, gr, fmt="{:.0f}")
+                              self._var_sho_glitch_speed_fx, 20, 180, gr, fmt="{:.0f}", pct=True)
         self._slider_row(self._sho_glitch_frame, "Duración pulso:",
-                         self._var_sho_glitch_pulse, 1, 10, gr, fmt="{:.0f}")
+                         self._var_sho_glitch_pulse, 1, 6, gr, fmt="{:.0f}", pct=True)
         if not self._var_sho_glitch.get():
             self._sho_glitch_frame.grid_remove()
         self._var_sho_glitch.trace_add("write", lambda *_: (
@@ -2898,11 +3102,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_m_f, text="Margen (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_text_margin = tk.IntVar(value=40)
-        _m_lbl = ctk.CTkLabel(_m_f, text="40", text_color=C_TEXT,
+        _m_lbl = ctk.CTkLabel(_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                               font=ctk.CTkFont(size=self._fs(11)), width=40)
         _m_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_m_f, from_=10, to=200, variable=self._var_sho_text_margin,
-                      command=lambda v: _m_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_m_f, from_=10, to=120, variable=self._var_sho_text_margin,
+                      command=lambda v: _m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
 
@@ -2912,11 +3116,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_fsz_f, text="Tamaño fuente:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_text_font_size = tk.IntVar(value=36)
-        _fsz_lbl = ctk.CTkLabel(_fsz_f, text="36", text_color=C_TEXT,
+        _fsz_lbl = ctk.CTkLabel(_fsz_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                 font=ctk.CTkFont(size=self._fs(11)), width=40)
         _fsz_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_fsz_f, from_=12, to=120, variable=self._var_sho_text_font_size,
-                      command=lambda v: _fsz_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_fsz_f, from_=12, to=72, variable=self._var_sho_text_font_size,
+                      command=lambda v: _fsz_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
 
@@ -2926,11 +3130,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_gi_f, text="Glitch (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_text_glitch_intensity = tk.IntVar(value=3)
-        _gi_lbl = ctk.CTkLabel(_gi_f, text="3", text_color=C_TEXT,
+        _gi_lbl = ctk.CTkLabel(_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _gi_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_gi_f, from_=0, to=20, variable=self._var_sho_text_glitch_intensity,
-                      command=lambda v: _gi_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_gi_f, from_=0, to=10, variable=self._var_sho_text_glitch_intensity,
+                      command=lambda v: _gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         tof += 1
 
@@ -2940,11 +3144,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_text_glitch_speed = tk.DoubleVar(value=4.0)
-        _gs_lbl = ctk.CTkLabel(_gs_f, text="4.0", text_color=C_TEXT,
+        _gs_lbl = ctk.CTkLabel(_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                font=ctk.CTkFont(size=self._fs(11)), width=40)
         _gs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_gs_f, from_=0.5, to=20.0, variable=self._var_sho_text_glitch_speed,
-                      command=lambda v: _gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+        ctk.CTkSlider(_gs_f, from_=0.5, to=12.0, variable=self._var_sho_text_glitch_speed,
+                      command=lambda v: _gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
         self._sho_text_overlay_frame.grid_remove()
 
@@ -3039,11 +3243,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sho_dyn_m_f, text="Margen (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_dyn_text_margin = tk.IntVar(value=40)
-        _sho_dyn_m_lbl = ctk.CTkLabel(_sho_dyn_m_f, text="40", text_color=C_TEXT,
+        _sho_dyn_m_lbl = ctk.CTkLabel(_sho_dyn_m_f, text=_val_to_pct(40, 10, 120), text_color=C_TEXT,
                                       font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sho_dyn_m_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sho_dyn_m_f, from_=10, to=200, variable=self._var_sho_dyn_text_margin,
-                      command=lambda v: _sho_dyn_m_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_sho_dyn_m_f, from_=10, to=120, variable=self._var_sho_dyn_text_margin,
+                      command=lambda v: _sho_dyn_m_lbl.configure(text=_val_to_pct(float(v), 10, 120))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sho_dtof += 1
 
@@ -3053,11 +3257,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sho_dyn_fs_f, text="Tamaño fuente:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_dyn_text_font_size = tk.IntVar(value=36)
-        _sho_dyn_fs_lbl = ctk.CTkLabel(_sho_dyn_fs_f, text="36", text_color=C_TEXT,
+        _sho_dyn_fs_lbl = ctk.CTkLabel(_sho_dyn_fs_f, text=_val_to_pct(36, 12, 72), text_color=C_TEXT,
                                        font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sho_dyn_fs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sho_dyn_fs_f, from_=12, to=120, variable=self._var_sho_dyn_text_font_size,
-                      command=lambda v: _sho_dyn_fs_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_sho_dyn_fs_f, from_=12, to=72, variable=self._var_sho_dyn_text_font_size,
+                      command=lambda v: _sho_dyn_fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sho_dtof += 1
 
@@ -3067,11 +3271,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sho_dyn_gi_f, text="Glitch (px):", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_dyn_text_glitch_intensity = tk.IntVar(value=3)
-        _sho_dyn_gi_lbl = ctk.CTkLabel(_sho_dyn_gi_f, text="3", text_color=C_TEXT,
+        _sho_dyn_gi_lbl = ctk.CTkLabel(_sho_dyn_gi_f, text=_val_to_pct(3, 0, 10), text_color=C_TEXT,
                                        font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sho_dyn_gi_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sho_dyn_gi_f, from_=0, to=20, variable=self._var_sho_dyn_text_glitch_intensity,
-                      command=lambda v: _sho_dyn_gi_lbl.configure(text=f"{int(float(v))}")).grid(
+        ctk.CTkSlider(_sho_dyn_gi_f, from_=0, to=10, variable=self._var_sho_dyn_text_glitch_intensity,
+                      command=lambda v: _sho_dyn_gi_lbl.configure(text=_val_to_pct(float(v), 0, 10))).grid(
             row=0, column=1, sticky="ew", padx=4)
         sho_dtof += 1
 
@@ -3081,11 +3285,11 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(_sho_dyn_gs_f, text="Velocidad glitch:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0)
         self._var_sho_dyn_text_glitch_speed = tk.DoubleVar(value=4.0)
-        _sho_dyn_gs_lbl = ctk.CTkLabel(_sho_dyn_gs_f, text="4.0", text_color=C_TEXT,
+        _sho_dyn_gs_lbl = ctk.CTkLabel(_sho_dyn_gs_f, text=_val_to_pct(4.0, 0.5, 12.0), text_color=C_TEXT,
                                        font=ctk.CTkFont(size=self._fs(11)), width=40)
         _sho_dyn_gs_lbl.grid(row=0, column=2, padx=(4, 0))
-        ctk.CTkSlider(_sho_dyn_gs_f, from_=0.5, to=20.0, variable=self._var_sho_dyn_text_glitch_speed,
-                      command=lambda v: _sho_dyn_gs_lbl.configure(text=f"{float(v):.1f}")).grid(
+        ctk.CTkSlider(_sho_dyn_gs_f, from_=0.5, to=12.0, variable=self._var_sho_dyn_text_glitch_speed,
+                      command=lambda v: _sho_dyn_gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
         self._sho_dyn_text_overlay_frame.grid_remove()
 
@@ -3120,10 +3324,10 @@ class AudioToVideoApp(ctk.CTk):
         _par_sho_inner.grid_columnconfigure(0, weight=1)
         self._var_sho_fade_in = tk.DoubleVar(value=0.5)
         sho_pr = self._slider_row(_par_sho_inner, "Fade in (s):",
-                                  self._var_sho_fade_in, 0, 10, 0, fmt="{:.1f}")
+                                  self._var_sho_fade_in, 0, 5, 0, fmt="{:.1f}")
         self._var_sho_fade_out = tk.DoubleVar(value=0.5)
         self._slider_row(_par_sho_inner, "Fade out (s):",
-                         self._var_sho_fade_out, 0, 10, sho_pr, fmt="{:.1f}")
+                         self._var_sho_fade_out, 0, 5, sho_pr, fmt="{:.1f}")
         vr += 1
 
         # ══════════════════════════════════════════════════════════════
@@ -3297,7 +3501,7 @@ class AudioToVideoApp(ctk.CTk):
         ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
         self._var_sho_crf = tk.IntVar(value=18)
         self._slider_row(_perf_inner_sho, "Calidad (CRF):", self._var_sho_crf,
-                         0, 51, 2, fmt="{:.0f}",
+                         0, 51, 2, fmt="{:.0f}", pct=True,
                          tooltip_text="0=máxima calidad, 18=alta, 28=media, 51=mínima")
         self._var_sho_gpu_encoding = tk.BooleanVar(value=False)
         self._check_row(_perf_inner_sho, "Usar GPU (NVENC)", self._var_sho_gpu_encoding, 4)
@@ -3330,6 +3534,13 @@ class AudioToVideoApp(ctk.CTk):
         )
         _btn_save.grid(row=0, column=1, padx=4, pady=_pad)
         _apply_sec_hover(_btn_save)
+
+        # ABRIR CARPETA — abre la carpeta de salida del modo activo
+        self._btn_open_folder = ctk.CTkButton(
+            footer, text=f"CARPETA DE SALIDA",
+            command=self._on_open_output_folder, **_sec_kw)
+        self._btn_open_folder.grid(row=0, column=2, padx=4, pady=_pad, sticky="w")
+        _apply_sec_hover(self._btn_open_folder)
 
         # CANCELAR — junto al botón principal
         self._btn_cancel = ctk.CTkButton(
@@ -3613,6 +3824,10 @@ class AudioToVideoApp(ctk.CTk):
         for w in row.winfo_children():
             w.bind("<Button-1>", _toggle)
 
+        # Register for initial collapse
+        if hasattr(self, "_section_toggles"):
+            self._section_toggles.append(_toggle)
+
         return hdr
 
     def _file_row(
@@ -3652,6 +3867,27 @@ class AudioToVideoApp(ctk.CTk):
         _apply_sec_hover(_browse_btn)
         return row + 2
 
+    def _get_range(self, *keys: str, default_min: float = 0, default_max: float = 1) -> tuple[float, float]:
+        """Lookup slider range from slider_ranges.json by nested keys.
+        Returns (min, max) from config, or defaults if key path not found."""
+        d: Any = self._slider_ranges
+        for k in keys:
+            if isinstance(d, dict) and k in d:
+                d = d[k]
+            else:
+                return default_min, default_max
+        if isinstance(d, dict):
+            return d.get("min", default_min), d.get("max", default_max)
+        return default_min, default_max
+
+    def _collapse_all_sections(self) -> None:
+        """Collapse every section registered during _build_ui."""
+        for toggle_fn in self._section_toggles:
+            try:
+                toggle_fn()
+            except Exception:
+                pass
+
     def _slider_row(
         self,
         parent: Any,
@@ -3663,6 +3899,7 @@ class AudioToVideoApp(ctk.CTk):
         fmt: str = "{:.2f}",
         tooltip_text: str = "",
         number_of_steps: int | None = None,
+        pct: bool = False,
     ) -> int:
         inner = ctk.CTkFrame(parent, fg_color="transparent")
         inner.grid(row=row, column=0, sticky="ew", padx=12, pady=(8, 8))
@@ -3673,13 +3910,23 @@ class AudioToVideoApp(ctk.CTk):
             row=0, column=0, sticky="w"
         )
 
-        val_label = ctk.CTkLabel(inner, text=fmt.format(var.get()),
+        _lo, _hi = from_, to
+
+        def _to_pct(v: float) -> str:
+            rng = _hi - _lo
+            if rng == 0:
+                return "0%"
+            return f"{int(round((v - _lo) / rng * 100))}%"
+
+        init_text = _to_pct(var.get()) if pct else fmt.format(var.get())
+        val_label = ctk.CTkLabel(inner, text=init_text,
                                  text_color=C_ACCENT, font=ctk.CTkFont(size=self._fs(11)), width=50)
         val_label.grid(row=0, column=2, padx=(4, 0))
 
         def _update(v: str) -> None:
             try:
-                val_label.configure(text=fmt.format(float(v)))
+                fv = float(v)
+                val_label.configure(text=_to_pct(fv) if pct else fmt.format(fv))
             except ValueError:
                 pass
 
@@ -3756,6 +4003,7 @@ class AudioToVideoApp(ctk.CTk):
                 continue
             w.destroy()
         self._build_ui()
+        self.after_idle(self._collapse_all_sections)
         self._load_settings_to_ui()
         self.after(200, self._run_validation)
 
@@ -3797,6 +4045,7 @@ class AudioToVideoApp(ctk.CTk):
                 continue
             w.destroy()
         self._build_ui()
+        self.after_idle(self._collapse_all_sections)
         self._load_settings_to_ui()
         self.after(200, self._run_validation)
 
@@ -3823,6 +4072,8 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_sho_scroll_frame"):
             self._sho_scroll_frame.destroy()
         self._build_shorts_left_panel(self._main_panel)
+        # Collapse all new sections
+        self.after_idle(self._collapse_all_sections)
         if self._current_mode == "Slideshow":
             self._sl_scroll_frame.grid()
             self._scroll_frame.grid_remove()
@@ -3995,12 +4246,6 @@ class AudioToVideoApp(ctk.CTk):
         else:
             self._sl_audio_wrapper.grid_remove()
 
-    def _sl_toggle_zoom(self) -> None:
-        if self._var_sl_zoom.get():
-            self._sl_zoom_wrapper.grid()
-        else:
-            self._sl_zoom_wrapper.grid_remove()
-
     def _sl_update_count(self) -> None:
         if not hasattr(self, "_sl_lbl_count"):
             return
@@ -4143,8 +4388,17 @@ class AudioToVideoApp(ctk.CTk):
             "sl_cpu_mode": self._var_sl_cpu_mode.get(),
             "sl_encode_preset": self._var_sl_encode_preset.get(),
             "sl_gpu_encoding": self._var_sl_gpu_encoding.get(),
-            "sl_enable_zoom": self._var_sl_zoom.get(),
-            "sl_zoom_max": round(self._var_sl_zoom_max.get(), 3),
+            "sl_enable_breath": self._var_sl_breath.get(),
+            "sl_breath_intensity": round(self._var_sl_breath_intensity.get(), 3),
+            "sl_breath_speed": round(self._var_sl_breath_speed.get(), 1),
+            "sl_enable_light_zoom": self._var_sl_light_zoom.get(),
+            "sl_light_zoom_max": round(self._var_sl_light_zoom_max.get(), 3),
+            "sl_light_zoom_speed": round(self._var_sl_light_zoom_speed.get(), 1),
+            "sl_enable_vignette": self._var_sl_vignette.get(),
+            "sl_vignette_intensity": round(self._var_sl_vignette_intensity.get(), 1),
+            "sl_enable_color_shift": self._var_sl_color_shift.get(),
+            "sl_color_shift_amount": round(self._var_sl_color_shift_amount.get(), 0),
+            "sl_color_shift_speed": round(self._var_sl_color_shift_speed.get(), 1),
             # Text overlay estático (Slideshow)
             "sl_enable_text_overlay":    self._var_sl_text_overlay.get() if hasattr(self, "_var_sl_text_overlay") else False,
             "sl_text_content":           self._var_sl_text_content.get() if hasattr(self, "_var_sl_text_content") else "",
@@ -4403,9 +4657,17 @@ class AudioToVideoApp(ctk.CTk):
             "sho_duration":         int(self._var_sho_duration.get()) if hasattr(self, "_var_sho_duration") else 45,
             "sho_quantity":         int(self._var_sho_quantity.get()) if hasattr(self, "_var_sho_quantity") else 3,
             "sho_resolution":       self._var_sho_resolution.get() if hasattr(self, "_var_sho_resolution") else "1080p",
-            "sho_enable_zoom":      self._var_sho_zoom.get() if hasattr(self, "_var_sho_zoom") else True,
-            "sho_zoom_max":         self._var_sho_zoom_max.get() if hasattr(self, "_var_sho_zoom_max") else 1.02,
-            "sho_zoom_speed":       int(self._var_sho_zoom_speed.get()) if hasattr(self, "_var_sho_zoom_speed") else 300,
+            "sho_enable_breath":    self._var_sho_breath.get() if hasattr(self, "_var_sho_breath") else False,
+            "sho_breath_intensity": round(self._var_sho_breath_intensity.get(), 3) if hasattr(self, "_var_sho_breath_intensity") else 0.04,
+            "sho_breath_speed":     round(self._var_sho_breath_speed.get(), 1) if hasattr(self, "_var_sho_breath_speed") else 1.0,
+            "sho_enable_light_zoom": self._var_sho_light_zoom.get() if hasattr(self, "_var_sho_light_zoom") else False,
+            "sho_light_zoom_max":   round(self._var_sho_light_zoom_max.get(), 3) if hasattr(self, "_var_sho_light_zoom_max") else 1.04,
+            "sho_light_zoom_speed": round(self._var_sho_light_zoom_speed.get(), 1) if hasattr(self, "_var_sho_light_zoom_speed") else 0.5,
+            "sho_enable_vignette":  self._var_sho_vignette.get() if hasattr(self, "_var_sho_vignette") else False,
+            "sho_vignette_intensity": round(self._var_sho_vignette_intensity.get(), 1) if hasattr(self, "_var_sho_vignette_intensity") else 0.4,
+            "sho_enable_color_shift": self._var_sho_color_shift.get() if hasattr(self, "_var_sho_color_shift") else False,
+            "sho_color_shift_amount": round(self._var_sho_color_shift_amount.get(), 0) if hasattr(self, "_var_sho_color_shift_amount") else 15.0,
+            "sho_color_shift_speed": round(self._var_sho_color_shift_speed.get(), 1) if hasattr(self, "_var_sho_color_shift_speed") else 0.5,
             "sho_enable_glitch":    self._var_sho_glitch.get() if hasattr(self, "_var_sho_glitch") else False,
             "sho_glitch_intensity": int(self._var_sho_glitch_intensity.get()) if hasattr(self, "_var_sho_glitch_intensity") else 4,
             "sho_glitch_speed":     int(self._var_sho_glitch_speed_fx.get()) if hasattr(self, "_var_sho_glitch_speed_fx") else 90,
@@ -5289,7 +5551,10 @@ class AudioToVideoApp(ctk.CTk):
                 if os.name == "nt":
                     _si = subprocess.STARTUPINFO()
                     _si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, startupinfo=_si)
+                try:
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, startupinfo=_si)
+                finally:
+                    builder.cleanup()
                 if r.returncode == 0:
                     self._queue_log(f"✔ Preview guardado: {output}")
                 else:
@@ -5316,6 +5581,39 @@ class AudioToVideoApp(ctk.CTk):
             self._queue_log(msg)
 
         threading.Thread(target=_run, daemon=True).start()
+
+    # ── Abrir carpeta de salida ──────────────────────────────────────
+
+    def _get_active_output_folder(self) -> str:
+        """Return the output folder path for the active mode (may be empty)."""
+        mode = getattr(self, "_current_mode", "Audio \u2192 Video")
+        if mode == "Slideshow":
+            return self._var_sl_output_folder.get() if hasattr(self, "_var_sl_output_folder") else ""
+        if mode == "Shorts":
+            return self._var_sho_output_folder.get() if hasattr(self, "_var_sho_output_folder") else ""
+        return self._var_output.get() if hasattr(self, "_var_output") else ""
+
+    def _update_open_folder_btn(self, *_args: object) -> None:
+        """Enable/disable the open-folder button based on the active output path."""
+        if not hasattr(self, "_btn_open_folder"):
+            return
+        folder = self._get_active_output_folder()
+        state = "normal" if folder.strip() else "disabled"
+        self._btn_open_folder.configure(state=state)
+
+    def _on_open_output_folder(self) -> None:
+        """Open the active mode's output folder in the system file explorer."""
+        folder = self._get_active_output_folder()
+        if not folder or not folder.strip():
+            return
+        p = Path(folder)
+        if not p.is_dir():
+            # Create folder if needed so the explorer can open it
+            try:
+                p.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                return
+        os.startfile(str(p))
 
     # ──────────────────────────────────────────────────────────────────
     # CALLBACKS DEL RUNNER (llamados desde hilo secundario)
@@ -5490,13 +5788,21 @@ class AudioToVideoApp(ctk.CTk):
             "output_folder": self._var_output.get(),
             "multi_image": self._var_multi_image.get(),
             "images_folder": self._var_images_folder.get(),
-            "zoom_max": round(self._var_zoom_max.get(), 4),
-            "zoom_speed": int(self._var_zoom_speed.get()),
             "fade_in": round(self._var_fade_in.get(), 2),
             "fade_out": round(self._var_fade_out.get(), 2),
             "crf": int(self._var_crf.get()),
             "resolution": self._var_resolution.get(),
-            "enable_zoom": self._var_zoom.get(),
+            "enable_breath": self._var_breath.get(),
+            "breath_intensity": round(self._var_breath_intensity.get(), 3),
+            "breath_speed": round(self._var_breath_speed.get(), 1),
+            "enable_light_zoom": self._var_light_zoom.get(),
+            "light_zoom_max": round(self._var_light_zoom_max.get(), 3),
+            "light_zoom_speed": round(self._var_light_zoom_speed.get(), 1),
+            "enable_vignette": self._var_vignette.get(),
+            "vignette_intensity": round(self._var_vignette_intensity.get(), 1),
+            "enable_color_shift": self._var_color_shift.get(),
+            "color_shift_amount": round(self._var_color_shift_amount.get(), 0),
+            "color_shift_speed": round(self._var_color_shift_speed.get(), 1),
             "enable_glitch": self._var_glitch.get(),
             "glitch_intensity": int(self._var_glitch_intensity.get()),
             "glitch_speed": int(self._var_glitch_speed.get()),
@@ -5560,13 +5866,21 @@ class AudioToVideoApp(ctk.CTk):
         self._var_images_folder.set(s.get("images_folder", ""))
         self._image_assignment = {}
         self._toggle_multi_image()
-        self._var_zoom_max.set(s.get("zoom_max", 1.02))
-        self._var_zoom_speed.set(s.get("zoom_speed", 300))
         self._var_fade_in.set(s.get("fade_in", 2.0))
         self._var_fade_out.set(s.get("fade_out", 2.0))
         self._var_crf.set(s.get("crf", 18))
         self._var_resolution.set(s.get("resolution", "1080p"))
-        self._var_zoom.set(s.get("enable_zoom", True))
+        self._var_breath.set(s.get("enable_breath", False))
+        self._var_breath_intensity.set(s.get("breath_intensity", 0.04))
+        self._var_breath_speed.set(s.get("breath_speed", 1.0))
+        self._var_light_zoom.set(s.get("enable_light_zoom", False))
+        self._var_light_zoom_max.set(s.get("light_zoom_max", 1.04))
+        self._var_light_zoom_speed.set(s.get("light_zoom_speed", 0.5))
+        self._var_vignette.set(s.get("enable_vignette", False))
+        self._var_vignette_intensity.set(s.get("vignette_intensity", 0.4))
+        self._var_color_shift.set(s.get("enable_color_shift", False))
+        self._var_color_shift_amount.set(s.get("color_shift_amount", 15.0))
+        self._var_color_shift_speed.set(s.get("color_shift_speed", 0.5))
         self._var_glitch.set(s.get("enable_glitch", False))
         self._var_glitch_intensity.set(s.get("glitch_intensity", 4))
         self._var_glitch_speed.set(s.get("glitch_speed", 90))
@@ -5660,8 +5974,21 @@ class AudioToVideoApp(ctk.CTk):
             self._var_sl_cpu_mode.set(s.get("sl_cpu_mode", "Medium"))
             self._var_sl_encode_preset.set(s.get("sl_encode_preset", "slow"))
             self._var_sl_gpu_encoding.set(s.get("sl_gpu_encoding", False))
-            self._var_sl_zoom.set(s.get("sl_enable_zoom", False))
-            self._var_sl_zoom_max.set(s.get("sl_zoom_max", 1.05))
+            if hasattr(self, "_var_sl_breath"):
+                self._var_sl_breath.set(s.get("sl_enable_breath", False))
+                self._var_sl_breath_intensity.set(s.get("sl_breath_intensity", 0.04))
+                self._var_sl_breath_speed.set(s.get("sl_breath_speed", 1.0))
+            if hasattr(self, "_var_sl_light_zoom"):
+                self._var_sl_light_zoom.set(s.get("sl_enable_light_zoom", False))
+                self._var_sl_light_zoom_max.set(s.get("sl_light_zoom_max", 1.04))
+                self._var_sl_light_zoom_speed.set(s.get("sl_light_zoom_speed", 0.5))
+            if hasattr(self, "_var_sl_vignette"):
+                self._var_sl_vignette.set(s.get("sl_enable_vignette", False))
+                self._var_sl_vignette_intensity.set(s.get("sl_vignette_intensity", 0.4))
+            if hasattr(self, "_var_sl_color_shift"):
+                self._var_sl_color_shift.set(s.get("sl_enable_color_shift", False))
+                self._var_sl_color_shift_amount.set(s.get("sl_color_shift_amount", 15.0))
+                self._var_sl_color_shift_speed.set(s.get("sl_color_shift_speed", 0.5))
             self._sl_update_count()
             # Static text overlay (Slideshow)
             if hasattr(self, "_var_sl_text_overlay"):
@@ -5718,12 +6045,21 @@ class AudioToVideoApp(ctk.CTk):
                 self._var_sho_quantity.set(s.get("sho_quantity", 3))
             if hasattr(self, "_var_sho_resolution"):
                 self._var_sho_resolution.set(s.get("sho_resolution", "1080p"))
-            if hasattr(self, "_var_sho_zoom"):
-                self._var_sho_zoom.set(s.get("sho_enable_zoom", True))
-            if hasattr(self, "_var_sho_zoom_max"):
-                self._var_sho_zoom_max.set(s.get("sho_zoom_max", 1.02))
-            if hasattr(self, "_var_sho_zoom_speed"):
-                self._var_sho_zoom_speed.set(s.get("sho_zoom_speed", 300))
+            if hasattr(self, "_var_sho_breath"):
+                self._var_sho_breath.set(s.get("sho_enable_breath", False))
+                self._var_sho_breath_intensity.set(s.get("sho_breath_intensity", 0.04))
+                self._var_sho_breath_speed.set(s.get("sho_breath_speed", 1.0))
+            if hasattr(self, "_var_sho_light_zoom"):
+                self._var_sho_light_zoom.set(s.get("sho_enable_light_zoom", False))
+                self._var_sho_light_zoom_max.set(s.get("sho_light_zoom_max", 1.04))
+                self._var_sho_light_zoom_speed.set(s.get("sho_light_zoom_speed", 0.5))
+            if hasattr(self, "_var_sho_vignette"):
+                self._var_sho_vignette.set(s.get("sho_enable_vignette", False))
+                self._var_sho_vignette_intensity.set(s.get("sho_vignette_intensity", 0.4))
+            if hasattr(self, "_var_sho_color_shift"):
+                self._var_sho_color_shift.set(s.get("sho_enable_color_shift", False))
+                self._var_sho_color_shift_amount.set(s.get("sho_color_shift_amount", 15.0))
+                self._var_sho_color_shift_speed.set(s.get("sho_color_shift_speed", 0.5))
             if hasattr(self, "_var_sho_glitch"):
                 self._var_sho_glitch.set(s.get("sho_enable_glitch", False))
             if hasattr(self, "_var_sho_glitch_intensity"):

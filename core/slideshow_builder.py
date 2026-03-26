@@ -217,6 +217,37 @@ class SlideshowBuilder:
             cmd += ["-i", str(audio_path)]
 
         vf = f"{self._scale_crop()},fps={DEFAULT_FPS}"
+        # Lightweight effects
+        sl_breath      = self.settings.get("sl_enable_breath", False)
+        sl_light_zoom  = self.settings.get("sl_enable_light_zoom", False)
+        sl_vignette    = self.settings.get("sl_enable_vignette", False)
+        sl_color_shift = self.settings.get("sl_enable_color_shift", False)
+        if sl_breath:
+            bi = float(self.settings.get("sl_breath_intensity", 0.04))
+            bs = float(self.settings.get("sl_breath_speed", 1.0))
+            vf += f",eq=brightness='{bi}*sin({bs}*2*PI*t)':eval=frame"
+        if sl_light_zoom:
+            lzm = float(self.settings.get("sl_light_zoom_max", 1.04))
+            lzs = float(self.settings.get("sl_light_zoom_speed", 0.5))
+            half = (lzm - 1.0) / 2.0
+            mid = 1.0 + half
+            sw, sh = self.width, self.height
+            vf += (
+                f",scale="
+                f"w='trunc(iw*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
+                f"h='trunc(ih*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
+                f"eval=frame,"
+                f"crop={sw}:{sh}:(in_w-{sw})/2:(in_h-{sh})/2"
+            )
+        if sl_vignette:
+            vi = float(self.settings.get("sl_vignette_intensity", 0.4))
+            if vi > 0:
+                angle = 1.5708 - vi * 1.0472
+                vf += f",vignette=angle={angle:.4f}"
+        if sl_color_shift:
+            ca = float(self.settings.get("sl_color_shift_amount", 15.0))
+            cs = float(self.settings.get("sl_color_shift_speed", 0.5))
+            vf += f",hue=h='{ca:.1f}*sin({cs}*2*PI*t)'"
         text_filters = self._text_overlay_filters()
         if text_filters:
             vf += "," + ",".join(text_filters)
@@ -241,9 +272,13 @@ class SlideshowBuilder:
         xd          = XFADE_DUR
         is_random   = (transition == "Aleatorio")
         xfade_name  = TRANSITION_MAP.get(transition, "dissolve")
-        enable_zoom = self.settings.get("sl_enable_zoom", False)
-        zoom_max    = float(self.settings.get("sl_zoom_max", 1.05))
         d_frames    = int(duration * DEFAULT_FPS)
+
+        # Lightweight effects settings
+        sl_breath      = self.settings.get("sl_enable_breath", False)
+        sl_light_zoom  = self.settings.get("sl_enable_light_zoom", False)
+        sl_vignette    = self.settings.get("sl_enable_vignette", False)
+        sl_color_shift = self.settings.get("sl_enable_color_shift", False)
 
         cmd: list[str] = ["ffmpeg", "-y"]
         # Cada imagen se loopea duration+xd segundos para que el overlap sea suficiente
@@ -257,16 +292,35 @@ class SlideshowBuilder:
 
         # Preparar streams de cada imagen
         for i in range(n):
-            if enable_zoom and d_frames > 0:
-                zoom_inc = (zoom_max - 1.0) / d_frames
-                zf = (
-                    f"zoompan=z='min(zoom+{zoom_inc:.7f},{zoom_max:.4f})':"
-                    f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-                    f"d={d_frames}:s={self.width}x{self.height}:fps={DEFAULT_FPS}"
+            chain = [sc, f"fps={DEFAULT_FPS}"]
+            # Lightweight effects (applied after scale/fps)
+            if sl_breath:
+                bi = float(self.settings.get("sl_breath_intensity", 0.04))
+                bs = float(self.settings.get("sl_breath_speed", 1.0))
+                chain.append(f"eq=brightness='{bi}*sin({bs}*2*PI*t)':eval=frame")
+            if sl_light_zoom:
+                lzm = float(self.settings.get("sl_light_zoom_max", 1.04))
+                lzs = float(self.settings.get("sl_light_zoom_speed", 0.5))
+                half = (lzm - 1.0) / 2.0
+                mid = 1.0 + half
+                sw, sh = self.width, self.height
+                chain.append(
+                    f"scale="
+                    f"w='trunc(iw*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
+                    f"h='trunc(ih*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
+                    f"eval=frame,"
+                    f"crop={sw}:{sh}:(in_w-{sw})/2:(in_h-{sh})/2"
                 )
-                parts.append(f"[{i}:v]{sc},{zf}[v{i}]")
-            else:
-                parts.append(f"[{i}:v]{sc},fps={DEFAULT_FPS}[v{i}]")
+            if sl_vignette:
+                vi = float(self.settings.get("sl_vignette_intensity", 0.4))
+                if vi > 0:
+                    angle = 1.5708 - vi * 1.0472
+                    chain.append(f"vignette=angle={angle:.4f}")
+            if sl_color_shift:
+                ca = float(self.settings.get("sl_color_shift_amount", 15.0))
+                cs = float(self.settings.get("sl_color_shift_speed", 0.5))
+                chain.append(f"hue=h='{ca:.1f}*sin({cs}*2*PI*t)'")
+            parts.append(f"[{i}:v]{','.join(chain)}[v{i}]")
 
         # Encadenar xfades
         # offset para xfade entre imagen i e i+1: (i+1) * (duration - xd)

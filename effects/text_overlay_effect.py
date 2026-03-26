@@ -59,7 +59,7 @@ _COLOR_MAP: dict[str, str] = {
 
 
 class TextOverlayEffect(BaseEffect):
-    """Dibuja texto con animación glitch usando el filtro drawtext de FFmpeg."""
+    """Texto overlay con efecto glitch — pre-renderizado a PNG (Pillow) + overlay FFmpeg."""
 
     def __init__(self, settings: dict) -> None:
         super().__init__(enabled=settings.get("enable_text_overlay", False))
@@ -72,7 +72,98 @@ class TextOverlayEffect(BaseEffect):
         self.glitch_intensity: int = int(settings.get("text_glitch_intensity", 3))
         self.glitch_speed: float = float(settings.get("text_glitch_speed", 4.0))
 
-    # ------------------------------------------------------------------
+    # ── PNG pre-render (Pillow) ──────────────────────────────────────
+
+    def render_pngs(self, temp_dir: Path) -> list[tuple[Path, str]]:
+        """Render all text layers into a **single** composite RGBA PNG.
+
+        Ghost cyan/magenta and main text are composited in Pillow so FFmpeg
+        only needs **one** ``overlay`` operation instead of three, eliminating
+        two intermediate full-frame copies per text effect.
+
+        Returns:
+            List with one ``(png_path, "composite")`` tuple, or empty list.
+        """
+        if not self.enabled or not self.text.strip():
+            return []
+
+        from effects.text_renderer import _load_font
+        from PIL import Image, ImageDraw
+
+        uid = id(self)
+        fc = self.text_color
+        r, g, b = int(fc[0:2], 16), int(fc[2:4], 16), int(fc[4:6], 16)
+        gi = self.glitch_intensity
+
+        # Shadow: dark text → white shadow, light text → black shadow
+        if fc in ("000000", "404040"):
+            shadow = (255, 255, 255, int(255 * 0.7))
+        else:
+            shadow = (0, 0, 0, int(255 * 0.7))
+
+        font = _load_font(self.font_name, self.font_size)
+        bbox = font.getbbox(self.text)  # (left, top, right, bottom)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+
+        sx, sy = 2, 2       # shadow offset
+        pad = 8              # AA bleed
+        extra_x = gi         # room for chromatic shift on each side
+
+        w = tw + sx + pad * 2 + extra_x * 2
+        h = th + sy + pad * 2
+        w += w % 2           # even dims (yuv420p compat)
+        h += h % 2
+
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        ox = pad + extra_x - bbox[0]   # text origin x (centred in canvas)
+        oy = pad - bbox[1]             # text origin y
+
+        # 1) Ghost layers (behind main)
+        if gi > 0:
+            draw.text((ox - gi, oy), self.text, font=font,
+                      fill=(0, 255, 255, int(255 * 0.85)))
+            draw.text((ox + gi, oy), self.text, font=font,
+                      fill=(255, 0, 255, int(255 * 0.85)))
+
+        # 2) Shadow
+        draw.text((ox + sx, oy + sy), self.text, font=font, fill=shadow)
+
+        # 3) Main text on top
+        draw.text((ox, oy), self.text, font=font, fill=(r, g, b, 255))
+
+        path = temp_dir / f"txt_{uid}_composite.png"
+        img.save(path, "PNG")
+        return [(path, "composite")]
+
+    def get_overlay_position(self, layer_name: str) -> tuple[str, str]:
+        """Return (x_expr, y_expr) for FFmpeg overlay filter.
+
+        Overlay variables: W/H = main video size, w/h = overlay size, t = time.
+        """
+        m = self.margin
+
+        # Y position
+        if self.position == "Top":
+            y_expr = f"round({m}*(H/1080))"
+        elif self.position == "Middle":
+            y_expr = "(H-h)/2"
+        else:  # Bottom
+            y_expr = f"H-h-round({m}*(H/1080))"
+
+        # X position — composite is centred; subtle jitter for glitch feel
+        x_center = "(W-w)/2"
+        if self.glitch_intensity > 0:
+            jitter = max(1, self.glitch_intensity // 2)
+            x_expr = f"{x_center}+{jitter}*sin(t*{self.glitch_speed:.1f})"
+        else:
+            x_expr = x_center
+
+        return x_expr, y_expr
+
+    # ── Legacy drawtext path (kept for SlideshowBuilder -vf) ─────────
 
     def get_filter_chain(self, duration: float) -> str:
         """Retorna solo la cadena de drawtext (sin labels).

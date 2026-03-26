@@ -250,7 +250,10 @@ class Runner:
 
         # Ejecutar FFmpeg
         start = time.time()
-        success, error_msg = self._run_ffmpeg(cmd)
+        try:
+            success, error_msg = self._run_ffmpeg(cmd)
+        finally:
+            builder.cleanup()
         job.elapsed = time.time() - start
 
         if success:
@@ -548,7 +551,10 @@ class ShortsRunner:
             duration_s=short_duration,
         )
         t0 = time.time()
-        success, error_msg = self._run_ffmpeg(cmd)
+        try:
+            success, error_msg = self._run_ffmpeg(cmd)
+        finally:
+            builder.cleanup()
         job.elapsed = time.time() - t0
         if success:
             job.success = True

@@ -23,12 +23,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "audio_folder": "",
     "background_image": "",
     "output_folder": "",
-    "zoom_max": 1.01,
-    "zoom_speed": 500,
     "fade_in": 2,
     "fade_out": 2,
     "resolution": "1080p",
-    "enable_zoom": True,
     "enable_glitch": False,
     "glitch_intensity": 1,
     "glitch_speed": 300,
@@ -73,19 +70,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sl_cpu_mode": "Medium",
     "sl_encode_preset": "slow",
     "sl_gpu_encoding": False,
-    "sl_enable_zoom": False,
-    "sl_zoom_max": 1.05,
 }
 
 # Preset semilla — se crea si presets.json no existe
 _SEED_PRESETS: dict[str, dict[str, Any]] = {
     "Default": {
-        "zoom_max": 1.01,
-        "zoom_speed": 500,
         "fade_in": 2.0,
         "fade_out": 2.0,
         "resolution": "1080p",
-        "enable_zoom": True,
         "enable_glitch": True,
         "glitch_intensity": 1,
         "glitch_speed": 300,
