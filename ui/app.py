@@ -226,6 +226,29 @@ def _val_to_pct(v: float, lo: float, hi: float) -> str:
     return f"{int(round((v - lo) / rng * 100))}%"
 
 
+def _init_scrollbar(frame: "ctk.CTkScrollableFrame", width: int = 6) -> None:
+    """Style the scrollbar and auto-hide it when all content fits."""
+    sb = frame._scrollbar
+    sb.configure(width=width, fg_color="#252525",
+                 button_color="#606060", button_hover_color="#909090")
+    sb.grid_configure(padx=(4, 2))
+
+    def _check(*_):
+        try:
+            bbox = frame._parent_canvas.bbox("all")
+            content_h = (bbox[3] - bbox[1]) if bbox else 0
+            visible_h = frame._parent_canvas.winfo_height()
+            if content_h > visible_h + 2:
+                sb.grid()
+            else:
+                sb.grid_remove()
+        except Exception:
+            pass
+
+    frame._parent_canvas.bind("<Configure>", _check, add="+")
+    frame.after(300, _check)
+
+
 def _apply_sec_hover(btn: "ctk.CTkButton") -> None:
     """Animated accent hover for secondary buttons.
 
@@ -718,7 +741,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         )
         self._scroll.grid(row=2, column=0, sticky="nsew", padx=8, pady=(10, 0))
         self._scroll.grid_columnconfigure(0, weight=1)
-        self._scroll._scrollbar.grid_forget()
+        _init_scrollbar(self._scroll, width=8)
 
         self._build_color_list()
 
@@ -929,7 +952,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
 class AudioToVideoApp(ctk.CTk):
     """Ventana principal de la aplicación."""
 
-    WINDOW_TITLE = "Audio to Video Studio"
+    WINDOW_TITLE = "ATV Studio"
     WINDOW_SIZE = "1280x800"
     MIN_SIZE = (1100, 700)
 
@@ -1253,7 +1276,7 @@ class AudioToVideoApp(ctk.CTk):
         af = ctk.CTkScrollableFrame(tab_archivos, fg_color="transparent")
         af.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         af.grid_columnconfigure(0, weight=1)
-        af._scrollbar.grid_forget()
+        _init_scrollbar(af)
 
         _card_dir = ctk.CTkFrame(af, fg_color=C_CARD, corner_radius=10,
                                  border_width=1, border_color=C_BORDER)
@@ -1324,7 +1347,7 @@ class AudioToVideoApp(ctk.CTk):
         vf = ctk.CTkScrollableFrame(tab_visual, fg_color="transparent")
         vf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         vf.grid_columnconfigure(0, weight=1)
-        vf._scrollbar.grid_forget()
+        _init_scrollbar(vf)
         vr = 0
 
         # --- Resolución ---
@@ -1808,7 +1831,7 @@ class AudioToVideoApp(ctk.CTk):
         sf = ctk.CTkScrollableFrame(tab_salida, fg_color="transparent")
         sf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         sf.grid_columnconfigure(0, weight=1)
-        sf._scrollbar.grid_forget()
+        _init_scrollbar(sf)
         sr = 0
 
         # --- Presets ---
@@ -2060,6 +2083,7 @@ class AudioToVideoApp(ctk.CTk):
         self._preview_frame.grid(row=0, column=0, sticky="ew", padx=16, pady=(8, 0))
         self._preview_frame.grid_propagate(False)
         self._preview_frame.grid_columnconfigure(0, weight=1)
+        self._preview_frame.grid_columnconfigure(1, weight=0, minsize=0)
         self._preview_frame.grid_rowconfigure(0, weight=1)
         self._preview_frame.grid_rowconfigure(1, weight=0)
 
@@ -2122,8 +2146,9 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_MUTED,
             justify="left",
             anchor="w",
+            width=1,
         )
-        self._lbl_audio_count.grid(row=1, column=0, sticky="w", padx=16, pady=(6, 0))
+        self._lbl_audio_count.grid(row=1, column=0, sticky="ew", padx=16, pady=(6, 0))
 
         # Process Logs
         _logs_hdr = ctk.CTkFrame(frame, fg_color="transparent")
@@ -2153,6 +2178,7 @@ class AudioToVideoApp(ctk.CTk):
 
         self._log_text = ctk.CTkTextbox(
             frame,
+            width=1,
             fg_color=C_LOG,
             text_color=C_LOG_TEXT,
             font=ctk.CTkFont(family="Consolas", size=self._fs(11)),
@@ -2216,7 +2242,7 @@ class AudioToVideoApp(ctk.CTk):
         af = ctk.CTkScrollableFrame(tab_archivos, fg_color="transparent")
         af.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         af.grid_columnconfigure(0, weight=1)
-        af._scrollbar.grid_forget()
+        _init_scrollbar(af)
 
         _card_dir = ctk.CTkFrame(af, fg_color=C_CARD, corner_radius=10,
                                  border_width=1, border_color=C_BORDER)
@@ -2287,7 +2313,7 @@ class AudioToVideoApp(ctk.CTk):
         sqf = ctk.CTkScrollableFrame(tab_secuencia, fg_color="transparent")
         sqf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         sqf.grid_columnconfigure(0, weight=1)
-        sqf._scrollbar.grid_forget()
+        _init_scrollbar(sqf)
         sqr = 0
 
         # Duración
@@ -2704,7 +2730,7 @@ class AudioToVideoApp(ctk.CTk):
         rf = ctk.CTkScrollableFrame(tab_rendimiento, fg_color="transparent")
         rf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         rf.grid_columnconfigure(0, weight=1)
-        rf._scrollbar.grid_forget()
+        _init_scrollbar(rf)
 
         _sec_perf = ctk.CTkFrame(rf, fg_color=C_CARD, corner_radius=10,
                                  border_width=1, border_color=C_BORDER)
@@ -2774,7 +2800,7 @@ class AudioToVideoApp(ctk.CTk):
         cf = ctk.CTkScrollableFrame(tab_config, fg_color="transparent")
         cf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         cf.grid_columnconfigure(0, weight=1)
-        cf._scrollbar.grid_forget()
+        _init_scrollbar(cf)
         cr = 0
 
         # --- Audio ---
@@ -2876,7 +2902,7 @@ class AudioToVideoApp(ctk.CTk):
         vf = ctk.CTkScrollableFrame(tab_visual, fg_color="transparent")
         vf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         vf.grid_columnconfigure(0, weight=1)
-        vf._scrollbar.grid_forget()
+        _init_scrollbar(vf)
         vr = 0
 
         # --- Resolución 9:16 ---
@@ -3336,7 +3362,7 @@ class AudioToVideoApp(ctk.CTk):
         xf = ctk.CTkScrollableFrame(tab_salida, fg_color="transparent")
         xf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         xf.grid_columnconfigure(0, weight=1)
-        xf._scrollbar.grid_forget()
+        _init_scrollbar(xf)
         xr = 0
 
         # --- Naming ---
@@ -4185,8 +4211,10 @@ class AudioToVideoApp(ctk.CTk):
             if hasattr(self, "_var_sl_audio_enabled") and self._var_sl_audio_enabled.get():
                 af = self._var_sl_audio_file.get() if hasattr(self, "_var_sl_audio_file") else ""
                 if af and Path(af).is_file():
+                    _sl_name = Path(af).stem
+                    _sl_label = (_sl_name[:48] + "\u2026") if len(_sl_name) > 48 else _sl_name
                     self._lbl_audio_count.configure(
-                        text=f"\u266b Audio: {Path(af).name}", text_color=C_ACCENT_SLIDE)
+                        text=f"\u266b Audio: {_sl_label}", text_color=C_ACCENT_SLIDE)
                 else:
                     self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
             else:
@@ -4212,8 +4240,10 @@ class AudioToVideoApp(ctk.CTk):
             # Audio label para Shorts
             af = self._var_sho_audio.get() if hasattr(self, "_var_sho_audio") else ""
             if af and Path(af).is_file():
+                _sho_name = Path(af).stem
+                _sho_label = (_sho_name[:48] + "\u2026") if len(_sho_name) > 48 else _sho_name
                 self._lbl_audio_count.configure(
-                    text=f"\u266b Audio: {Path(af).name}", text_color=C_ACCENT_SHORTS)
+                    text=f"\u266b Audio: {_sho_label}", text_color=C_ACCENT_SHORTS)
             else:
                 self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
 
