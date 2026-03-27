@@ -10,31 +10,75 @@ from typing import Any
 
 import customtkinter as ctk
 
-# Common timezones offered in the selector; El Salvador is the default.
-# "UTC" is listed second because YouTube API stores publishAt in UTC.
+# IANA timezone names accepted by the YouTube Data API.
+# Default is America/Los_Angeles — the same default used by YouTube Studio.
 _YT_TIMEZONES: list[str] = [
-    "America/El_Salvador",
+    # ── Americas ──────────────────────────────────────────────────────────
+    "America/Los_Angeles",       # PT  — YouTube Studio default
+    "America/Denver",            # MT
+    "America/Chicago",           # CT
+    "America/New_York",          # ET
+    "America/Anchorage",         # AK
+    "Pacific/Honolulu",          # HT
+    "America/Toronto",           # ET (Canada)
+    "America/Vancouver",         # PT (Canada)
+    "America/Mexico_City",       # CST (MX)
+    "America/El_Salvador",       # CST (SV)
+    "America/Guatemala",
+    "America/Costa_Rica",
+    "America/Panama",
+    "America/Bogota",            # COT
+    "America/Lima",              # PET
+    "America/Caracas",           # VET
+    "America/Santiago",          # CLT
+    "America/Sao_Paulo",         # BRT
+    "America/Argentina/Buenos_Aires",  # ART
+    # ── Europe ────────────────────────────────────────────────────────────
+    "Europe/London",             # GMT/BST
+    "Europe/Lisbon",             # WET/WEST
+    "Europe/Madrid",             # CET
+    "Europe/Paris",              # CET
+    "Europe/Berlin",             # CET
+    "Europe/Rome",               # CET
+    "Europe/Amsterdam",          # CET
+    "Europe/Warsaw",             # CET
+    "Europe/Stockholm",          # CET
+    "Europe/Athens",             # EET
+    "Europe/Helsinki",           # EET
+    "Europe/Bucharest",          # EET
+    "Europe/Kiev",               # EET
+    "Europe/Moscow",             # MSK
+    # ── Africa / Middle East ──────────────────────────────────────────────
+    "Africa/Cairo",              # EET
+    "Africa/Johannesburg",       # SAST
+    "Africa/Lagos",              # WAT
+    "Africa/Nairobi",            # EAT
+    "Asia/Dubai",                # GST
+    "Asia/Riyadh",               # AST
+    "Asia/Tehran",               # IRST
+    # ── Asia / Pacific ────────────────────────────────────────────────────
+    "Asia/Kolkata",              # IST
+    "Asia/Dhaka",                # BST
+    "Asia/Bangkok",              # ICT
+    "Asia/Ho_Chi_Minh",          # ICT
+    "Asia/Jakarta",              # WIB
+    "Asia/Singapore",            # SGT
+    "Asia/Kuala_Lumpur",         # MYT
+    "Asia/Manila",               # PHT
+    "Asia/Hong_Kong",            # HKT
+    "Asia/Shanghai",             # CST
+    "Asia/Taipei",               # CST
+    "Asia/Seoul",                # KST
+    "Asia/Tokyo",                # JST
+    "Australia/Perth",           # AWST
+    "Australia/Darwin",          # ACST
+    "Australia/Sydney",          # AEST
+    "Australia/Melbourne",       # AEST
+    "Australia/Brisbane",        # AEST
+    "Pacific/Auckland",          # NZST
+    "Pacific/Fiji",
+    # ── Universal ─────────────────────────────────────────────────────────
     "UTC",
-    "America/Los_Angeles",
-    "America/Denver",
-    "America/Chicago",
-    "America/New_York",
-    "America/Mexico_City",
-    "America/Bogota",
-    "America/Lima",
-    "America/Santiago",
-    "America/Sao_Paulo",
-    "America/Argentina/Buenos_Aires",
-    "Europe/London",
-    "Europe/Madrid",
-    "Europe/Paris",
-    "Europe/Berlin",
-    "Asia/Dubai",
-    "Asia/Tokyo",
-    "Asia/Seoul",
-    "Asia/Shanghai",
-    "Asia/Singapore",
-    "Australia/Sydney",
 ]
 
 
@@ -142,7 +186,7 @@ def build_youtube_publisher_panel(
     cfg.grid(row=1, column=0, sticky="ew", padx=14, pady=(10, 14))
     cfg.grid_columnconfigure(1, weight=1)
 
-    app._var_yt_timezone = tk.StringVar(value="America/El_Salvador")
+    app._var_yt_timezone = tk.StringVar(value="America/Los_Angeles")
     app._var_yt_videos_per_day = tk.StringVar(value="3")
     app._var_yt_window_start = tk.StringVar(value="09:00")
     app._var_yt_window_end = tk.StringVar(value="21:00")

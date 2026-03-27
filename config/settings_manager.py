@@ -76,7 +76,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sl_gpu_encoding": False,
     # YouTube Publisher (UI scaffold only for now)
     "yt_source_folders": [],
-    "yt_timezone": "America/Bogota",
+    "yt_timezone": "America/Los_Angeles",
     "yt_videos_per_day": 3,
     "yt_window_start": "09:00",
     "yt_window_end": "21:00",

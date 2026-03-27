@@ -2,17 +2,17 @@
 App — Interfaz gráfica principal con CustomTkinter.
 
 Layout:
-  ┌─────────────────────────────────────────────┐
-  │  Header (título + validación de entorno)    │
-  ├──────────────┬──────────────────────────────┤
-  │  Panel Izq.  │  Panel Der.                  │
-  │  - Inputs    │  - Preview imagen            │
-  │  - Parámetros│  - Área de logs              │
-  │  - Efectos   │  - Barra de progreso global  │
-  │  - Presets   │  - Barra de progreso archivo │
-  ├──────────────┴──────────────────────────────┤
-  │  Botones de acción                          │
-  └─────────────────────────────────────────────┘
+  +---------------------------------------------+
+  ¦  Header (título + validación de entorno)    ¦
+  +---------------------------------------------¦
+  ¦  Panel Izq.  ¦  Panel Der.                  ¦
+  ¦  - Inputs    ¦  - Preview imagen            ¦
+  ¦  - Parámetros¦  - Área de logs              ¦
+  ¦  - Efectos   ¦  - Barra de progreso global  ¦
+  ¦  - Presets   ¦  - Barra de progreso archivo ¦
+  +---------------------------------------------¦
+  ¦  Botones de acción                          ¦
+  +---------------------------------------------+
 
 Principios:
   - Toda la lógica de dominio vive en core/ y effects/
@@ -53,13 +53,13 @@ from ui.youtube_tab import build_youtube_publisher_panel
 
 _BUNDLE_DIR = get_bundle_dir()
 
-# ── Theme manager (singleton) ───────────────────────────────────────────────
+# -- Theme manager (singleton) -----------------------------------------------
 _TM = _ThemeManager(
     theme_path=_BUNDLE_DIR / "theme.json",
     default_path=_BUNDLE_DIR / "theme_default.json",
 )
 
-# ── Font Awesome ────────────────────────────────────────────────────────────
+# -- Font Awesome ------------------------------------------------------------
 _FA_FONT_PATH = str(_BUNDLE_DIR / "fonts" / "Font Awesome 6 Free-Solid-900.otf")
 _FA_FAMILY = "Font Awesome 6 Free Solid"  # Family name inside the .otf
 
@@ -103,11 +103,11 @@ FA_CHECK         = "\uf00c"   # check
 FA_WARNING       = "\uf071"   # triangle-exclamation
 
 
-# ── Tema ────────────────────────────────────────────────────────────────────
+# -- Tema --------------------------------------------------------------------
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-# ── Design system (dark defaults — Obsidian Curator) ─────────────────────
+# -- Design system (dark defaults — Obsidian Curator) ---------------------
 C_BG            = "#0E0E0E"   # Root background — The void
 C_PANEL         = "#0E0E0E"   # Panel background
 C_CARD          = "#131313"   # Card / surface container low
@@ -136,7 +136,7 @@ C_INPUT         = "#262626"   # Input field background (Surface High)
 C_LOG           = "#131313"   # Log textarea background
 C_LOG_TEXT      = "#9AF1B9"   # Log text color (terminal green)
 
-# ── Paletas ─────────────────────────────────────────────────────────────────
+# -- Paletas -----------------------------------------------------------------
 _DARK_PALETTE: dict[str, str] = {
     "BG": "#0E0E0E", "PANEL": "#0E0E0E", "CARD": "#131313", "BORDER": "#484848",
     "ACCENT": "#7CA8FF", "ACCENT_H": "#9FC0FF",
@@ -185,9 +185,9 @@ def _apply_theme(mode: str) -> None:
     C_INPUT = t["C_INPUT"]; C_LOG = t["C_LOG"]; C_LOG_TEXT = t["C_LOG_TEXT"]
 
 
-# ── Hover-transition animation helpers ──────────────────────────────────────
-_ANIM_JOBS:  dict = {}   # widget id → pending animation after-job id
-_LEAVE_JOBS: dict = {}   # widget id → pending leave-debounce after-job id
+# -- Hover-transition animation helpers --------------------------------------
+_ANIM_JOBS:  dict = {}   # widget id ? pending animation after-job id
+_LEAVE_JOBS: dict = {}   # widget id ? pending leave-debounce after-job id
 
 
 def _hex_to_rgb(h: str) -> tuple:
@@ -202,7 +202,7 @@ def _rgb_to_hex(r: int, g: int, b: int) -> str:
 def _animate_widget(widget, props: dict, steps: int = 10, delay: int = 14, _step: int = 0) -> None:
     """Smoothly interpolate colour properties on a CTk widget.
     props = {attribute_name: (from_hex, to_hex)}
-    Total duration ≈ steps × delay ms  (default ~140 ms).
+    Total duration ˜ steps × delay ms  (default ~140 ms).
     """
     wid = id(widget)
     if _step == 0 and wid in _ANIM_JOBS:
@@ -335,9 +335,9 @@ class _Tooltip:
             self._win = None
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # DIÁLOGO DE ASIGNACIÓN MULTI-IMAGEN
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 class ImageAssignmentDialog(ctk.CTkToplevel):
     """Modal que permite asignar una imagen de fondo a cada archivo de audio."""
@@ -474,14 +474,14 @@ class ImageAssignmentDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # DIÁLOGO DE LISTA DE NOMBRES PERSONALIZADOS
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 class NamesListDialog(ctk.CTkToplevel):
     """Modal para editar la lista de nombres personalizados de canciones."""
 
-    _USED_PREFIX = "\u25a0 "  # ■ + space
+    _USED_PREFIX = "\u25a0 "  # ¦ + space
 
     def __init__(self, parent: ctk.CTk, current_names: list[str],
                  used_names: set[str] | None = None) -> None:
@@ -621,9 +621,9 @@ class NamesListDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 # DIÁLOGO DE CONFIGURACIÓN DE TEMA
-# ──────────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------------------
 
 class ThemeSettingsDialog(ctk.CTkToplevel):
     """Modal para editar los colores del tema (Dark/Light) en tiempo real."""
@@ -681,13 +681,13 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         w, h = self.winfo_width(), self.winfo_height()
         self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
 
-    # ── Build ──────────────────────────────────────────────────────────────
+    # -- Build --------------------------------------------------------------
 
     def _build(self) -> None:
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
-        # ── Header (title | spacer | badge | toggle button) ──────────
+        # -- Header (title | spacer | badge | toggle button) ----------
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 0))
         hdr.grid_columnconfigure(1, weight=1)
@@ -702,7 +702,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
                                         border_width=1, border_color=_mode_color)
         self._mode_badge.grid(row=0, column=2, sticky="e", padx=(0, 8))
         self._mode_lbl = ctk.CTkLabel(
-            self._mode_badge, text=f"● {self._app._current_theme}",
+            self._mode_badge, text=f"? {self._app._current_theme}",
             font=ctk.CTkFont(size=10, weight="bold"), text_color=_mode_color,
         )
         self._mode_lbl.pack(padx=10, pady=4)
@@ -718,7 +718,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         _btn_toggle_mode.grid(row=0, column=3, sticky="e")
         _apply_sec_hover(_btn_toggle_mode)
 
-        # ── Search bar ──
+        # -- Search bar --
         search_f = ctk.CTkFrame(self, fg_color="transparent")
         search_f.grid(row=1, column=0, sticky="ew", padx=20, pady=(10, 0))
         search_f.grid_columnconfigure(0, weight=1)
@@ -730,7 +730,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
             text_color=C_TEXT, placeholder_text_color=C_MUTED,
         ).grid(row=0, column=0, sticky="ew")
 
-        # ── Scrollable list ──
+        # -- Scrollable list --
         self._scroll = ctk.CTkScrollableFrame(
             self, fg_color="transparent", corner_radius=0,
         )
@@ -740,14 +740,14 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
 
         self._build_color_list()
 
-        # ── Footer ──
+        # -- Footer --
         footer = ctk.CTkFrame(self, fg_color=C_CARD, corner_radius=0,
                                border_width=1, border_color=C_BORDER)
         footer.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         footer.grid_columnconfigure(1, weight=1)
 
         ctk.CTkButton(
-            footer, text="⟳  Restablecer por defecto",
+            footer, text="?  Restablecer por defecto",
             fg_color=C_BTN_DANGER, hover_color=C_ERROR,
             text_color="#ffffff", height=34, corner_radius=6,
             font=ctk.CTkFont(size=11, weight="bold"),
@@ -832,7 +832,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
                 btns_f.grid(row=0, column=3, padx=(4, 10), pady=8)
 
                 copy_btn = ctk.CTkButton(
-                    btns_f, text="⧉", width=30, height=30,
+                    btns_f, text="?", width=30, height=30,
                     fg_color="transparent", hover_color=C_HOVER,
                     border_width=1, border_color=C_BORDER,
                     text_color=C_TEXT_DIM, corner_radius=6,
@@ -845,7 +845,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
                 self._copy_btns[key] = copy_btn
 
                 ctk.CTkButton(
-                    btns_f, text="✎", width=30, height=30,
+                    btns_f, text="?", width=30, height=30,
                     fg_color=C_ACCENT, hover_color=C_ACCENT_H,
                     text_color="#ffffff", corner_radius=6,
                     font=ctk.CTkFont(size=13),
@@ -854,7 +854,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
 
                 r += 1
 
-    # ── Actions ────────────────────────────────────────────────────────────
+    # -- Actions ------------------------------------------------------------
 
     def _pick_color(self, key: str) -> None:
         """Open native color picker and apply the chosen value."""
@@ -887,8 +887,8 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         except Exception:
             pass
         if btn:
-            btn.configure(text="✓", fg_color=C_SUCCESS, text_color="#ffffff")
-            self.after(1200, lambda: btn.configure(text="⧉", fg_color="transparent",
+            btn.configure(text="?", fg_color=C_SUCCESS, text_color="#ffffff")
+            self.after(1200, lambda: btn.configure(text="?", fg_color="transparent",
                                                    text_color=C_TEXT_DIM))
 
     def _toggle_mode(self) -> None:
@@ -901,7 +901,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         # Update own badge
         _c = C_ACCENT if new_mode == "Dark" else C_ACCENT_SLIDE
         self._mode_badge.configure(border_color=_c)
-        self._mode_lbl.configure(text=f"● {new_mode}", text_color=_c)
+        self._mode_lbl.configure(text=f"? {new_mode}", text_color=_c)
         # Rebuild color list for new mode
         for w in self._scroll.winfo_children():
             w.destroy()
@@ -977,7 +977,7 @@ class PresetsDialog(ctk.CTkToplevel):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        # ── Header ──────────────────────────────────────────────────
+        # -- Header --------------------------------------------------
         hdr = ctk.CTkFrame(self, fg_color=C_CARD, corner_radius=0, height=46)
         hdr.grid(row=0, column=0, sticky="ew")
         hdr.grid_propagate(False)
@@ -998,7 +998,7 @@ class PresetsDialog(ctk.CTkToplevel):
             side="bottom", fill="x"
         )
 
-        # ── Scrollable tiles area ────────────────────────────────────
+        # -- Scrollable tiles area ------------------------------------
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         scroll.grid(row=1, column=0, sticky="nsew", padx=16, pady=(12, 4))
         scroll.grid_columnconfigure(0, weight=1)
@@ -1009,7 +1009,7 @@ class PresetsDialog(ctk.CTkToplevel):
         self._tiles_frame.grid_columnconfigure(0, weight=1)
         self._tiles_frame.grid_columnconfigure(1, weight=1)
 
-        # ── Footer actions ───────────────────────────────────────────
+        # -- Footer actions -------------------------------------------
         footer = ctk.CTkFrame(self, fg_color="transparent")
         footer.grid(row=2, column=0, sticky="ew", padx=16, pady=(4, 14))
         footer.grid_columnconfigure(0, weight=1)
@@ -1240,7 +1240,7 @@ class AudioToVideoApp(ctk.CTk):
         self._image_assignment: dict[str, Path] = {}
         self._used_names: set[str] = set()
         self._last_run_names: list[str] = []
-        self._current_mode: str = "Audio → Video"
+        self._current_mode: str = "Audio ? Video"
         self._slideshow_runner: SlideshowRunner | None = None
         self._shorts_runner: ShortsRunner | None = None
         self._sho_image_paths: list[Path] = []
@@ -1294,9 +1294,9 @@ class AudioToVideoApp(ctk.CTk):
         # Procesar cola de logs periódicamente
         self.after(100, self._flush_log_queue)
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # VENTANA
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _setup_window(self) -> None:
         self.title(self.WINDOW_TITLE)
@@ -1310,9 +1310,9 @@ class AudioToVideoApp(ctk.CTk):
         if ico.is_file():
             self.after(10, lambda: self.iconbitmap(str(ico)))
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # BUILD UI
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
         self._section_toggles = []
@@ -1378,12 +1378,12 @@ class AudioToVideoApp(ctk.CTk):
         header.grid_rowconfigure(0, weight=1)
         header.grid_rowconfigure(1, weight=0)      # separator
 
-        # ── Barra de acento vertical izquierda ──
+        # -- Barra de acento vertical izquierda --
         ctk.CTkFrame(header, width=3, fg_color=C_ACCENT, corner_radius=1).grid(
             row=0, column=0, padx=(14, 0), pady=8, sticky="ns"
         )
 
-        # ── Título ──
+        # -- Título --
         _title_frame = ctk.CTkFrame(header, fg_color="transparent")
         _title_frame.grid(row=0, column=1, padx=(8, 0), sticky="w")
         ctk.CTkLabel(
@@ -1398,7 +1398,7 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_TEXT,
         ).pack(side="left")
 
-        # ── Botones de modo: ATV y SLIDE ────────────────────────────
+        # -- Botones de modo: ATV y SLIDE ----------------------------
         mode_grp = ctk.CTkFrame(
             header, fg_color=C_CARD, corner_radius=8,
             border_width=1, border_color=C_BORDER,
@@ -1488,14 +1488,14 @@ class AudioToVideoApp(ctk.CTk):
                          C_ACCENT_YT, lambda: self._switch_mode("YouTube Publisher"), "yt")
 
 
-        # ── Badge de estado del entorno ──────────────────────────────
+        # -- Badge de estado del entorno ------------------------------
         self._status_badge = ctk.CTkFrame(
             header, fg_color=C_CARD, corner_radius=20,
             border_width=1, border_color=C_BORDER,
         )
         self._status_badge.grid(row=0, column=4, padx=(8, 4))
         self._lbl_status_dot = ctk.CTkLabel(
-            self._status_badge, text="●",
+            self._status_badge, text="?",
             font=ctk.CTkFont(size=9),
             text_color=C_WARN,
         )
@@ -1508,14 +1508,14 @@ class AudioToVideoApp(ctk.CTk):
         )
         self._lbl_status.pack(side="left", padx=(0, 10), pady=6)
 
-        # ── Controles (tema + tamaño de fuente) ─────────────────────
+        # -- Controles (tema + tamaño de fuente) ---------------------
         ctrl = ctk.CTkFrame(
             header, fg_color=C_CARD, corner_radius=6,
             border_width=1, border_color=C_BORDER,
         )
         ctrl.grid(row=0, column=5, padx=(4, 14))
 
-        # ── Presets button ────────────────────────────────────────
+        # -- Presets button ----------------------------------------
         ctk.CTkButton(
             ctrl, text=FA_SLIDERS, width=30, height=26,
             fg_color="transparent", hover_color=C_HOVER,
@@ -1544,7 +1544,7 @@ class AudioToVideoApp(ctk.CTk):
         )
 
         self._font_btns: dict[str, ctk.CTkButton] = {}
-        for _label, _size in (("A⁻", "Small"), ("A", "Medium"), ("A⁺", "Large")):
+        for _label, _size in (("A?", "Small"), ("A", "Medium"), ("A?", "Large")):
             _active = (self._font_scale == _FONT_SIZE_SCALE[_size])
             btn = ctk.CTkButton(
                 ctrl, text=_label,
@@ -1554,7 +1554,7 @@ class AudioToVideoApp(ctk.CTk):
                 text_color=C_TEXT if _active else C_TEXT_DIM,
                 border_width=0,
                 font=ctk.CTkFont(
-                    size=12 if _label == "A" else (10 if _label == "A⁻" else 14)
+                    size=12 if _label == "A" else (10 if _label == "A?" else 14)
                 ),
                 corner_radius=4,
                 command=lambda s=_size: self._on_font_size(s),
@@ -1562,7 +1562,7 @@ class AudioToVideoApp(ctk.CTk):
             btn.pack(side="left", padx=2, pady=4)
             self._font_btns[_size] = btn
 
-        # ── Divisor + Botón de configuración de tema ─────────────────
+        # -- Divisor + Botón de configuración de tema -----------------
         ctk.CTkFrame(ctrl, width=1, height=18, fg_color=C_BORDER).pack(
             side="left", padx=5, pady=4
         )
@@ -1575,7 +1575,7 @@ class AudioToVideoApp(ctk.CTk):
             command=self._open_theme_settings,
         ).pack(side="left", padx=(0, 4), pady=4)
 
-        # ── Separador inferior del header ────────────────────────────
+        # -- Separador inferior del header ----------------------------
         ctk.CTkFrame(header, height=1, fg_color=C_BORDER, corner_radius=0).grid(
             row=1, column=0, columnspan=6, sticky="ew"
         )
@@ -1611,9 +1611,9 @@ class AudioToVideoApp(ctk.CTk):
         tab_visual   = _tabs["visual"]
         tab_salida   = _tabs["salida"]
 
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         # TAB: ARCHIVOS
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         af = ctk.CTkScrollableFrame(tab_archivos, fg_color="transparent")
         af.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         af.grid_columnconfigure(0, weight=1)
@@ -1682,9 +1682,9 @@ class AudioToVideoApp(ctk.CTk):
         _btn_reload.grid(row=ar, column=0, sticky="ew", padx=12, pady=10)
         _apply_sec_hover(_btn_reload)
 
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         # TAB: VISUAL
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         vf = ctk.CTkScrollableFrame(tab_visual, fg_color="transparent")
         vf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         vf.grid_columnconfigure(0, weight=1)
@@ -1724,11 +1724,11 @@ class AudioToVideoApp(ctk.CTk):
             _par_inner, "Calidad CRF:", self._var_crf, 0, 51, pr, fmt="{:.0f}", pct=True,
             tooltip_text=(
                 "CRF (Constant Rate Factor) — controla la calidad del video.\n\n"
-                "• 0  → Lossless (sin pérdida). Archivo enorme.\n"
-                "• 18 → Alta calidad (recomendado). Buen balance.\n"
-                "• 23 → Calidad media. Archivo más liviano.\n"
-                "• 28 → Baja calidad. Solo para pruebas.\n"
-                "• 51 → La peor calidad posible.\n\n"
+                "• 0  ? Lossless (sin pérdida). Archivo enorme.\n"
+                "• 18 ? Alta calidad (recomendado). Buen balance.\n"
+                "• 23 ? Calidad media. Archivo más liviano.\n"
+                "• 28 ? Baja calidad. Solo para pruebas.\n"
+                "• 51 ? La peor calidad posible.\n\n"
                 "Menor número = mejor imagen, archivo más grande."
             ),
         )
@@ -2053,7 +2053,7 @@ class AudioToVideoApp(ctk.CTk):
             row=0, column=0, sticky="w", pady=(4, 0))
         self._var_dyn_text_content = tk.StringVar()
         ctk.CTkEntry(self._dyn_text_fixed_frame, textvariable=self._var_dyn_text_content,
-                     placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
+                     placeholder_text="Ej: Lo-Fi Beats ?", height=28).grid(
             row=1, column=0, sticky="ew", pady=(2, 4))
         dtof += 1
 
@@ -2184,9 +2184,9 @@ class AudioToVideoApp(ctk.CTk):
         self._var_dyn_text_font.trace_add("write", _refresh)
         self._var_dyn_text_color.trace_add("write", _refresh)
 
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         # TAB: SALIDA
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         sf = ctk.CTkScrollableFrame(tab_salida, fg_color="transparent")
         sf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         sf.grid_columnconfigure(0, weight=1)
@@ -2328,10 +2328,10 @@ class AudioToVideoApp(ctk.CTk):
         _Tooltip(
             _cpu_btn,
             "Controla cuántos núcleos del procesador usa FFmpeg.\n\n"
-            "• Low   (25%)  →  El sistema sigue libre, encoding lento.\n"
-            "• Medium (50%) →  Balance recomendado para uso diario.\n"
-            "• High  (75%)  →  Más rápido, el sistema puede sentirse pesado.\n"
-            "• Max  (100%)  →  Usa todos los núcleos. Máxima velocidad.",
+            "• Low   (25%)  ?  El sistema sigue libre, encoding lento.\n"
+            "• Medium (50%) ?  Balance recomendado para uso diario.\n"
+            "• High  (75%)  ?  Más rápido, el sistema puede sentirse pesado.\n"
+            "• Max  (100%)  ?  Usa todos los núcleos. Máxima velocidad.",
         )
         ctk.CTkLabel(inner_perf, text="Preset:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=50, anchor="w"
@@ -2357,10 +2357,10 @@ class AudioToVideoApp(ctk.CTk):
             "Velocidad de encoding vs calidad/tamaño del archivo.\n\n"
             "Más rápido = archivo más grande, encode ágil.\n"
             "Más lento  = archivo más pequeño, mejor calidad.\n\n"
-            "• ultrafast / superfast → Solo para pruebas rápidas.\n"
-            "• fast / medium         → Buena calidad, uso general.\n"
-            "• slow                  → Calidad óptima (recomendado).\n"
-            "• veryslow              → Máxima compresión, muy lento.",
+            "• ultrafast / superfast ? Solo para pruebas rápidas.\n"
+            "• fast / medium         ? Buena calidad, uso general.\n"
+            "• slow                  ? Calidad óptima (recomendado).\n"
+            "• veryslow              ? Máxima compresión, muy lento.",
         )
 
         inner_gpu = ctk.CTkFrame(_sec_perf, fg_color="transparent")
@@ -2568,9 +2568,9 @@ class AudioToVideoApp(ctk.CTk):
         tab_secuencia   = _tabs["secuencia"]
         tab_rendimiento = _tabs["rendimiento"]
 
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         # TAB: ARCHIVOS
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         af = ctk.CTkScrollableFrame(tab_archivos, fg_color="transparent")
         af.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         af.grid_columnconfigure(0, weight=1)
@@ -2598,7 +2598,7 @@ class AudioToVideoApp(ctk.CTk):
         self._sl_audio_wrapper.grid(row=ar, column=0, sticky="ew")
         self._sl_audio_wrapper.grid_columnconfigure(0, weight=1)
 
-        # ── Mode radio: Un archivo / Carpeta de audios ───────────────
+        # -- Mode radio: Un archivo / Carpeta de audios ---------------
         self._var_sl_audio_mode = tk.StringVar(value="file")
         _radio_row = ctk.CTkFrame(self._sl_audio_wrapper, fg_color="transparent")
         _radio_row.grid(row=0, column=0, sticky="ew", padx=12, pady=(6, 2))
@@ -2615,7 +2615,7 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_TEXT, font=ctk.CTkFont(size=self._fs(11)),
         ).pack(side="left")
 
-        # ── Single-file sub-frame ─────────────────────────────────────
+        # -- Single-file sub-frame -------------------------------------
         self._sl_single_audio_frame = ctk.CTkFrame(self._sl_audio_wrapper, fg_color="transparent")
         self._sl_single_audio_frame.grid(row=1, column=0, sticky="ew")
         self._sl_single_audio_frame.grid_columnconfigure(0, weight=1)
@@ -2623,7 +2623,7 @@ class AudioToVideoApp(ctk.CTk):
         self._file_row(self._sl_single_audio_frame, "Archivo de audio:", self._var_sl_audio_file,
                        self._sl_browse_audio_file, 0)
 
-        # ── Folder sub-frame ──────────────────────────────────────────
+        # -- Folder sub-frame ------------------------------------------
         self._sl_folder_audio_frame = ctk.CTkFrame(self._sl_audio_wrapper, fg_color="transparent")
         self._sl_folder_audio_frame.grid(row=1, column=0, sticky="ew")
         self._sl_folder_audio_frame.grid_columnconfigure(0, weight=1)
@@ -2637,7 +2637,7 @@ class AudioToVideoApp(ctk.CTk):
         self._sl_audio_folder_lbl.grid(row=2, column=0, sticky="w", padx=14, pady=(0, 4))
         self._sl_folder_audio_frame.grid_remove()  # hidden until folder mode selected
 
-        # ── Crossfade slider ──────────────────────────────────────────
+        # -- Crossfade slider ------------------------------------------
         self._var_sl_crossfade = tk.DoubleVar(value=2.0)
         _xf_row = ctk.CTkFrame(self._sl_audio_wrapper, fg_color="transparent")
         _xf_row.grid(row=2, column=0, sticky="ew", padx=12, pady=(8, 6))
@@ -2704,9 +2704,9 @@ class AudioToVideoApp(ctk.CTk):
         )
         self._sl_lbl_count.grid(row=ar, column=0, sticky="w", padx=14, pady=(0, 6))
 
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         # TAB: SECUENCIA
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         sqf = ctk.CTkScrollableFrame(tab_secuencia, fg_color="transparent")
         sqf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         sqf.grid_columnconfigure(0, weight=1)
@@ -2882,7 +2882,7 @@ class AudioToVideoApp(ctk.CTk):
         sl_tof += 1
         self._var_sl_text_content = tk.StringVar()
         ctk.CTkEntry(self._sl_text_overlay_frame, textvariable=self._var_sl_text_content,
-                     placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
+                     placeholder_text="Ej: Lo-Fi Beats ?", height=28).grid(
             row=sl_tof, column=0, sticky="ew", padx=10, pady=(2, 6))
         sl_tof += 1
 
@@ -3029,7 +3029,7 @@ class AudioToVideoApp(ctk.CTk):
             row=0, column=0, sticky="w", pady=(4, 0))
         self._var_sl_dyn_text_content = tk.StringVar()
         ctk.CTkEntry(self._sl_dyn_text_fixed_frame, textvariable=self._var_sl_dyn_text_content,
-                     placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
+                     placeholder_text="Ej: Lo-Fi Beats ?", height=28).grid(
             row=1, column=0, sticky="ew", pady=(2, 4))
         sl_dtof += 1
 
@@ -3137,9 +3137,9 @@ class AudioToVideoApp(ctk.CTk):
         self._sl_dyn_text_overlay_frame.grid_remove()
         sqr += 1
 
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         # TAB: RENDIMIENTO
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         rf = ctk.CTkScrollableFrame(tab_rendimiento, fg_color="transparent")
         rf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         rf.grid_columnconfigure(0, weight=1)
@@ -3207,9 +3207,9 @@ class AudioToVideoApp(ctk.CTk):
         tab_visual = _tabs["visual"]
         tab_salida = _tabs["salida"]
 
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         # TAB: CONFIG
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         cf = ctk.CTkScrollableFrame(tab_config, fg_color="transparent")
         cf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         cf.grid_columnconfigure(0, weight=1)
@@ -3309,9 +3309,9 @@ class AudioToVideoApp(ctk.CTk):
         self._sho_lbl_suggestion.grid(row=3, column=0, sticky="w", padx=8, pady=(2, 6))
         cr += 1
 
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         # TAB: VISUAL
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         vf = ctk.CTkScrollableFrame(tab_visual, fg_color="transparent")
         vf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         vf.grid_columnconfigure(0, weight=1)
@@ -3636,7 +3636,7 @@ class AudioToVideoApp(ctk.CTk):
             row=0, column=0, sticky="w", pady=(4, 0))
         self._var_sho_dyn_text_content = tk.StringVar()
         ctk.CTkEntry(self._sho_dyn_text_fixed_frame, textvariable=self._var_sho_dyn_text_content,
-                     placeholder_text="Ej: Lo-Fi Beats ♪", height=28).grid(
+                     placeholder_text="Ej: Lo-Fi Beats ?", height=28).grid(
             row=1, column=0, sticky="ew", pady=(2, 4))
         sho_dtof += 1
 
@@ -3785,9 +3785,9 @@ class AudioToVideoApp(ctk.CTk):
                          self._var_sho_fade_out, 0, 5, sho_pr, fmt="{:.1f}")
         vr += 1
 
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         # TAB: SALIDA
-        # ══════════════════════════════════════════════════════════════
+        # --------------------------------------------------------------
         xf = ctk.CTkScrollableFrame(tab_salida, fg_color="transparent")
         xf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
         xf.grid_columnconfigure(0, weight=1)
@@ -4513,7 +4513,7 @@ class AudioToVideoApp(ctk.CTk):
         ).grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0,12))
         _lbl = dict(text_color=C_MUTED, anchor='w', font=_ctk3.CTkFont(size=self._fs(11)))
         _ent = dict(fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT, height=30)
-        tz_val = self._var_yt_timezone.get() if hasattr(self,'_var_yt_timezone') else 'America/El_Salvador'
+        tz_val = self._var_yt_timezone.get() if hasattr(self,'_var_yt_timezone') else 'America/Los_Angeles'
         _ctk3.CTkLabel(inner, text='Zona horaria', **_lbl).grid(row=1, column=0, sticky='w', padx=(0,10), pady=(0,6))
         _ctk3.CTkLabel(inner, text=tz_val, text_color=C_TEXT, anchor='w', font=_ctk3.CTkFont(size=self._fs(11))).grid(row=1, column=1, sticky='ew', pady=(0,6))
         vpd_val = self._var_yt_videos_per_day.get() if hasattr(self,'_var_yt_videos_per_day') else '3'
@@ -4946,7 +4946,7 @@ class AudioToVideoApp(ctk.CTk):
         if not schedule_local:
             return checks
 
-        tz_name = self._var_yt_timezone.get() if hasattr(self, '_var_yt_timezone') else 'America/El_Salvador'
+        tz_name = self._var_yt_timezone.get() if hasattr(self, '_var_yt_timezone') else 'America/Los_Angeles'
         try:
             tz = ZoneInfo(tz_name)
             checks.append((True, f'Zona horaria valida ({tz_name}).'))
@@ -4987,11 +4987,19 @@ class AudioToVideoApp(ctk.CTk):
 
         modal = _ctk6.CTkToplevel(self)
         modal.title('Estado de elegibilidad')
-        modal.geometry('520x360')
+        w, h = 520, 360
+        modal.geometry(f'{w}x{h}')
         modal.resizable(True, True)
         modal.grab_set()
         modal.focus_force()
         modal.configure(fg_color=C_BG)
+        modal.update_idletasks()
+        self.update_idletasks()
+        px, py = self.winfo_x(), self.winfo_y()
+        pw, ph = self.winfo_width(), self.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        modal.geometry(f'{w}x{h}+{x}+{y}')
 
         inner = _ctk6.CTkFrame(modal, fg_color='transparent')
         inner.pack(fill='both', expand=True, padx=20, pady=(16, 12))
@@ -5050,8 +5058,11 @@ class AudioToVideoApp(ctk.CTk):
             border_width=2,
             border_color=C_BORDER,
             text_color=C_TEXT,
+            width=120,
+            height=34,
+            font=_ctk6.CTkFont(size=self._fs(11), weight='bold'),
             command=modal.destroy,
-        ).pack(side='left')
+        ).pack(anchor='center')
 
 
     def _yt_render_queue_preview(self) -> None:
@@ -5211,7 +5222,7 @@ class AudioToVideoApp(ctk.CTk):
                     messagebox.showwarning("YouTube Publisher", "No hay videos en cola despues del refresco.")
                     return
 
-        tz_name = self._var_yt_timezone.get() if hasattr(self, "_var_yt_timezone") else "America/El_Salvador"
+        tz_name = self._var_yt_timezone.get() if hasattr(self, "_var_yt_timezone") else "America/Los_Angeles"
         try:
             tz = ZoneInfo(tz_name)
         except Exception:
@@ -5365,9 +5376,9 @@ class AudioToVideoApp(ctk.CTk):
             height=38, width=220, command=self._on_generate)
         self._btn_generate.grid(row=0, column=4, padx=(4, 32), pady=_pad, sticky="e")
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # HELPERS DE CONSTRUCCIÓN DE WIDGETS
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _section_label(self, parent: Any, text: str, row: int) -> int:
         ctk.CTkLabel(
@@ -5395,7 +5406,7 @@ class AudioToVideoApp(ctk.CTk):
         _title = title
         _fa_lbl = None
 
-        # ── tab-style header container ──────────────────────────────
+        # -- tab-style header container ------------------------------
         _tab_wrap = ctk.CTkFrame(parent, fg_color="transparent")
         _tab_wrap.grid(row=row, column=0, sticky="ew", padx=12, pady=(6, 0))
         _tab_wrap.grid_columnconfigure(0 if not fa_icon else 1, weight=1)
@@ -5473,7 +5484,7 @@ class AudioToVideoApp(ctk.CTk):
             _fa_lbl.bind("<Button-1>", lambda e: _toggle())
         return inner, row + 2
 
-    # ── custom underline tab panel ────────────────────────────────────
+    # -- custom underline tab panel ------------------------------------
     def _make_tab_panel(
         self,
         parent: ctk.CTkFrame,
@@ -5488,7 +5499,7 @@ class AudioToVideoApp(ctk.CTk):
         outer.grid_columnconfigure(0, weight=1)
         outer.grid_rowconfigure(1, weight=1)
 
-        # ── Tab header bar ────────────────────────────────────────────
+        # -- Tab header bar --------------------------------------------
         bar = ctk.CTkFrame(
             outer, fg_color=C_CARD, corner_radius=10,
             border_width=1, border_color=C_BORDER, height=46,
@@ -5498,7 +5509,7 @@ class AudioToVideoApp(ctk.CTk):
         for i in range(len(tabs)):
             bar.grid_columnconfigure(i, weight=1, uniform="tab")
 
-        # ── Content area ──────────────────────────────────────────────
+        # -- Content area ----------------------------------------------
         content = ctk.CTkFrame(
             outer, fg_color="transparent",
             corner_radius=0, border_width=0,
@@ -5784,9 +5795,9 @@ class AudioToVideoApp(ctk.CTk):
         cb.grid(row=row, column=0, sticky="w", padx=16, pady=(6, 6))
         return row + 1
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # TEMA, FUENTE Y HELPERS
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _fs(self, base: int) -> int:
         """Devuelve el tamaño de fuente escalado a la preferencia del usuario."""
@@ -5900,9 +5911,9 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_log_text"):
             self._log_text.configure(font=ctk.CTkFont(family="Consolas", size=self._fs(11)))
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # MODO SLIDESHOW — switch + acciones
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _update_mode_buttons(self) -> None:
         """Actualiza el color activo/inactivo de los botones de modo del header."""
@@ -5951,12 +5962,12 @@ class AudioToVideoApp(ctk.CTk):
                 self._thumb_strip_vert.grid_remove()
 
     def _switch_mode(self, mode: str) -> None:
-        """Alterna entre los paneles Audio→Video, Slideshow y Shorts."""
+        """Alterna entre los paneles Audio?Video, Slideshow y Shorts."""
         self._current_mode = mode
         self._configure_preview_for_mode(mode)
         self._update_mode_buttons()
         # Flush pending geometry events so the preview frame has its correct size
-        # before loading images (avoids canvas being 0px wide after Shorts→ATV)
+        # before loading images (avoids canvas being 0px wide after Shorts?ATV)
         self.update_idletasks()
         # Show/hide the right panel depending on the active mode.
         # YouTube Publisher uses the full window width; all other modes keep
@@ -6345,9 +6356,9 @@ class AudioToVideoApp(ctk.CTk):
         self.after(0, self._set_processing_state, False)
         self.after(0, self._play_notify_sound)
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # MODO SHORTS — acciones de UI
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _sho_browse_audio(self) -> None:
         path = filedialog.askopenfilename(
@@ -6683,9 +6694,9 @@ class AudioToVideoApp(ctk.CTk):
             self._log(f"\u26a0 {n_ok}/{n_tot} shorts generados. Revisa los errores.")
         self._play_notify_sound()
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # ACCIONES DE UI
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _browse_audio_folder(self) -> None:
         path = filedialog.askdirectory(title="Seleccionar carpeta de audios")
@@ -6815,12 +6826,12 @@ class AudioToVideoApp(ctk.CTk):
         self.wait_window(dlg)
         if dlg.result is not None:
             self._image_assignment = dlg.result
-            self._log(f"✅ Asignación guardada: {len(dlg.result)} audio(s).")
+            self._log(f"? Asignación guardada: {len(dlg.result)} audio(s).")
 
     def _open_names_list_dialog(self) -> None:
         _p = NamesListDialog._USED_PREFIX
         raw = [l.strip() for l in self._txt_naming_list.get("1.0", "end").splitlines() if l.strip()]
-        # Strip ■ prefix to get clean names for passing as current_names
+        # Strip ¦ prefix to get clean names for passing as current_names
         current = [(n[len(_p):] if n.startswith(_p) else n) for n in raw]
         dlg = NamesListDialog(self, current, used_names=self._used_names)
         self.wait_window(dlg)
@@ -6968,7 +6979,7 @@ class AudioToVideoApp(ctk.CTk):
     def _apply_preset(self, name: str) -> None:
         self.settings.apply_preset(name)
         self._load_settings_to_ui()
-        self._log(f"🎛 Preset '{name}' aplicado.")
+        self._log(f"?? Preset '{name}' aplicado.")
 
     # ------------------------------------------------------------------
     # Preset management — tiles
@@ -7054,7 +7065,7 @@ class AudioToVideoApp(ctk.CTk):
         self._collect_settings()
         self.settings.save_preset(name, self.settings.all())
         self._rebuild_preset_tiles()
-        self._log(f"✅ Preset '{name}' creado.")
+        self._log(f"? Preset '{name}' creado.")
 
     def _overwrite_preset(self, name: str) -> None:
         """Sobrescribe un preset existente con las configuraciones actuales."""
@@ -7065,7 +7076,7 @@ class AudioToVideoApp(ctk.CTk):
             return
         self._collect_settings()
         self.settings.save_preset(name, self.settings.all())
-        self._log(f"💾 Preset '{name}' actualizado.")
+        self._log(f"?? Preset '{name}' actualizado.")
 
     def _delete_preset(self, name: str) -> None:
         """Elimina un preset."""
@@ -7074,7 +7085,7 @@ class AudioToVideoApp(ctk.CTk):
         try:
             self.settings.delete_preset(name)
             self._rebuild_preset_tiles()
-            self._log(f"🗑️ Preset '{name}' eliminado.")
+            self._log(f"??? Preset '{name}' eliminado.")
         except ValueError as e:
             messagebox.showerror("Error", str(e))
 
@@ -7090,7 +7101,7 @@ class AudioToVideoApp(ctk.CTk):
         try:
             self.settings.rename_preset(old_name, new_name)
             self._rebuild_preset_tiles()
-            self._log(f"✏️ Preset '{old_name}' → '{new_name}'.")
+            self._log(f"?? Preset '{old_name}' ? '{new_name}'.")
         except ValueError as e:
             messagebox.showerror("Error", str(e))
 
@@ -7106,7 +7117,7 @@ class AudioToVideoApp(ctk.CTk):
             return
         try:
             self.settings.export_preset(name, path)
-            self._log(f"📤 Preset '{name}' exportado → {path}")
+            self._log(f"?? Preset '{name}' exportado ? {path}")
         except RuntimeError as e:
             messagebox.showerror("Error al exportar", str(e))
 
@@ -7123,7 +7134,7 @@ class AudioToVideoApp(ctk.CTk):
             if imported:
                 self._rebuild_preset_tiles()
                 names_str = ", ".join(f"'{n}'" for n in imported)
-                self._log(f"📥 Preset(s) importado(s): {names_str}")
+                self._log(f"?? Preset(s) importado(s): {names_str}")
             else:
                 messagebox.showwarning("Sin datos", "El archivo no contenía presets válidos.")
         except (RuntimeError, ValueError) as e:
@@ -7375,7 +7386,7 @@ class AudioToVideoApp(ctk.CTk):
                 margin_val = self._var_sho_dyn_text_margin.get() if hasattr(self, "_var_sho_dyn_text_margin") else 40
                 pos        = self._var_sho_dyn_text_position.get() if hasattr(self, "_var_sho_dyn_text_position") else "Bottom"
                 color_name = self._var_sho_dyn_text_color.get() if hasattr(self, "_var_sho_dyn_text_color") else "Blanco"
-                # Canvas directo 203×360 → misma relación proporcional que el export 1080×1920
+                # Canvas directo 203×360 ? misma relación proporcional que el export 1080×1920
                 ref_w, ref_h_margin = 1080.0, 1920.0
             elif is_slideshow:
                 text_raw   = self._var_sl_dyn_text_content.get().strip() if hasattr(self, "_var_sl_dyn_text_content") else ""
@@ -7414,7 +7425,7 @@ class AudioToVideoApp(ctk.CTk):
                 margin_val = self._var_sho_text_margin.get()
                 pos        = self._var_sho_text_position.get()
                 color_name = self._var_sho_text_color.get() if hasattr(self, "_var_sho_text_color") else "Blanco"
-                # Canvas directo 203×360 → misma relación proporcional que el export 1080×1920
+                # Canvas directo 203×360 ? misma relación proporcional que el export 1080×1920
                 ref_w, ref_h_margin = 1080.0, 1920.0
             elif is_slideshow:
                 text       = self._var_sl_text_content.get().strip() if hasattr(self, "_var_sl_text_content") else ""
@@ -7484,9 +7495,9 @@ class AudioToVideoApp(ctk.CTk):
         draw.text((x + sh, y + sh), text, font=font, fill=sc + "B3")  # sombra 70%
         draw.text((x, y), text, font=font, fill=fill)
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # ACCIONES PRINCIPALES
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _on_generate(self) -> None:
         if not self._validate_inputs():
@@ -7574,7 +7585,7 @@ class AudioToVideoApp(ctk.CTk):
 
         output = Path(self._var_output.get() or ".") / "_preview.mp4"
         self._collect_settings()
-        self._log(f"👁 Generando preview de 10s → {output}")
+        self._log(f"?? Generando preview de 10s ? {output}")
 
         from core.ffmpeg_builder import FFmpegBuilder
         from core.utils import get_audio_duration
@@ -7599,17 +7610,17 @@ class AudioToVideoApp(ctk.CTk):
                 finally:
                     builder.cleanup()
                 if r.returncode == 0:
-                    self._queue_log(f"✔ Preview guardado: {output}")
+                    self._queue_log(f"? Preview guardado: {output}")
                 else:
-                    self._queue_log(f"✘ Preview falló:\n{r.stderr[-300:]}")
+                    self._queue_log(f"? Preview falló:\n{r.stderr[-300:]}")
             except Exception as exc:
-                self._queue_log(f"✘ Error en preview: {exc}")
+                self._queue_log(f"? Error en preview: {exc}")
 
         threading.Thread(target=_run, daemon=True).start()
 
     def _on_test_ffmpeg(self) -> None:
         output = Path(self._var_output.get() or ".") / "_ffmpeg_test.mp4"
-        self._log(f"🔧 Probando FFmpeg → {output}")
+        self._log(f"?? Probando FFmpeg ? {output}")
 
         runner = Runner(
             settings={},
@@ -7625,7 +7636,7 @@ class AudioToVideoApp(ctk.CTk):
 
         threading.Thread(target=_run, daemon=True).start()
 
-    # ── Abrir carpeta de salida ──────────────────────────────────────
+    # -- Abrir carpeta de salida --------------------------------------
 
     def _get_active_output_folder(self) -> str:
         """Return the output folder path for the active mode (may be empty)."""
@@ -7660,9 +7671,9 @@ class AudioToVideoApp(ctk.CTk):
                 return
         os.startfile(str(p))
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # CALLBACKS DEL RUNNER (llamados desde hilo secundario)
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _on_progress_update(self, done: int, total: int, current_file: str) -> None:
         """Enviado desde el hilo de procesamiento; usamos after() para thread-safety."""
@@ -7695,9 +7706,9 @@ class AudioToVideoApp(ctk.CTk):
             self._last_run_names = []
         self._play_notify_sound()
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # LOGS (thread-safe via cola)
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _queue_log(self, msg: str) -> None:
         """Llamado desde cualquier hilo; encola el mensaje."""
@@ -7727,9 +7738,9 @@ class AudioToVideoApp(ctk.CTk):
         self._log_text.delete("1.0", "end")
         self._log_text.configure(state="disabled")
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # VALIDACIONES
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _run_validation(self) -> None:
         if self._validation_in_progress:
@@ -7782,7 +7793,7 @@ class AudioToVideoApp(ctk.CTk):
 
         ffmpeg_dir = ensure_ffmpeg(on_progress=self._on_ffmpeg_progress)
         if ffmpeg_dir is None:
-            self.after(0, self._log, "✘ No se pudo localizar ni instalar FFmpeg.")
+            self.after(0, self._log, "? No se pudo localizar ni instalar FFmpeg.")
 
         result = validate_environment()
         self.after(0, self._apply_validation_result, result)
@@ -7854,7 +7865,7 @@ class AudioToVideoApp(ctk.CTk):
             if not self._var_text_content.get().strip():
                 errors.append("• El texto overlay está activado pero el texto está vacío.")
 
-        # ── Validación de nombres de salida ──
+        # -- Validación de nombres de salida --
         naming_mode = self._var_naming_mode.get()
         if naming_mode in ("Custom List", "Prefix + Custom List",
                            "Lista personalizada", "Prefijo + Lista personalizada"):
@@ -7882,9 +7893,9 @@ class AudioToVideoApp(ctk.CTk):
             return False
         return True
 
-    # ──────────────────────────────────────────────────────────────────
-    # SINCRONIZACIÓN SETTINGS ↔ UI
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
+    # SINCRONIZACIÓN SETTINGS ? UI
+    # ------------------------------------------------------------------
 
     def _collect_settings(self) -> None:
         """Lee los valores de la UI y los escribe en SettingsManager."""
@@ -7958,7 +7969,7 @@ class AudioToVideoApp(ctk.CTk):
                 "Medium",
             ),
             # YouTube Publisher (UI scaffold state)
-            "yt_timezone": self._var_yt_timezone.get() if hasattr(self, "_var_yt_timezone") else "America/El_Salvador",
+            "yt_timezone": self._var_yt_timezone.get() if hasattr(self, "_var_yt_timezone") else "America/Los_Angeles",
             "yt_videos_per_day": int(self._var_yt_videos_per_day.get()) if hasattr(self, "_var_yt_videos_per_day") else 3,
             "yt_window_start": self._var_yt_window_start.get() if hasattr(self, "_var_yt_window_start") else "09:00",
             "yt_window_end": self._var_yt_window_end.get() if hasattr(self, "_var_yt_window_end") else "21:00",
@@ -8267,7 +8278,7 @@ class AudioToVideoApp(ctk.CTk):
 
         # YouTube Publisher settings (UI scaffold)
         if hasattr(self, "_var_yt_timezone"):
-            self._var_yt_timezone.set(s.get("yt_timezone", "America/El_Salvador"))
+            self._var_yt_timezone.set(s.get("yt_timezone", "America/Los_Angeles"))
             self._var_yt_videos_per_day.set(str(s.get("yt_videos_per_day", 3)))
             self._var_yt_window_start.set(s.get("yt_window_start", "09:00"))
             self._var_yt_window_end.set(s.get("yt_window_end", "21:00"))
@@ -8278,13 +8289,13 @@ class AudioToVideoApp(ctk.CTk):
         self._collect_settings()
         try:
             self.settings.save()
-            self._log("💾 Configuración guardada.")
+            self._log("?? Configuración guardada.")
         except RuntimeError as exc:
             messagebox.showerror("Error", str(exc))
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # ESTADO DE PROCESAMIENTO
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _set_processing_state(self, processing: bool) -> None:
         if processing:
@@ -8313,9 +8324,9 @@ class AudioToVideoApp(ctk.CTk):
             self._progress_file.set(0)
             self._lbl_progress_file.configure(text="")
 
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
     # CIERRE
-    # ──────────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
 
     def _on_close(self) -> None:
         running = (
@@ -8342,6 +8353,7 @@ class AudioToVideoApp(ctk.CTk):
         except Exception:
             pass
         self.destroy()
+
 
 
 
