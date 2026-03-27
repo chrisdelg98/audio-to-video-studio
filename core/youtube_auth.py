@@ -57,6 +57,8 @@ class YouTubeAuthService:
         self._token_path = app_dir / "config" / "youtube_token.json"
         self._client_secret_candidates = [
             app_dir / "config" / "youtube_client_secret.json",
+            app_dir.parent / "config" / "youtube_client_secret.json",
+            Path.cwd() / "config" / "youtube_client_secret.json",
             bundle_dir / "config" / "youtube_client_secret.json",
         ]
 
@@ -128,8 +130,8 @@ class YouTubeAuthService:
         client_secret = self.client_secret_path
         if not client_secret.is_file():
             raise YouTubeAuthError(
-                "No se encontro config/youtube_client_secret.json. "
-                "Crealo en Google Cloud (OAuth Desktop App) y colocalo en la carpeta config/."
+                "No se encontro youtube_client_secret.json. "
+                "Colocalo en config/ junto al ejecutable o vuelve a compilar incluyendo ese archivo."
             )
 
         flow = InstalledAppFlow.from_client_secrets_file(str(client_secret), SCOPES)

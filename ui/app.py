@@ -1050,6 +1050,174 @@ class PresetsDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+class StartupDependencyDialog(ctk.CTkToplevel):
+    """Modal simple para la preparación inicial de dependencias."""
+
+    def __init__(self, parent: ctk.CTk) -> None:
+        super().__init__(parent)
+        self.title("Preparando CreatorFlow Studio")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+        self.configure(fg_color=C_CARD)
+
+        self._progress_mode = "indeterminate"
+        self._var_title = tk.StringVar(value="Verificando dependencias...")
+        self._var_detail = tk.StringVar(value="Preparando herramientas necesarias para iniciar.")
+
+        self.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self,
+            text="Inicializacion del entorno",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=C_TEXT,
+        ).grid(row=0, column=0, sticky="w", padx=18, pady=(16, 6))
+
+        ctk.CTkLabel(
+            self,
+            textvariable=self._var_title,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=C_TEXT,
+            anchor="w",
+            justify="left",
+        ).grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 4))
+
+        ctk.CTkLabel(
+            self,
+            textvariable=self._var_detail,
+            font=ctk.CTkFont(size=11),
+            text_color=C_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=420,
+        ).grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 12))
+
+        self._progress = ctk.CTkProgressBar(
+            self,
+            width=420,
+            progress_color=C_ACCENT,
+            fg_color=C_INPUT,
+            mode="indeterminate",
+        )
+        self._progress.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 18))
+        self._progress.start()
+
+        self.geometry("460x160")
+        self.after(60, self._center)
+
+    def _center(self) -> None:
+        self.update_idletasks()
+        parent = self.master
+        pw = parent.winfo_width()
+        ph = parent.winfo_height()
+        px = parent.winfo_x()
+        py = parent.winfo_y()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+
+    def set_status(self, title: str, detail: str, progress: float | None = None) -> None:
+        self._var_title.set(title)
+        self._var_detail.set(detail)
+
+        if progress is None:
+            if self._progress_mode != "indeterminate":
+                self._progress.stop()
+                self._progress.configure(mode="indeterminate")
+                self._progress.start()
+                self._progress_mode = "indeterminate"
+            return
+
+        if self._progress_mode != "determinate":
+            self._progress.stop()
+            self._progress.configure(mode="determinate")
+            self._progress_mode = "determinate"
+        self._progress.set(max(0.0, min(progress, 100.0)) / 100.0)
+
+    def close(self) -> None:
+        self._progress.stop()
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+
+
+class BusyDialog(ctk.CTkToplevel):
+    """Small modal used while a blocking task runs in the background."""
+
+    def __init__(self, parent: ctk.CTk, title: str, headline: str, detail: str) -> None:
+        super().__init__(parent)
+        self.title(title)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+        self.configure(fg_color=C_CARD)
+
+        self._var_headline = tk.StringVar(value=headline)
+        self._var_detail = tk.StringVar(value=detail)
+
+        self.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self,
+            textvariable=self._var_headline,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=C_TEXT,
+            anchor="w",
+            justify="left",
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 6))
+
+        ctk.CTkLabel(
+            self,
+            textvariable=self._var_detail,
+            font=ctk.CTkFont(size=11),
+            text_color=C_MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=380,
+        ).grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 12))
+
+        self._progress = ctk.CTkProgressBar(
+            self,
+            width=380,
+            progress_color=C_ACCENT_YT,
+            fg_color=C_INPUT,
+            mode="indeterminate",
+        )
+        self._progress.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 18))
+        self._progress.start()
+
+        self.geometry("420x130")
+        self.after(60, self._center)
+
+    def _center(self) -> None:
+        self.update_idletasks()
+        parent = self.master
+        pw = parent.winfo_width()
+        ph = parent.winfo_height()
+        px = parent.winfo_x()
+        py = parent.winfo_y()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+
+    def set_detail(self, headline: str, detail: str) -> None:
+        self._var_headline.set(headline)
+        self._var_detail.set(detail)
+
+    def close(self) -> None:
+        self._progress.stop()
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+
+
 class AudioToVideoApp(ctk.CTk):
     """Ventana principal de la aplicación."""
 
@@ -1076,8 +1244,13 @@ class AudioToVideoApp(ctk.CTk):
         self._sho_last_run_names: list[str] = []
         self._yt_video_rows: list[dict[str, str]] = []  # filled when drafts are fetched
         self._yt_auth_service: YouTubeAuthService | None = None
+        self._yt_auth_dialog: BusyDialog | None = None
+        self._yt_auth_in_progress = False
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
+        self._startup_dependency_dialog: StartupDependencyDialog | None = None
+        self._startup_last_status_message = ""
+        self._validation_in_progress = False
         self._log_queue: list[str] = []
         self._log_lock = threading.Lock()
 
@@ -1212,7 +1385,7 @@ class AudioToVideoApp(ctk.CTk):
         ).pack(side="left", padx=(0, 6))
         ctk.CTkLabel(
             _title_frame,
-            text="Audio to Video Studio",
+            text="CreatorFlow Studio",
             font=ctk.CTkFont(size=15, weight="bold"),
             text_color=C_TEXT,
         ).pack(side="left")
@@ -3851,20 +4024,67 @@ class AudioToVideoApp(ctk.CTk):
 
     def _yt_connect_channel(self) -> None:
         """Run OAuth flow and update channel status in UI."""
+        if self._yt_auth_in_progress:
+            return
+
+        self._yt_auth_in_progress = True
+        self._yt_open_auth_dialog(
+            "Conectando con YouTube...",
+            "Se abrira el navegador para completar OAuth.",
+        )
+        self._log("[YouTube] Iniciando autenticacion OAuth...")
+        threading.Thread(target=self._yt_connect_channel_worker, daemon=True).start()
+
+    def _yt_open_auth_dialog(self, headline: str, detail: str) -> None:
+        if self._yt_auth_dialog and self._yt_auth_dialog.winfo_exists():
+            self._yt_auth_dialog.close()
+        self._yt_auth_dialog = BusyDialog(
+            self,
+            title="YouTube Publisher",
+            headline=headline,
+            detail=detail,
+        )
+
+    def _yt_close_auth_dialog(self) -> None:
+        dialog = self._yt_auth_dialog
+        self._yt_auth_dialog = None
+        if dialog and dialog.winfo_exists():
+            dialog.close()
+
+    def _yt_connect_channel_worker(self) -> None:
         service = self._yt_get_auth_service()
         try:
-            self._log("[YouTube] Iniciando autenticacion OAuth...")
             service.authenticate_interactive()
+        except Exception as exc:
+            self.after(0, self._yt_finish_connect_channel, exc)
+            return
+
+        self.after(0, self._yt_finish_connect_channel, None)
+
+    def _yt_finish_connect_channel(self, error: Exception | None) -> None:
+        self._yt_close_auth_dialog()
+        self._yt_auth_in_progress = False
+
+        try:
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+        except tk.TclError:
+            pass
+
+        if error is None:
             self._log("[YouTube] Autenticacion completada. Verificando canal...")
             self._yt_refresh_channel_status(silent=False)
-        except YouTubeAuthError as exc:
-            msg = str(exc)
-            self._log(f"[YouTube] {msg}")
-            messagebox.showerror("YouTube Publisher", msg)
-        except Exception as exc:
-            msg = f"Error durante la autenticacion de YouTube: {exc}"
-            self._log(f"[YouTube] {msg}")
-            messagebox.showerror("YouTube Publisher", msg)
+            return
+
+        if isinstance(error, YouTubeAuthError):
+            msg = str(error)
+        else:
+            msg = f"Error durante la autenticacion de YouTube: {error}"
+
+        self._var_yt_channel_status.set("No conectado.")
+        self._log(f"[YouTube] {msg}")
+        messagebox.showerror("YouTube Publisher", msg)
 
     def _yt_fetch_drafts(self) -> None:
         """Load private videos without publishAt from YouTube into queue preview."""
@@ -6642,30 +6862,94 @@ class AudioToVideoApp(ctk.CTk):
     # ──────────────────────────────────────────────────────────────────
 
     def _run_validation(self) -> None:
-        # Asegurar FFmpeg disponible (busca junto al exe, luego PATH, luego descarga)
-        self._log("Verificando FFmpeg…")
-        ffmpeg_dir = ensure_ffmpeg(on_progress=lambda msg: self._log(msg))
+        if self._validation_in_progress:
+            return
+
+        self._validation_in_progress = True
+        self._startup_last_status_message = ""
+        self._lbl_status.configure(text="Verificando entorno...", text_color=C_WARN)
+        if hasattr(self, "_lbl_status_dot"):
+            self._lbl_status_dot.configure(text_color=C_WARN)
+        self._open_startup_dependency_dialog()
+        threading.Thread(target=self._run_validation_worker, daemon=True).start()
+
+    def _open_startup_dependency_dialog(self) -> None:
+        if self._startup_dependency_dialog and self._startup_dependency_dialog.winfo_exists():
+            self._startup_dependency_dialog.close()
+        self._startup_dependency_dialog = StartupDependencyDialog(self)
+
+    def _set_startup_dependency_status(self, title: str, detail: str, progress: float | None = None) -> None:
+        dialog = self._startup_dependency_dialog
+        if dialog and dialog.winfo_exists():
+            dialog.set_status(title, detail, progress)
+
+    def _close_startup_dependency_dialog(self) -> None:
+        dialog = self._startup_dependency_dialog
+        self._startup_dependency_dialog = None
+        if dialog and dialog.winfo_exists():
+            dialog.close()
+
+    def _on_ffmpeg_progress(self, message: str, progress: float | None = None) -> None:
+        if message != self._startup_last_status_message:
+            self._startup_last_status_message = message
+            self.after(0, self._log, message)
+        self.after(
+            0,
+            self._set_startup_dependency_status,
+            "Instalando dependencias...",
+            message,
+            progress,
+        )
+
+    def _run_validation_worker(self) -> None:
+        self.after(
+            0,
+            self._set_startup_dependency_status,
+            "Verificando dependencias...",
+            "Comprobando FFmpeg y herramientas del sistema.",
+            None,
+        )
+
+        ffmpeg_dir = ensure_ffmpeg(on_progress=self._on_ffmpeg_progress)
         if ffmpeg_dir is None:
-            self._log("✘ No se pudo localizar ni instalar FFmpeg.")
+            self.after(0, self._log, "✘ No se pudo localizar ni instalar FFmpeg.")
 
         result = validate_environment()
+        self.after(0, self._apply_validation_result, result)
+
+    def _apply_validation_result(self, result: ValidationResult) -> None:
         for msg in result.messages:
             self._log(msg)
 
         if result.ok:
+            self._set_startup_dependency_status(
+                "Entorno listo",
+                "Todo esta preparado. La aplicacion ya puede usarse.",
+                100.0,
+            )
             self._lbl_status.configure(text="Entorno OK", text_color=C_SUCCESS)
             if hasattr(self, "_lbl_status_dot"):
                 self._lbl_status_dot.configure(text_color=C_SUCCESS)
+            self._btn_generate.configure(state="normal")
+            self.after(350, self._close_startup_dependency_dialog)
         else:
+            self._set_startup_dependency_status(
+                "Faltan dependencias",
+                "No fue posible completar la preparacion inicial del entorno.",
+                100.0,
+            )
             self._lbl_status.configure(text="Dependencias faltantes", text_color=C_ERROR)
             if hasattr(self, "_lbl_status_dot"):
                 self._lbl_status_dot.configure(text_color=C_ERROR)
             self._btn_generate.configure(state="disabled")
+            self._close_startup_dependency_dialog()
             messagebox.showerror(
                 "Dependencias faltantes",
                 "Se encontraron problemas con las dependencias del sistema.\n"
-                "Revisa el área de logs para más detalles.",
+                "Revisa el area de logs para mas detalles.",
             )
+
+        self._validation_in_progress = False
 
     def _validate_inputs(self) -> bool:
         errors: list[str] = []

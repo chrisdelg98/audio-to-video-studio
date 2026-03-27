@@ -3,11 +3,11 @@ FFmpeg Setup — Localización e instalación automática de FFmpeg.
 
 Busca ffmpeg/ffprobe en este orden:
 1. Junto al ejecutable (.exe) o raíz del proyecto
-2. %LOCALAPPDATA%\AudioToVideoStudio\ffmpeg\
+2. %LOCALAPPDATA%\CreatorFlowStudio\ffmpeg\
 3. PATH del sistema
 
 Si no se encuentra en ninguno, descarga el build essentials de gyan.dev
-a %LOCALAPPDATA%\AudioToVideoStudio\ffmpeg\ y lo agrega al PATH del usuario.
+a %LOCALAPPDATA%\CreatorFlowStudio\ffmpeg\ y lo agrega al PATH del usuario.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import sys
 import winreg
 import zipfile
 from pathlib import Path
+from typing import Callable
 from urllib.request import urlopen, Request
 
 from core.utils import get_app_dir
@@ -28,7 +29,18 @@ _FFMPEG_URL = (
     "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 )
 
-_INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "AudioToVideoStudio" / "ffmpeg"
+ProgressCallback = Callable[[str, float | None], None]
+
+_INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "CreatorFlowStudio" / "ffmpeg"
+
+
+def _report_progress(
+    on_progress: ProgressCallback | None,
+    message: str,
+    progress: float | None = None,
+) -> None:
+    if on_progress:
+        on_progress(message, progress)
 
 
 def _exe_dir() -> Path:
@@ -96,20 +108,33 @@ def _add_to_user_path(directory: str) -> None:
         pass
 
 
-def _download_ffmpeg(on_progress=None) -> str:
+def _download_ffmpeg(on_progress: ProgressCallback | None = None) -> str:
     """Descarga FFmpeg essentials y lo extrae. Retorna el directorio bin/.
 
-    on_progress: callback(status_text: str) para actualizar UI.
+    on_progress: callback(status_text: str, progress_percent: float | None).
     """
-    if on_progress:
-        on_progress("Descargando FFmpeg essentials…")
+    _report_progress(on_progress, "Descargando FFmpeg essentials...", 0.0)
 
-    req = Request(_FFMPEG_URL, headers={"User-Agent": "AudioToVideoStudio/1.0"})
-    resp = urlopen(req, timeout=120)
-    data = resp.read()
+    req = Request(_FFMPEG_URL, headers={"User-Agent": "CreatorFlowStudio/1.0"})
+    with urlopen(req, timeout=120) as resp:
+        total_bytes = int(resp.headers.get("Content-Length") or 0)
+        chunks: list[bytes] = []
+        downloaded = 0
 
-    if on_progress:
-        on_progress("Extrayendo FFmpeg…")
+        while True:
+            chunk = resp.read(1024 * 256)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            downloaded += len(chunk)
+            progress = None
+            if total_bytes > 0:
+                progress = min(85.0, (downloaded / total_bytes) * 85.0)
+            _report_progress(on_progress, "Descargando FFmpeg essentials...", progress)
+
+    data = b"".join(chunks)
+
+    _report_progress(on_progress, "Extrayendo FFmpeg...", 90.0)
 
     _INSTALL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -120,25 +145,27 @@ def _download_ffmpeg(on_progress=None) -> str:
             n for n in zf.namelist()
             if n.endswith(("ffmpeg.exe", "ffprobe.exe"))
         ]
-        for entry in bin_entries:
+        total_entries = max(1, len(bin_entries))
+        for index, entry in enumerate(bin_entries, start=1):
             filename = Path(entry).name
             dest = _INSTALL_DIR / filename
             with zf.open(entry) as src, open(dest, "wb") as dst:
                 shutil.copyfileobj(src, dst)
+            progress = 90.0 + (index / total_entries) * 8.0
+            _report_progress(on_progress, f"Extrayendo {filename}...", progress)
 
     ffmpeg_dir = str(_INSTALL_DIR)
-    if on_progress:
-        on_progress("Configurando PATH…")
+    _report_progress(on_progress, "Configurando PATH...", 99.0)
 
     _add_to_user_path(ffmpeg_dir)
     return ffmpeg_dir
 
 
-def ensure_ffmpeg(on_progress=None) -> str | None:
+def ensure_ffmpeg(on_progress: ProgressCallback | None = None) -> str | None:
     """Asegura que ffmpeg esté disponible. Retorna directorio a agregar a PATH o None.
 
     Si FFmpeg no existe, lo descarga e instala automáticamente.
-    on_progress: callback(status_text: str) opcional para UI.
+    on_progress: callback(status_text: str, progress_percent: float | None).
 
     Returns:
         Directorio con ffmpeg (para agregar a os.environ["PATH"]),
@@ -150,16 +177,17 @@ def ensure_ffmpeg(on_progress=None) -> str | None:
         # Encontrado (o ya en PATH)
         if ffmpeg_dir:
             os.environ["PATH"] = ffmpeg_dir + ";" + os.environ.get("PATH", "")
+            _report_progress(on_progress, "FFmpeg encontrado en esta instalacion.", 100.0)
+        else:
+            _report_progress(on_progress, "FFmpeg ya estaba disponible en el sistema.", 100.0)
         return ffmpeg_dir
 
     # No encontrado — descargar
     try:
         ffmpeg_dir = _download_ffmpeg(on_progress=on_progress)
         os.environ["PATH"] = ffmpeg_dir + ";" + os.environ.get("PATH", "")
-        if on_progress:
-            on_progress("FFmpeg instalado correctamente ✔")
+        _report_progress(on_progress, "FFmpeg instalado correctamente.", 100.0)
         return ffmpeg_dir
     except Exception as exc:
-        if on_progress:
-            on_progress(f"Error instalando FFmpeg: {exc}")
+        _report_progress(on_progress, f"Error instalando FFmpeg: {exc}", None)
         return None
