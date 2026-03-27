@@ -23,6 +23,7 @@ Principios:
 from __future__ import annotations
 
 import ctypes
+import datetime as dt
 import json
 import os
 import threading
@@ -32,6 +33,7 @@ import tkinter.filedialog as filedialog
 import tkinter.messagebox as messagebox
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageFont
@@ -44,8 +46,10 @@ from core.slideshow_runner import SlideshowRunner
 from core.naming_manager import NamingManager as _NamingManager
 from core.utils import get_audio_files, get_audio_duration, get_image_files, get_bundle_dir
 from core.ffmpeg_setup import ensure_ffmpeg
+from core.youtube_auth import YouTubeAuthError, YouTubeAuthService
 from core.validator import ValidationResult, validate_environment
 from effects.text_overlay_effect import available_fonts
+from ui.youtube_tab import build_youtube_publisher_panel
 
 _BUNDLE_DIR = get_bundle_dir()
 
@@ -90,6 +94,7 @@ FA_EYE     = "\uf06e"   # eye
 FA_WRENCH  = "\uf0ad"   # wrench
 FA_BOLT    = "\uf0e7"   # bolt (rendimiento)
 FA_IMAGES  = "\uf302"   # images (slideshow)
+FA_YT      = "\uf167"   # youtube (brand)
 FA_CHEVRON_DOWN  = "\uf078"   # chevron-down (expanded)
 FA_CHEVRON_RIGHT = "\uf054"   # chevron-right (collapsed)
 FA_DOWNLOAD      = "\uf019"   # download (arrow-down-to-line)
@@ -111,6 +116,8 @@ C_ACCENT_SLIDE  = "#8587F8"   # Indigo — modo Slideshow
 C_ACCENT_SLIDE_H= "#6760EC"   # Indigo hover
 C_ACCENT_SHORTS = "#F97316"   # Orange — modo Shorts
 C_ACCENT_SHORTS_H="#FB923C"   # Orange hover
+C_ACCENT_YT     = "#FF4D4F"   # Red — modo YouTube Publisher
+C_ACCENT_YT_H   = "#FF6B6D"   # Red hover
 C_BTN_PRIMARY   = "#7CA8FF"   # Generate / primary CTA (light blue)
 C_BTN_PRIMARY_TEXT = "#002C65" # Text on primary CTA (dark navy)
 C_BTN_SECONDARY = "#0E0E0E"   # Secondary button bg (ghost)
@@ -157,6 +164,7 @@ def _apply_theme(mode: str) -> None:
     global C_BG, C_PANEL, C_CARD, C_BORDER, C_ACCENT, C_ACCENT_H
     global C_ACCENT_SLIDE, C_ACCENT_SLIDE_H
     global C_ACCENT_SHORTS, C_ACCENT_SHORTS_H
+    global C_ACCENT_YT, C_ACCENT_YT_H
     global C_BTN_PRIMARY, C_BTN_PRIMARY_TEXT, C_BTN_SECONDARY, C_BTN_OK, C_BTN_DANGER
     global C_TEXT, C_TEXT_DIM, C_MUTED, C_HOVER
     global C_SUCCESS, C_ERROR, C_WARN, C_INPUT, C_LOG, C_LOG_TEXT
@@ -164,8 +172,9 @@ def _apply_theme(mode: str) -> None:
     C_BG = t["C_BG"]; C_PANEL = t["C_PANEL"]; C_CARD = t["C_CARD"]; C_BORDER = t["C_BORDER"]
     C_ACCENT = t["C_ACCENT"]; C_ACCENT_H = t["C_ACCENT_H"]
     C_ACCENT_SLIDE = t["C_ACCENT_SLIDE"]; C_ACCENT_SLIDE_H = t["C_ACCENT_SLIDE_H"]
-    # Shorts accent is fixed (not exposed in ThemeManager yet)
+    # Shorts/YouTube accents are fixed (not exposed in ThemeManager yet)
     C_ACCENT_SHORTS = "#F97316"; C_ACCENT_SHORTS_H = "#FB923C"
+    C_ACCENT_YT = "#FF4D4F"; C_ACCENT_YT_H = "#FF6B6D"
     C_BTN_PRIMARY = t["C_BTN_PRIMARY"]; C_BTN_PRIMARY_TEXT = t["C_BTN_PRIMARY_TEXT"]; C_BTN_SECONDARY = t["C_BTN_SECONDARY"]
     C_BTN_OK = t["C_BTN_OK"]; C_BTN_DANGER = t["C_BTN_DANGER"]
     C_TEXT = t["C_TEXT"]; C_TEXT_DIM = t["C_TEXT_DIM"]; C_MUTED = t["C_MUTED"]
@@ -1044,7 +1053,7 @@ class PresetsDialog(ctk.CTkToplevel):
 class AudioToVideoApp(ctk.CTk):
     """Ventana principal de la aplicación."""
 
-    WINDOW_TITLE = "ATV Studio"
+    WINDOW_TITLE = "CreatorFlow Studio"
     WINDOW_SIZE = "1280x800"
     MIN_SIZE = (1100, 700)
     SCROLL_SPEED = 3.75   # Multiplicador de velocidad del scroll con rueda del ratón
@@ -1065,6 +1074,8 @@ class AudioToVideoApp(ctk.CTk):
         self._sho_image_paths: list[Path] = []
         self._sho_used_names: set[str] = set()
         self._sho_last_run_names: list[str] = []
+        self._yt_video_rows: list[dict[str, str]] = []  # filled when drafts are fetched
+        self._yt_auth_service: YouTubeAuthService | None = None
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
         self._log_queue: list[str] = []
@@ -1286,11 +1297,15 @@ class AudioToVideoApp(ctk.CTk):
                 w.bind("<Button-1>", lambda e, c=cmd: c(), add="+")
 
         _atv_active = self._current_mode == "Audio \u2192 Video"
-        _create_mode_btn(FA_FILM,   "ATV",   _atv_active,      C_ACCENT,        lambda: self._switch_mode("Audio \u2192 Video"), "atv")
+        _create_mode_btn(FA_FILM, "ATV", _atv_active, C_ACCENT,
+                         lambda: self._switch_mode("Audio \u2192 Video"), "atv")
+        _create_mode_btn(FA_IMAGES, "SLIDESHOW", self._current_mode == "Slideshow",
+                         C_ACCENT_SLIDE, lambda: self._switch_mode("Slideshow"), "slide")
         _create_mode_btn(FA_SHORTS, "SHORTS", self._current_mode == "Shorts",
                          C_ACCENT_SHORTS, lambda: self._switch_mode("Shorts"), "shorts")
-        _create_mode_btn(FA_IMAGES, "SLIDESHOW", not _atv_active,  C_ACCENT_SLIDE,  lambda: self._switch_mode("Slideshow"), "slide")
-        
+        _create_mode_btn(FA_YT, "YOUTUBE", self._current_mode == "YouTube Publisher",
+                         C_ACCENT_YT, lambda: self._switch_mode("YouTube Publisher"), "yt")
+
 
         # ── Badge de estado del entorno ──────────────────────────────
         self._status_badge = ctk.CTkFrame(
@@ -1398,6 +1413,7 @@ class AudioToVideoApp(ctk.CTk):
         self._build_right_panel(main)
         self._build_slideshow_left_panel(main)
         self._build_shorts_left_panel(main)
+        self._build_youtube_left_panel(main)
 
     # --- Left panel ---------------------------------------------------
 
@@ -2206,6 +2222,7 @@ class AudioToVideoApp(ctk.CTk):
                              corner_radius=0, border_width=0)
         frame.grid(row=0, column=1, sticky="nsew")
         frame.grid_columnconfigure(0, weight=1)
+        self._right_panel_frame = frame
 
         # Preview imagen
         self._preview_frame = ctk.CTkFrame(
@@ -3763,6 +3780,451 @@ class AudioToVideoApp(ctk.CTk):
         self._var_sho_gpu_encoding = tk.BooleanVar(value=False)
         self._check_row(_perf_inner_sho, "Usar GPU (NVENC)", self._var_sho_gpu_encoding, 4)
 
+
+    # --- YouTube Publisher left panel --------------------------------
+
+    def _build_youtube_left_panel(self, parent: ctk.CTkFrame) -> None:
+        """Panel izquierdo del modo YouTube Publisher (solo interfaz inicial)."""
+        self._yt_scroll_frame = build_youtube_publisher_panel(
+            self,
+            parent,
+            accent=C_ACCENT_YT,
+            colors={
+                "C_CARD": C_CARD,
+                "C_BORDER": C_BORDER,
+                "C_TEXT": C_TEXT,
+                "C_TEXT_DIM": C_TEXT_DIM,
+                "C_MUTED": C_MUTED,
+                "C_HOVER": C_HOVER,
+                "C_INPUT": C_INPUT,
+            },
+            icons={
+                "FA_UPLOAD": FA_UPLOAD,
+            },
+        )
+        self._yt_render_queue_preview()
+        self._yt_refresh_channel_status(silent=True)
+
+    def _yt_stub_action(self, action: str) -> None:
+        labels = {
+            "connect": "Conexion de canal",
+            "refresh": "Refresco de estado",
+            "suggest_schedule": "Sugerencia de calendario",
+            "apply_all": "Aplicar en lote",
+            "validate": "Validacion local",
+            "sync": "Sincronizacion de borradores",
+        }
+        self._log(f"[YouTube] {labels.get(action, action)} listo para implementar.")
+
+    def _yt_get_auth_service(self) -> YouTubeAuthService:
+        if self._yt_auth_service is None:
+            self._yt_auth_service = YouTubeAuthService()
+        return self._yt_auth_service
+
+    def _yt_refresh_channel_status(self, silent: bool = False) -> None:
+        """Refresh channel status label using stored OAuth credentials if available."""
+        if not hasattr(self, "_var_yt_channel_status"):
+            return
+
+        service = self._yt_get_auth_service()
+        try:
+            if not service.has_stored_credentials():
+                self._var_yt_channel_status.set("No conectado.")
+                if not silent:
+                    self._log("[YouTube] No hay sesion guardada. Pulsa 'Conectar canal'.")
+                return
+
+            info = service.get_channel_info()
+            self._var_yt_channel_status.set(
+                f"Conectado: {info.title} ({info.channel_id})"
+            )
+            if not silent:
+                self._log(f"[YouTube] Canal activo: {info.title}")
+        except YouTubeAuthError as exc:
+            self._var_yt_channel_status.set("No conectado.")
+            if not silent:
+                self._log(f"[YouTube] {exc}")
+        except Exception as exc:
+            self._var_yt_channel_status.set("No conectado.")
+            if not silent:
+                self._log(f"[YouTube] Error inesperado al refrescar canal: {exc}")
+
+    def _yt_connect_channel(self) -> None:
+        """Run OAuth flow and update channel status in UI."""
+        service = self._yt_get_auth_service()
+        try:
+            self._log("[YouTube] Iniciando autenticacion OAuth...")
+            service.authenticate_interactive()
+            self._log("[YouTube] Autenticacion completada. Verificando canal...")
+            self._yt_refresh_channel_status(silent=False)
+        except YouTubeAuthError as exc:
+            msg = str(exc)
+            self._log(f"[YouTube] {msg}")
+            messagebox.showerror("YouTube Publisher", msg)
+        except Exception as exc:
+            msg = f"Error durante la autenticacion de YouTube: {exc}"
+            self._log(f"[YouTube] {msg}")
+            messagebox.showerror("YouTube Publisher", msg)
+
+    def _yt_fetch_drafts(self) -> None:
+        """Load private videos without publishAt from YouTube into queue preview."""
+        self._log("[YouTube] Consultando borradores privados sin fecha...")
+        try:
+            rows = self._yt_get_auth_service().list_private_unscheduled_drafts(limit=200)
+        except YouTubeAuthError as exc:
+            self._log(f"[YouTube] {exc}")
+            messagebox.showwarning("YouTube Publisher", str(exc))
+            return
+        except Exception as exc:
+            self._log(f"[YouTube] Error al cargar borradores: {exc}")
+            messagebox.showwarning("YouTube Publisher", f"Error al cargar borradores: {exc}")
+            return
+
+        self._yt_video_rows = rows
+        self._yt_render_queue_preview()
+        self._log(f"[YouTube] Borradores listos para programar: {len(rows)} video(s).")
+
+    def _yt_open_bulk_modal(self) -> None:
+        modal = __import__('customtkinter').CTkToplevel(self)
+        modal.title('Metadatos en lote')
+        modal.geometry('600x510')
+        modal.resizable(False, False)
+        modal.grab_set()
+        modal.focus_force()
+        # centered on screen        modal.update_idletasks()
+        x = (modal.winfo_screenwidth() - modal.winfo_width()) // 2
+        y = (modal.winfo_screenheight() - modal.winfo_height()) // 2
+        modal.geometry(f"+{x}+{y}")
+        modal.configure(fg_color=C_BG)
+        inner = __import__('customtkinter').CTkFrame(modal, fg_color='transparent')
+        inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
+        inner.grid_columnconfigure(0, weight=1)
+        import tkinter as _tk2
+        import customtkinter as _ctk2
+        _ctk2.CTkLabel(inner, text='Metadatos en lote', anchor='w',
+            text_color=C_TEXT, font=_ctk2.CTkFont(size=self._fs(14), weight='bold'),
+        ).grid(row=0, column=0, sticky='ew', pady=(0, 12))
+        _lbl = dict(text_color=C_MUTED, anchor='w', font=_ctk2.CTkFont(size=self._fs(11)))
+        _opt = dict(fg_color=C_INPUT, button_color=C_ACCENT_YT, button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT, dropdown_fg_color=C_CARD, dropdown_text_color=C_TEXT, dropdown_hover_color=C_HOVER)
+        _ctk2.CTkLabel(inner, text='Categoria', **_lbl).grid(row=1, column=0, sticky='ew', pady=(0,4))
+        _var_cat = _tk2.StringVar(value=self._var_yt_default_category.get() if hasattr(self,'_var_yt_default_category') else 'Music')
+        _ctk2.CTkOptionMenu(inner, variable=_var_cat,
+            values=['Music','Entertainment','People & Blogs','Education','Film & Animation','Howto & Style','Gaming','Science & Technology','News & Politics','Sports'],
+            **_opt).grid(row=2, column=0, sticky='ew', pady=(0,10))
+        _var_kids = _tk2.BooleanVar(value=False)
+        _ctk2.CTkCheckBox(inner, text='Hecho para ninos', variable=_var_kids,
+            fg_color=C_ACCENT_YT, hover_color=C_ACCENT_YT_H, text_color=C_TEXT,
+            font=_ctk2.CTkFont(size=self._fs(11))).grid(row=3, column=0, sticky='w', pady=(0,10))
+        _ctk2.CTkLabel(inner, text='Descripcion (se aplica a todos los videos)', **_lbl).grid(row=4, column=0, sticky='ew', pady=(0,4))
+        _txt_desc = _ctk2.CTkTextbox(inner, height=120, fg_color=C_INPUT,
+            border_width=1, border_color=C_BORDER, text_color=C_TEXT, font=_ctk2.CTkFont(size=self._fs(11)))
+        _txt_desc.grid(row=5, column=0, sticky='ew', pady=(0,10))
+        _ctk2.CTkLabel(inner, text='Tags (separados por coma)', **_lbl).grid(row=6, column=0, sticky='ew', pady=(0,4))
+        _var_tags = _tk2.StringVar()
+        _ctk2.CTkEntry(inner, textvariable=_var_tags, placeholder_text='lofi, music, chill...',
+            fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT, height=45).grid(row=7, column=0, sticky='ew', pady=(0,4))
+        btns = _ctk2.CTkFrame(modal, fg_color='transparent')
+        btns.pack(fill='x', padx=20, pady=(0,16))
+        def _apply_bulk():
+            desc = _txt_desc.get('1.0','end').strip()
+            cat = _var_cat.get()
+            kids = _var_kids.get()
+            tags_raw = _var_tags.get().strip()
+            for row in self._yt_video_rows:
+                row['category'] = cat
+                row['kids'] = 'Si' if kids else 'No'
+                if desc: row['description'] = desc
+                if tags_raw: row['tags'] = tags_raw
+            self._yt_render_queue_preview()
+            self._log(f"[YouTube] Metadatos en lote aplicados a {len(self._yt_video_rows)} video(s).")
+            modal.destroy()
+        _ctk2.CTkButton(btns, text='Aplicar a cola', fg_color=C_ACCENT_YT, hover_color=C_ACCENT_YT_H,
+            text_color='#FFFFFF', command=_apply_bulk).pack(side='left', padx=(0,8))
+        _ctk2.CTkButton(btns, text='Cancelar', fg_color='transparent', hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER, text_color=C_TEXT, command=modal.destroy).pack(side='left')
+
+    def _yt_open_schedule_modal(self) -> None:
+        import datetime as _dt
+        import tkinter as _tk3
+        import customtkinter as _ctk3
+        modal = _ctk3.CTkToplevel(self)
+        modal.title('Programar publicacion')
+        modal.geometry('440x360')
+        modal.resizable(False, False)
+        modal.grab_set()
+        modal.focus_force()
+        # centered on screen        modal.update_idletasks()
+        x = (modal.winfo_screenwidth() - modal.winfo_width()) // 2 
+        y = (modal.winfo_screenheight() - modal.winfo_height()) // 2
+        modal.geometry(f"+{x}+{y}")
+        modal.configure(fg_color=C_BG)
+        inner = _ctk3.CTkFrame(modal, fg_color='transparent')
+        inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
+        inner.grid_columnconfigure(1, weight=1)
+        _ctk3.CTkLabel(inner, text='Programar publicacion', anchor='w',
+            text_color=C_TEXT, font=_ctk3.CTkFont(size=self._fs(14), weight='bold'),
+        ).grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0,12))
+        _lbl = dict(text_color=C_MUTED, anchor='w', font=_ctk3.CTkFont(size=self._fs(11)))
+        _ent = dict(fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT, height=30)
+        tz_val = self._var_yt_timezone.get() if hasattr(self,'_var_yt_timezone') else 'America/El_Salvador'
+        _ctk3.CTkLabel(inner, text='Zona horaria', **_lbl).grid(row=1, column=0, sticky='w', padx=(0,10), pady=(0,6))
+        _ctk3.CTkLabel(inner, text=tz_val, text_color=C_TEXT, anchor='w', font=_ctk3.CTkFont(size=self._fs(11))).grid(row=1, column=1, sticky='ew', pady=(0,6))
+        vpd_val = self._var_yt_videos_per_day.get() if hasattr(self,'_var_yt_videos_per_day') else '3'
+        _var_vpd = _tk3.StringVar(value=vpd_val)
+        _ctk3.CTkLabel(inner, text='Videos por dia', **_lbl).grid(row=2, column=0, sticky='w', padx=(0,10), pady=(0,6))
+        _ctk3.CTkOptionMenu(inner, variable=_var_vpd, values=['1','2','3','4','5','6'],
+            fg_color=C_INPUT, button_color=C_ACCENT_YT, button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT, dropdown_fg_color=C_CARD, dropdown_text_color=C_TEXT, dropdown_hover_color=C_HOVER,
+        ).grid(row=2, column=1, sticky='ew', pady=(0,6))
+        _var_sd = _tk3.StringVar(value=_dt.date.today().strftime('%Y-%m-%d'))
+        _ctk3.CTkLabel(inner, text='Fecha inicial', **_lbl).grid(row=3, column=0, sticky='w', padx=(0,10), pady=(0,6))
+        _ctk3.CTkEntry(inner, textvariable=_var_sd, placeholder_text='YYYY-MM-DD', **_ent).grid(row=3, column=1, sticky='ew', pady=(0,6))
+        st = self._var_yt_window_start.get() if hasattr(self,'_var_yt_window_start') else '09:00'
+        _var_st = _tk3.StringVar(value=st)
+        _ctk3.CTkLabel(inner, text='Hora de inicio', **_lbl).grid(row=4, column=0, sticky='w', padx=(0,10), pady=(0,6))
+        _ctk3.CTkEntry(inner, textvariable=_var_st, placeholder_text='HH:MM', **_ent).grid(row=4, column=1, sticky='ew', pady=(0,10))
+        n_v = len(self._yt_video_rows) if hasattr(self,'_yt_video_rows') else 0
+        _ctk3.CTkLabel(inner, text=f'{n_v} video(s) en cola.', text_color=C_TEXT_DIM,
+            anchor='w', font=_ctk3.CTkFont(size=self._fs(10))).grid(row=5, column=0, columnspan=2, sticky='ew')
+        btns = _ctk3.CTkFrame(modal, fg_color='transparent')
+        btns.pack(fill='x', padx=20, pady=(0,16))
+        def _apply_sch():
+            try:
+                if not self._yt_video_rows:
+                    messagebox.showwarning("YouTube Publisher", "No hay videos en cola para programar.")
+                    return
+
+                start_date = dt.datetime.strptime(_var_sd.get().strip(), "%Y-%m-%d").date()
+                videos_per_day = max(1, int(_var_vpd.get()))
+                start_h, start_m = [int(x) for x in self._var_yt_window_start.get().split(":", 1)]
+                end_h, end_m = [int(x) for x in self._var_yt_window_end.get().split(":", 1)]
+            except Exception:
+                messagebox.showwarning(
+                    "YouTube Publisher",
+                    "Valores de programacion invalidos. Revisa fecha y ventana horaria (HH:MM).",
+                )
+                return
+
+            start_min = start_h * 60 + start_m
+            end_min = end_h * 60 + end_m
+            if end_min <= start_min:
+                messagebox.showwarning(
+                    "YouTube Publisher",
+                    "La hora final debe ser mayor que la hora inicial en la ventana horaria.",
+                )
+                return
+
+            if videos_per_day == 1:
+                slot_minutes = [start_min]
+            else:
+                span = end_min - start_min
+                step = span / (videos_per_day - 1)
+                slot_minutes = [int(round(start_min + i * step)) for i in range(videos_per_day)]
+
+            for idx, row in enumerate(self._yt_video_rows):
+                day_offset = idx // videos_per_day
+                slot_idx = idx % videos_per_day
+                mins = slot_minutes[slot_idx]
+                hh = mins // 60
+                mm = mins % 60
+                d = start_date + dt.timedelta(days=day_offset)
+                row["schedule"] = f"{d.strftime('%Y-%m-%d')} {hh:02d}:{mm:02d}"
+
+            self._yt_render_queue_preview()
+            self._log(
+                f"[YouTube] Programacion aplicada a {len(self._yt_video_rows)} video(s) "
+                f"desde {start_date.isoformat()} ({tz_val})."
+            )
+            modal.destroy()
+        _ctk3.CTkButton(btns, text='Aplicar', fg_color=C_ACCENT_YT, hover_color=C_ACCENT_YT_H,
+            text_color='#FFFFFF', command=_apply_sch).pack(side='left', padx=(0,8))
+        _ctk3.CTkButton(btns, text='Cancelar', fg_color='transparent', hover_color=C_HOVER,
+            border_width=2, border_color=C_BORDER, text_color=C_TEXT, command=modal.destroy).pack(side='left')
+
+
+    def _yt_render_queue_preview(self) -> None:
+        if not hasattr(self, "_yt_queue_frame"):
+            return
+        for w in self._yt_queue_frame.winfo_children():
+            w.destroy()
+
+        headers = ["Archivo", "Titulo", "Categoria", "Ninos", "Fecha"]
+        for c, title in enumerate(headers):
+            ctk.CTkLabel(
+                self._yt_queue_frame,
+                text=title,
+                text_color=C_MUTED,
+                font=ctk.CTkFont(size=self._fs(10), weight="bold"),
+                anchor="w",
+            ).grid(row=0, column=c, sticky="ew", padx=(2, 4), pady=(0, 6))
+
+        if not self._yt_video_rows:
+            ctk.CTkLabel(
+                self._yt_queue_frame,
+                text="Pulsa 'Obtener borradores' para cargar tus videos privados sin fecha de publicacion.",
+                text_color=C_TEXT_DIM,
+                anchor="w",
+                font=ctk.CTkFont(size=self._fs(11)),
+            ).grid(row=1, column=0, columnspan=5, sticky="ew", pady=(4, 8))
+            return
+
+        for i, row in enumerate(self._yt_video_rows, start=1):
+            path_name = Path(row["path"]).name
+            ctk.CTkLabel(
+                self._yt_queue_frame,
+                text=path_name,
+                text_color=C_TEXT,
+                anchor="w",
+                font=ctk.CTkFont(size=self._fs(10)),
+            ).grid(row=i, column=0, sticky="ew", padx=(2, 4), pady=2)
+
+            title_var = tk.StringVar(value=row["title"])
+            title_entry = ctk.CTkEntry(
+                self._yt_queue_frame,
+                textvariable=title_var,
+                fg_color=C_INPUT,
+                border_color=C_BORDER,
+                text_color=C_TEXT,
+                height=26,
+            )
+            title_entry.grid(row=i, column=1, sticky="ew", padx=(0, 4), pady=2)
+
+            def _save_title(_e: Any = None, *, _row: dict[str, str] = row, _var: tk.StringVar = title_var) -> None:
+                _row["title"] = _var.get().strip()
+
+            title_entry.bind("<FocusOut>", _save_title)
+            title_entry.bind("<Return>", _save_title)
+
+            ctk.CTkLabel(
+                self._yt_queue_frame,
+                text=row["category"],
+                text_color=C_TEXT,
+                anchor="w",
+                font=ctk.CTkFont(size=self._fs(10)),
+            ).grid(row=i, column=2, sticky="ew", padx=(0, 4), pady=2)
+
+            ctk.CTkLabel(
+                self._yt_queue_frame,
+                text=row["kids"],
+                text_color=C_TEXT,
+                anchor="w",
+                font=ctk.CTkFont(size=self._fs(10)),
+            ).grid(row=i, column=3, sticky="ew", padx=(0, 4), pady=2)
+
+            schedule_var = tk.StringVar(value=row["schedule"])
+            schedule_entry = ctk.CTkEntry(
+                self._yt_queue_frame,
+                textvariable=schedule_var,
+                placeholder_text="YYYY-MM-DD HH:MM",
+                fg_color=C_INPUT,
+                border_color=C_BORDER,
+                text_color=C_TEXT,
+                height=26,
+            )
+            schedule_entry.grid(row=i, column=4, sticky="ew", padx=(0, 2), pady=2)
+
+            def _save_schedule(_e: Any = None, *, _row: dict[str, str] = row, _var: tk.StringVar = schedule_var) -> None:
+                _row["schedule"] = _var.get().strip()
+
+            schedule_entry.bind("<FocusOut>", _save_schedule)
+            schedule_entry.bind("<Return>", _save_schedule)
+
+    def _on_generate_youtube(self) -> None:
+        """Apply scheduled metadata updates to YouTube using videos.update."""
+        if not self._yt_video_rows:
+            messagebox.showwarning("YouTube Publisher", "No hay videos en cola.")
+            return
+
+        tz_name = self._var_yt_timezone.get() if hasattr(self, "_var_yt_timezone") else "America/El_Salvador"
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            messagebox.showwarning("YouTube Publisher", f"Zona horaria invalida: {tz_name}")
+            return
+
+        pending: list[dict[str, Any]] = []
+        for row in self._yt_video_rows:
+            video_id = (row.get("video_id") or "").strip()
+            title = (row.get("title") or "").strip()
+            schedule_local = (row.get("schedule") or "").strip()
+
+            if not video_id:
+                self._log("[YouTube] Fila omitida: video sin ID.")
+                continue
+            if not title:
+                self._log(f"[YouTube] Fila omitida ({video_id}): titulo vacio.")
+                continue
+            if not schedule_local:
+                self._log(f"[YouTube] Fila omitida ({video_id}): fecha vacia.")
+                continue
+
+            try:
+                local_dt = dt.datetime.strptime(schedule_local, "%Y-%m-%d %H:%M")
+                local_dt = local_dt.replace(tzinfo=tz)
+                utc_dt = local_dt.astimezone(dt.timezone.utc)
+                if utc_dt <= dt.datetime.now(dt.timezone.utc):
+                    self._log(f"[YouTube] Fila omitida ({video_id}): fecha no es futura.")
+                    continue
+                publish_at_utc = utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                self._log(f"[YouTube] Fila omitida ({video_id}): fecha invalida '{schedule_local}'.")
+                continue
+
+            tags_raw = (row.get("tags") or "").strip()
+            tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+            pending.append({
+                "video_id": video_id,
+                "title": title,
+                "description": (row.get("description") or "").strip(),
+                "tags": tags,
+                "category": row.get("category", "Music"),
+                "made_for_kids": (row.get("kids", "No") == "Si"),
+                "publish_at_utc": publish_at_utc,
+            })
+
+        if not pending:
+            messagebox.showwarning(
+                "YouTube Publisher",
+                "No hay filas validas para enviar. Revisa titulo y fecha (YYYY-MM-DD HH:MM).",
+            )
+            return
+
+        if not messagebox.askyesno(
+            "YouTube Publisher",
+            f"Se enviaran {len(pending)} actualizacion(es) a YouTube. Continuar?",
+        ):
+            return
+
+        ok = 0
+        fail = 0
+        svc = self._yt_get_auth_service()
+        self._log(f"[YouTube] Enviando {len(pending)} actualizacion(es) a YouTube...")
+        for item in pending:
+            try:
+                svc.update_video_metadata_and_schedule(
+                    video_id=item["video_id"],
+                    title=item["title"],
+                    description=item["description"],
+                    tags=item["tags"],
+                    category_name=item["category"],
+                    made_for_kids=item["made_for_kids"],
+                    publish_at_utc=item["publish_at_utc"],
+                )
+                ok += 1
+                self._log(f"[YouTube] Programado: {item['video_id']} -> {item['publish_at_utc']}")
+            except YouTubeAuthError as exc:
+                fail += 1
+                self._log(f"[YouTube] Error {item['video_id']}: {exc}")
+            except Exception as exc:
+                fail += 1
+                self._log(f"[YouTube] Error inesperado {item['video_id']}: {exc}")
+
+        self._log(f"[YouTube] Resultado envio -> OK: {ok}, Error: {fail}")
+        if fail == 0:
+            messagebox.showinfo("YouTube Publisher", f"Programacion enviada. Videos OK: {ok}")
+        else:
+            messagebox.showwarning("YouTube Publisher", f"Proceso finalizado. OK: {ok}, Error: {fail}")
     # --- Footer -------------------------------------------------------
 
     def _build_footer(self) -> None:
@@ -4329,6 +4791,10 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_sho_scroll_frame"):
             self._sho_scroll_frame.destroy()
         self._build_shorts_left_panel(self._main_panel)
+        # Rebuild YouTube panel too
+        if hasattr(self, "_yt_scroll_frame"):
+            self._yt_scroll_frame.destroy()
+        self._build_youtube_left_panel(self._main_panel)
         # Collapse all new sections
         self.after_idle(self._collapse_all_sections)
         if self._current_mode == "Slideshow":
@@ -4337,6 +4803,10 @@ class AudioToVideoApp(ctk.CTk):
         elif self._current_mode == "Shorts":
             if hasattr(self, "_sho_scroll_frame"):
                 self._sho_scroll_frame.grid()
+            self._scroll_frame.grid_remove()
+        elif self._current_mode == "YouTube Publisher":
+            if hasattr(self, "_yt_scroll_frame"):
+                self._yt_scroll_frame.grid()
             self._scroll_frame.grid_remove()
         self._load_settings_to_ui()
         if hasattr(self, "_log_text"):
@@ -4347,19 +4817,20 @@ class AudioToVideoApp(ctk.CTk):
     # ──────────────────────────────────────────────────────────────────
 
     def _update_mode_buttons(self) -> None:
-        """Actualiza el color activo/inactivo de los botones ATV, SLIDE y SHORTS del header."""
-        for prefix in ("atv", "slide", "shorts"):
+        """Actualiza el color activo/inactivo de los botones de modo del header."""
+        for prefix in ("atv", "slide", "shorts", "yt"):
             if not hasattr(self, f"_frame_mode_{prefix}"):
                 continue
             active = (
-                (prefix == "atv"    and self._current_mode == "Audio \u2192 Video")
-                or (prefix == "slide"  and self._current_mode == "Slideshow")
+                (prefix == "atv" and self._current_mode == "Audio \u2192 Video")
+                or (prefix == "slide" and self._current_mode == "Slideshow")
                 or (prefix == "shorts" and self._current_mode == "Shorts")
+                or (prefix == "yt" and self._current_mode == "YouTube Publisher")
             )
             accent = getattr(self, f"_mode_{prefix}_accent")
-            bg  = C_INPUT if active else "transparent"
-            txt = C_TEXT  if active else C_TEXT_DIM
-            ind = accent  if active else "transparent"
+            bg = C_INPUT if active else "transparent"
+            txt = C_TEXT if active else C_TEXT_DIM
+            ind = accent if active else "transparent"
             setattr(self, f"_mode_{prefix}_base", bg)
             getattr(self, f"_frame_mode_{prefix}").configure(fg_color=bg)
             getattr(self, f"_bar_mode_{prefix}").configure(fg_color=ind)
@@ -4399,12 +4870,27 @@ class AudioToVideoApp(ctk.CTk):
         # Flush pending geometry events so the preview frame has its correct size
         # before loading images (avoids canvas being 0px wide after Shorts→ATV)
         self.update_idletasks()
+        # Show/hide the right panel depending on the active mode.
+        # YouTube Publisher uses the full window width; all other modes keep
+        # the normal 60/40 split with the preview + logs column.
+        if mode == "YouTube Publisher":
+            if hasattr(self, "_right_panel_frame"):
+                self._right_panel_frame.grid_remove()
+            self._main_panel.grid_columnconfigure(0, weight=1, minsize=380)
+            self._main_panel.grid_columnconfigure(1, weight=0, minsize=0)
+        else:
+            if hasattr(self, "_right_panel_frame"):
+                self._right_panel_frame.grid()
+            self._main_panel.grid_columnconfigure(0, weight=3, minsize=380)
+            self._main_panel.grid_columnconfigure(1, weight=2, minsize=300)
         # Hide all left panels first
         self._scroll_frame.grid_remove()
         if hasattr(self, "_sl_scroll_frame"):
             self._sl_scroll_frame.grid_remove()
         if hasattr(self, "_sho_scroll_frame"):
             self._sho_scroll_frame.grid_remove()
+        if hasattr(self, "_yt_scroll_frame"):
+            self._yt_scroll_frame.grid_remove()
 
         if mode == "Audio \u2192 Video":
             self._scroll_frame.grid()
@@ -4462,7 +4948,7 @@ class AudioToVideoApp(ctk.CTk):
             else:
                 self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
 
-        else:  # Shorts
+        elif mode == "Shorts":
             if hasattr(self, "_sho_scroll_frame"):
                 self._sho_scroll_frame.grid()
             self._btn_generate.configure(
@@ -4480,6 +4966,15 @@ class AudioToVideoApp(ctk.CTk):
                     self._load_preview(img)
             self._rebuild_thumb_strip_sho()
             self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
+
+        else:  # YouTube Publisher
+            if hasattr(self, "_yt_scroll_frame"):
+                self._yt_scroll_frame.grid()
+            self._thumb_strip.grid_remove()
+            if hasattr(self, "_thumb_strip_vert"):
+                self._thumb_strip_vert.grid_remove()
+            self._lbl_audio_count.configure(text="YouTube Publisher", text_color=C_ACCENT_YT)
+            self._btn_generate.configure(text="SYNC BORRADORES", command=self._on_generate_youtube)
 
     def _sl_browse_images_folder(self) -> None:
         path = filedialog.askdirectory(title="Seleccionar carpeta de im\u00e1genes")
@@ -6049,6 +6544,8 @@ class AudioToVideoApp(ctk.CTk):
             return self._var_sl_output_folder.get() if hasattr(self, "_var_sl_output_folder") else ""
         if mode == "Shorts":
             return self._var_sho_output_folder.get() if hasattr(self, "_var_sho_output_folder") else ""
+        if mode == "YouTube Publisher":
+            return ""
         return self._var_output.get() if hasattr(self, "_var_output") else ""
 
     def _update_open_folder_btn(self, *_args: object) -> None:
@@ -6306,6 +6803,13 @@ class AudioToVideoApp(ctk.CTk):
                 (k for k, v in _FONT_SIZE_SCALE.items() if abs(v - self._font_scale) < 0.01),
                 "Medium",
             ),
+            # YouTube Publisher (UI scaffold state)
+            "yt_timezone": self._var_yt_timezone.get() if hasattr(self, "_var_yt_timezone") else "America/El_Salvador",
+            "yt_videos_per_day": int(self._var_yt_videos_per_day.get()) if hasattr(self, "_var_yt_videos_per_day") else 3,
+            "yt_window_start": self._var_yt_window_start.get() if hasattr(self, "_var_yt_window_start") else "09:00",
+            "yt_window_end": self._var_yt_window_end.get() if hasattr(self, "_var_yt_window_end") else "21:00",
+            "yt_default_category": self._var_yt_default_category.get() if hasattr(self, "_var_yt_default_category") else "Music",
+            "yt_default_made_for_kids": self._var_yt_default_made_for_kids.get() if hasattr(self, "_var_yt_default_made_for_kids") else False,
         })
         # Save slideshow settings if panel exists
         if hasattr(self, "_var_sl_images_folder"):
@@ -6607,6 +7111,15 @@ class AudioToVideoApp(ctk.CTk):
                 self._var_sho_gpu_encoding.set(s.get("sho_gpu_encoding", False))
             self._sho_on_audio_selected()
 
+        # YouTube Publisher settings (UI scaffold)
+        if hasattr(self, "_var_yt_timezone"):
+            self._var_yt_timezone.set(s.get("yt_timezone", "America/El_Salvador"))
+            self._var_yt_videos_per_day.set(str(s.get("yt_videos_per_day", 3)))
+            self._var_yt_window_start.set(s.get("yt_window_start", "09:00"))
+            self._var_yt_window_end.set(s.get("yt_window_end", "21:00"))
+            self._var_yt_default_category.set(s.get("yt_default_category", "Music"))
+            self._var_yt_default_made_for_kids.set(bool(s.get("yt_default_made_for_kids", False)))
+
     def _save_settings(self) -> None:
         self._collect_settings()
         try:
@@ -6634,10 +7147,14 @@ class AudioToVideoApp(ctk.CTk):
                 self._btn_generate.configure(
                     state="normal", text="\u25b6  GENERAR VIDEO",
                     command=self._on_generate_slideshow)
-            else:  # Shorts
+            elif self._current_mode == "Shorts":
                 self._btn_generate.configure(
                     state="normal", text="\u25b6  GENERAR SHORTS",
                     command=self._on_generate_shorts)
+            else:
+                self._btn_generate.configure(
+                    state="normal", text="SYNC BORRADORES",
+                    command=self._on_generate_youtube)
             self._progress_file.stop()
             self._progress_file.set(0)
             self._lbl_progress_file.configure(text="")
@@ -6671,5 +7188,6 @@ class AudioToVideoApp(ctk.CTk):
         except Exception:
             pass
         self.destroy()
+
 
 

@@ -74,6 +74,16 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sl_cpu_mode": "Medium",
     "sl_encode_preset": "slow",
     "sl_gpu_encoding": False,
+    # YouTube Publisher (UI scaffold only for now)
+    "yt_source_folders": [],
+    "yt_timezone": "America/Bogota",
+    "yt_videos_per_day": 3,
+    "yt_window_start": "09:00",
+    "yt_window_end": "21:00",
+    "yt_default_category": "Music",
+    "yt_default_made_for_kids": False,
+    "yt_bulk_title_prefix": "",
+    "yt_bulk_description": "",
 }
 
 # Preset semilla — se crea si presets.json no existe
@@ -119,6 +129,8 @@ _PRESET_EXCLUDED_KEYS = {
     # Shorts paths (project-specific)
     "sho_audio_file", "sho_background_image", "sho_images_folder", "sho_output_folder",
     "sho_multi_image",
+    # YouTube sources (project-specific)
+    "yt_source_folders",
 }
 
 
