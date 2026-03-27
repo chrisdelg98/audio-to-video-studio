@@ -20,9 +20,9 @@ $ErrorActionPreference = "Stop"
 
 # --- Rutas -------------------------------------------------------------------
 $Root        = $PSScriptRoot
-$SpecFile    = Join-Path $Root "AudioToVideoStudio.spec"
-$IssFile     = Join-Path $Root "installer\AudioToVideoStudio.iss"
-$DistExe     = Join-Path $Root "dist\AudioToVideoStudio.exe"
+$SpecFile    = Join-Path $Root "CreatorFlowStudio.spec"
+$IssFile     = Join-Path $Root "installer\CreatorFlowStudio.iss"
+$DistExe     = Join-Path $Root "dist\CreatorFlowStudio.exe"
 $VersionFile = Join-Path $Root "config\version.txt"
 
 # --- Helpers -----------------------------------------------------------------
@@ -45,13 +45,13 @@ if (-not $Version) {
         $Version = "1.0.0"
     }
 }
-Write-Host "`nAudio to Video Studio -- Build v$Version" -ForegroundColor Yellow
-Write-Host "----------------------------------------" -ForegroundColor DarkGray
+Write-Host "`nCreatorFlow Studio -- Build v$Version" -ForegroundColor Yellow
+Write-Host "--------------------------------------" -ForegroundColor DarkGray
 
 # --- 1. PyInstaller ----------------------------------------------------------
 Write-Step "Compilando EXE con PyInstaller..."
 
-$pyArgs = @("AudioToVideoStudio.spec")
+$pyArgs = @("CreatorFlowStudio.spec")
 if ($Clean) { $pyArgs += "--clean" }
 
 Push-Location $Root
@@ -67,7 +67,7 @@ if (-not (Test-Path $DistExe)) {
 }
 
 $exeSizeMB = [math]::Round((Get-Item $DistExe).Length / 1MB, 1)
-Write-OK "dist\AudioToVideoStudio.exe generado ($exeSizeMB MB)"
+Write-OK "dist\CreatorFlowStudio.exe generado ($exeSizeMB MB)"
 
 # --- 2. Inno Setup (opcional) ------------------------------------------------
 if ($SkipInstaller) {

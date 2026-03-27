@@ -1,15 +1,15 @@
 ; ============================================================
-;  Audio to Video Studio — Inno Setup Installer Script
+;  CreatorFlow Studio — Inno Setup Installer Script
 ;  Requires: Inno Setup 6  (https://jrsoftware.org/isinfo.php)
 ;
 ;  Compile:
-;    iscc installer\AudioToVideoStudio.iss
+;    iscc installer\CreatorFlowStudio.iss
 ;  Output:
-;    installer\Output\AudioToVideoStudio_Setup_1.0.0.exe
+;    installer\Output\CreatorFlowStudio_Setup_1.0.0.exe
 ; ============================================================
 
-#define AppName        "Audio to Video Studio"
-#define AppExeName     "AudioToVideoStudio.exe"
+#define AppName        "CreatorFlow Studio"
+#define AppExeName     "CreatorFlowStudio.exe"
 ; AppVersion can be overridden from the command line:
 ;   iscc /DAppVersion=1.2.0 installer\AudioToVideoStudio.iss
 #ifndef AppVersion
@@ -17,7 +17,7 @@
 #endif
 #define AppPublisher   "chrisdelg98"
 #define AppURL         "https://github.com/chrisdelg98/audio-to-video-studio"
-#define SourceExe      "..\dist\AudioToVideoStudio.exe"
+#define SourceExe      "..\dist\CreatorFlowStudio.exe"
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
@@ -30,7 +30,7 @@ AppSupportURL={#AppURL}
 AppUpdatesURL={#AppURL}
 
 ; Install per-user in LocalAppData so the app can write config/ next to the EXE
-DefaultDirName={localappdata}\AudioToVideoStudio
+DefaultDirName={localappdata}\CreatorFlowStudio
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 
@@ -40,7 +40,7 @@ PrivilegesRequiredOverridesAllowed=dialog
 
 ; Output
 OutputDir=Output
-OutputBaseFilename=AudioToVideoStudio_Setup_{#AppVersion}
+OutputBaseFilename=CreatorFlowStudio_Setup_{#AppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 InternalCompressLevel=ultra64
@@ -55,7 +55,7 @@ UninstallDisplayName={#AppName}
 ; Misc
 ShowLanguageDialog=no
 ; Prevent running multiple instances of the installer
-AppMutex=AudioToVideoStudioSetupMutex
+AppMutex=CreatorFlowStudioSetupMutex
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
