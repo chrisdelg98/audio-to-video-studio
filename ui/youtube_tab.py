@@ -247,5 +247,6 @@ def build_youtube_publisher_panel(
     app._yt_queue_frame.grid_columnconfigure(2, weight=1)
     app._yt_queue_frame.grid_columnconfigure(3, weight=1)
     app._yt_queue_frame.grid_columnconfigure(4, weight=2)
+    app._yt_queue_frame.grid_columnconfigure(5, weight=0)
 
     return panel

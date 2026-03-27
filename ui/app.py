@@ -99,6 +99,8 @@ FA_CHEVRON_DOWN  = "\uf078"   # chevron-down (expanded)
 FA_CHEVRON_RIGHT = "\uf054"   # chevron-right (collapsed)
 FA_DOWNLOAD      = "\uf019"   # download (arrow-down-to-line)
 FA_UPLOAD        = "\uf093"   # upload (arrow-up-from-bracket)
+FA_CHECK         = "\uf00c"   # check
+FA_WARNING       = "\uf071"   # triangle-exclamation
 
 
 # ── Tema ────────────────────────────────────────────────────────────────────
@@ -4700,6 +4702,357 @@ class AudioToVideoApp(ctk.CTk):
         _ctk3.CTkButton(btns, text='Cancelar', fg_color='transparent', hover_color=C_HOVER,
             border_width=2, border_color=C_BORDER, text_color=C_TEXT, command=modal.destroy).pack(side='left')
 
+    def _yt_open_row_schedule_picker(self, row: dict[str, str]) -> None:
+        """Open a compact date/time picker to edit a single row schedule safely."""
+        import calendar as _cal
+        import datetime as _dt
+        import tkinter as _tk4
+        import customtkinter as _ctk4
+
+        modal = _ctk4.CTkToplevel(self)
+        modal.title('Seleccionar fecha y hora')
+        modal.geometry('420x260')
+        modal.resizable(False, False)
+        modal.grab_set()
+        modal.focus_force()
+        modal.update_idletasks()
+        x = (modal.winfo_screenwidth() - modal.winfo_width()) // 2
+        y = (modal.winfo_screenheight() - modal.winfo_height()) // 2
+        modal.geometry(f"+{x}+{y}")
+        modal.configure(fg_color=C_BG)
+
+        now = _dt.datetime.now()
+        current_schedule = (row.get("schedule") or "").strip()
+        if current_schedule:
+            try:
+                parsed = _dt.datetime.strptime(current_schedule, "%Y-%m-%d %H:%M")
+            except Exception:
+                parsed = now
+        else:
+            parsed = now
+
+        inner = _ctk4.CTkFrame(modal, fg_color='transparent')
+        inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
+        inner.grid_columnconfigure(1, weight=1)
+
+        _lbl = dict(text_color=C_MUTED, anchor='w', font=_ctk4.CTkFont(size=self._fs(11)))
+        _opt = dict(
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_YT,
+            button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_text_color=C_TEXT,
+            dropdown_hover_color=C_HOVER,
+            dynamic_resizing=False,
+        )
+
+        _ctk4.CTkLabel(
+            inner,
+            text='Fecha y hora de publicacion',
+            text_color=C_TEXT,
+            anchor='w',
+            font=_ctk4.CTkFont(size=self._fs(13), weight='bold'),
+        ).grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 12))
+
+        _var_year = _tk4.StringVar(value=str(parsed.year))
+        _var_month = _tk4.StringVar(value=f"{parsed.month:02d}")
+        _var_day = _tk4.StringVar(value=f"{parsed.day:02d}")
+        _var_hour = _tk4.StringVar(value=f"{parsed.hour:02d}")
+        _var_minute = _tk4.StringVar(value=f"{parsed.minute:02d}")
+
+        _years = [str(y) for y in range(now.year, now.year + 6)]
+        if str(parsed.year) not in _years:
+            _years = [str(parsed.year)] + _years
+
+        _ctk4.CTkLabel(inner, text='Fecha', **_lbl).grid(row=1, column=0, sticky='w', padx=(0, 10), pady=(0, 6))
+        _date_row = _ctk4.CTkFrame(inner, fg_color='transparent')
+        _date_row.grid(row=1, column=1, sticky='w', pady=(0, 6))
+
+        _om_year = _ctk4.CTkOptionMenu(_date_row, variable=_var_year, values=_years, width=92, **_opt)
+        _om_year.pack(side='left')
+        _ctk4.CTkLabel(_date_row, text='-', text_color=C_TEXT_DIM).pack(side='left', padx=4)
+        _om_month = _ctk4.CTkOptionMenu(
+            _date_row,
+            variable=_var_month,
+            values=[f"{m:02d}" for m in range(1, 13)],
+            width=72,
+            **_opt,
+        )
+        _om_month.pack(side='left')
+        _ctk4.CTkLabel(_date_row, text='-', text_color=C_TEXT_DIM).pack(side='left', padx=4)
+        _om_day = _ctk4.CTkOptionMenu(
+            _date_row,
+            variable=_var_day,
+            values=[f"{d:02d}" for d in range(1, 32)],
+            width=72,
+            **_opt,
+        )
+        _om_day.pack(side='left')
+
+        def _refresh_day_values(_: str | None = None) -> None:
+            try:
+                yy = int(_var_year.get())
+                mm = int(_var_month.get())
+                max_day = _cal.monthrange(yy, mm)[1]
+            except Exception:
+                return
+
+            day_values = [f"{d:02d}" for d in range(1, max_day + 1)]
+            _om_day.configure(values=day_values)
+            try:
+                dd = int(_var_day.get())
+                if dd > max_day:
+                    _var_day.set(f"{max_day:02d}")
+            except Exception:
+                _var_day.set(day_values[0])
+
+        _om_year.configure(command=_refresh_day_values)
+        _om_month.configure(command=_refresh_day_values)
+        _refresh_day_values()
+
+        _ctk4.CTkLabel(inner, text='Hora', **_lbl).grid(row=2, column=0, sticky='w', padx=(0, 10), pady=(0, 10))
+        _time_row = _ctk4.CTkFrame(inner, fg_color='transparent')
+        _time_row.grid(row=2, column=1, sticky='w', pady=(0, 10))
+        _ctk4.CTkOptionMenu(
+            _time_row,
+            variable=_var_hour,
+            values=[f"{h:02d}" for h in range(0, 24)],
+            width=72,
+            **_opt,
+        ).pack(side='left')
+        _ctk4.CTkLabel(_time_row, text=':', text_color=C_TEXT, font=_ctk4.CTkFont(size=self._fs(12), weight='bold')).pack(side='left', padx=4)
+        _ctk4.CTkOptionMenu(
+            _time_row,
+            variable=_var_minute,
+            values=[f"{m:02d}" for m in range(0, 60)],
+            width=72,
+            **_opt,
+        ).pack(side='left')
+
+        btns = _ctk4.CTkFrame(modal, fg_color='transparent')
+        btns.pack(fill='x', padx=20, pady=(0, 16))
+
+        def _apply() -> None:
+            try:
+                d = _dt.date(int(_var_year.get()), int(_var_month.get()), int(_var_day.get()))
+                hh = int(_var_hour.get())
+                mm = int(_var_minute.get())
+                row["schedule"] = f"{d.strftime('%Y-%m-%d')} {hh:02d}:{mm:02d}"
+            except Exception:
+                messagebox.showwarning("YouTube Publisher", "Fecha/hora invalida.")
+                return
+
+            self._yt_save_drafts_cache()
+            self._yt_render_queue_preview()
+            modal.destroy()
+
+        _ctk4.CTkButton(
+            btns,
+            text='Aplicar',
+            fg_color=C_ACCENT_YT,
+            hover_color=C_ACCENT_YT_H,
+            text_color='#FFFFFF',
+            command=_apply,
+        ).pack(side='left', padx=(0, 8))
+        _ctk4.CTkButton(
+            btns,
+            text='Cancelar',
+            fg_color='transparent',
+            hover_color=C_HOVER,
+            border_width=2,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side='left')
+
+    def _yt_open_row_description_modal(self, row: dict[str, str]) -> None:
+        """Open modal to inspect/edit description for a single queue row."""
+        import customtkinter as _ctk5
+
+        modal = _ctk5.CTkToplevel(self)
+        modal.title('Descripcion del video')
+        modal.geometry('640x380')
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.focus_force()
+        modal.configure(fg_color=C_BG)
+
+        inner = _ctk5.CTkFrame(modal, fg_color='transparent')
+        inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
+        inner.grid_columnconfigure(0, weight=1)
+        inner.grid_rowconfigure(1, weight=1)
+
+        _ctk5.CTkLabel(
+            inner,
+            text=f"Editar descripcion: {(row.get('title') or 'Sin titulo')}",
+            text_color=C_TEXT,
+            anchor='w',
+            font=_ctk5.CTkFont(size=self._fs(13), weight='bold'),
+        ).grid(row=0, column=0, sticky='ew', pady=(0, 8))
+
+        txt = _ctk5.CTkTextbox(
+            inner,
+            fg_color=C_INPUT,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            font=_ctk5.CTkFont(size=self._fs(11)),
+        )
+        txt.grid(row=1, column=0, sticky='nsew')
+        txt.insert('1.0', row.get('description', ''))
+
+        btns = _ctk5.CTkFrame(modal, fg_color='transparent')
+        btns.pack(fill='x', padx=20, pady=(8, 16))
+
+        def _apply() -> None:
+            row['description'] = txt.get('1.0', 'end').strip()
+            self._yt_save_drafts_cache()
+            self._yt_render_queue_preview()
+            modal.destroy()
+
+        _ctk5.CTkButton(
+            btns,
+            text='Guardar',
+            fg_color=C_ACCENT_YT,
+            hover_color=C_ACCENT_YT_H,
+            text_color='#FFFFFF',
+            command=_apply,
+        ).pack(side='left', padx=(0, 8))
+        _ctk5.CTkButton(
+            btns,
+            text='Cancelar',
+            fg_color='transparent',
+            hover_color=C_HOVER,
+            border_width=2,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side='left')
+
+    def _yt_row_sync_checks(self, row: dict[str, str]) -> list[tuple[bool, str]]:
+        """Return per-rule validation checks for sync eligibility."""
+        checks: list[tuple[bool, str]] = []
+
+        video_id = (row.get('video_id') or '').strip()
+        checks.append((bool(video_id), 'Video con ID valido.'))
+
+        title = (row.get('title') or '').strip()
+        checks.append((bool(title), 'Titulo no vacio.'))
+
+        schedule_local = (row.get('schedule') or '').strip()
+        checks.append((bool(schedule_local), 'Fecha/hora configurada.'))
+
+        if not schedule_local:
+            return checks
+
+        tz_name = self._var_yt_timezone.get() if hasattr(self, '_var_yt_timezone') else 'America/El_Salvador'
+        try:
+            tz = ZoneInfo(tz_name)
+            checks.append((True, f'Zona horaria valida ({tz_name}).'))
+        except Exception:
+            checks.append((False, f'Zona horaria invalida ({tz_name}).'))
+            return checks
+
+        try:
+            local_dt = dt.datetime.strptime(schedule_local, '%Y-%m-%d %H:%M')
+            local_dt = local_dt.replace(tzinfo=tz)
+            utc_dt = local_dt.astimezone(dt.timezone.utc)
+            checks.append((True, 'Formato de fecha/hora valido (YYYY-MM-DD HH:MM).'))
+        except Exception:
+            checks.append((False, f"Formato invalido ('{schedule_local}')."))
+            return checks
+
+        if utc_dt <= dt.datetime.now(dt.timezone.utc):
+            checks.append((False, 'Fecha/hora en futuro.'))
+            return checks
+
+        checks.append((True, 'Fecha/hora en futuro.'))
+        return checks
+
+    def _yt_row_sync_eligibility(self, row: dict[str, str]) -> tuple[bool, str]:
+        """Return eligibility and summary detail for a queue row before sync."""
+        checks = self._yt_row_sync_checks(row)
+        first_failed = next((msg for ok, msg in checks if not ok), None)
+        if first_failed:
+            return False, f'No elegible: {first_failed}'
+        return True, 'Elegible para Sync.'
+
+    def _yt_open_row_eligibility_modal(self, row: dict[str, str]) -> None:
+        """Open checklist modal showing row readiness for sync."""
+        import customtkinter as _ctk6
+
+        checks = self._yt_row_sync_checks(row)
+        eligible = all(ok for ok, _ in checks)
+
+        modal = _ctk6.CTkToplevel(self)
+        modal.title('Estado de elegibilidad')
+        modal.geometry('520x360')
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.focus_force()
+        modal.configure(fg_color=C_BG)
+
+        inner = _ctk6.CTkFrame(modal, fg_color='transparent')
+        inner.pack(fill='both', expand=True, padx=20, pady=(16, 12))
+        inner.grid_columnconfigure(0, weight=1)
+        inner.grid_rowconfigure(2, weight=1)
+
+        video_title = (row.get('title') or '').strip() or 'Sin titulo'
+        _ctk6.CTkLabel(
+            inner,
+            text=f'Video: {video_title}',
+            text_color=C_TEXT,
+            anchor='w',
+            font=_ctk6.CTkFont(size=self._fs(13), weight='bold'),
+        ).grid(row=0, column=0, sticky='ew', pady=(0, 6))
+
+        summary_txt = 'Elegible para Sync' if eligible else 'No elegible para Sync'
+        summary_color = C_SUCCESS if eligible else C_ERROR
+        _ctk6.CTkLabel(
+            inner,
+            text=summary_txt,
+            text_color=summary_color,
+            anchor='w',
+            font=_ctk6.CTkFont(size=self._fs(12), weight='bold'),
+        ).grid(row=1, column=0, sticky='ew', pady=(0, 10))
+
+        checks_box = _ctk6.CTkScrollableFrame(inner, fg_color=C_CARD, height=210)
+        checks_box.grid(row=2, column=0, sticky='nsew')
+        checks_box.grid_columnconfigure(1, weight=1)
+
+        for idx, (ok, msg) in enumerate(checks):
+            icon = FA_CHECK if ok else FA_WARNING
+            color = C_SUCCESS if ok else C_ERROR
+            _ctk6.CTkLabel(
+                checks_box,
+                text=icon,
+                text_color=color,
+                font=_ctk6.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+            ).grid(row=idx, column=0, sticky='nw', padx=(8, 8), pady=4)
+            _ctk6.CTkLabel(
+                checks_box,
+                text=msg,
+                text_color=C_TEXT,
+                anchor='w',
+                justify='left',
+                wraplength=420,
+                font=_ctk6.CTkFont(size=self._fs(11)),
+            ).grid(row=idx, column=1, sticky='ew', pady=4)
+
+        btns = _ctk6.CTkFrame(modal, fg_color='transparent')
+        btns.pack(fill='x', padx=20, pady=(8, 16))
+        _ctk6.CTkButton(
+            btns,
+            text='Cerrar',
+            fg_color='transparent',
+            hover_color=C_HOVER,
+            border_width=2,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side='left')
+
 
     def _yt_render_queue_preview(self) -> None:
         if not hasattr(self, "_yt_queue_frame"):
@@ -4707,7 +5060,7 @@ class AudioToVideoApp(ctk.CTk):
         for w in self._yt_queue_frame.winfo_children():
             w.destroy()
 
-        headers = ["Archivo", "Titulo", "Categoria", "Ninos", "Fecha"]
+        headers = ["Archivo", "Titulo", "Categoria", "Ninos", "Fecha", "Acciones"]
         for c, title in enumerate(headers):
             ctk.CTkLabel(
                 self._yt_queue_frame,
@@ -4715,7 +5068,7 @@ class AudioToVideoApp(ctk.CTk):
                 text_color=C_MUTED,
                 font=ctk.CTkFont(size=self._fs(10), weight="bold"),
                 anchor="w",
-            ).grid(row=0, column=c, sticky="ew", padx=(2, 4), pady=(0, 6))
+            ).grid(row=0, column=c, sticky="ew", padx=(2, 8), pady=(0, 8))
 
         if not self._yt_video_rows:
             ctk.CTkLabel(
@@ -4744,9 +5097,9 @@ class AudioToVideoApp(ctk.CTk):
                 fg_color=C_INPUT,
                 border_color=C_BORDER,
                 text_color=C_TEXT,
-                height=26,
+                height=30,
             )
-            title_entry.grid(row=i, column=1, sticky="ew", padx=(0, 4), pady=2)
+            title_entry.grid(row=i, column=1, sticky="ew", padx=(0, 8), pady=4)
 
             def _save_title(_e: Any = None, *, _row: dict[str, str] = row, _var: tk.StringVar = title_var) -> None:
                 _row["title"] = _var.get().strip()
@@ -4761,7 +5114,7 @@ class AudioToVideoApp(ctk.CTk):
                 text_color=C_TEXT,
                 anchor="w",
                 font=ctk.CTkFont(size=self._fs(10)),
-            ).grid(row=i, column=2, sticky="ew", padx=(0, 4), pady=2)
+            ).grid(row=i, column=2, sticky="ew", padx=(0, 8), pady=4)
 
             ctk.CTkLabel(
                 self._yt_queue_frame,
@@ -4769,26 +5122,70 @@ class AudioToVideoApp(ctk.CTk):
                 text_color=C_TEXT,
                 anchor="w",
                 font=ctk.CTkFont(size=self._fs(10)),
-            ).grid(row=i, column=3, sticky="ew", padx=(0, 4), pady=2)
+            ).grid(row=i, column=3, sticky="ew", padx=(0, 8), pady=4)
 
-            schedule_var = tk.StringVar(value=row["schedule"])
-            schedule_entry = ctk.CTkEntry(
+            schedule_text = row["schedule"] if row["schedule"] else "Seleccionar fecha y hora"
+            ctk.CTkButton(
                 self._yt_queue_frame,
-                textvariable=schedule_var,
-                placeholder_text="YYYY-MM-DD HH:MM",
+                text=schedule_text,
+                height=30,
+                anchor="w",
                 fg_color=C_INPUT,
+                hover_color=C_HOVER,
+                border_width=1,
                 border_color=C_BORDER,
                 text_color=C_TEXT,
-                height=26,
+                command=lambda _row=row: self._yt_open_row_schedule_picker(_row),
+            ).grid(row=i, column=4, sticky="ew", padx=(0, 2), pady=4)
+
+            actions = ctk.CTkFrame(self._yt_queue_frame, fg_color="transparent")
+            actions.grid(row=i, column=5, sticky="e", padx=(6, 2), pady=4)
+
+            desc_btn = ctk.CTkButton(
+                actions,
+                text=FA_EDIT,
+                width=30,
+                height=30,
+                corner_radius=6,
+                fg_color="transparent",
+                hover_color=C_HOVER,
+                border_width=1,
+                border_color=C_BORDER,
+                text_color=C_TEXT,
+                font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+                command=lambda _row=row: self._yt_open_row_description_modal(_row),
             )
-            schedule_entry.grid(row=i, column=4, sticky="ew", padx=(0, 2), pady=2)
+            desc_btn.pack(side="left", padx=(0, 6))
 
-            def _save_schedule(_e: Any = None, *, _row: dict[str, str] = row, _var: tk.StringVar = schedule_var) -> None:
-                _row["schedule"] = _var.get().strip()
-                self._yt_save_drafts_cache()
+            desc_preview = (row.get("description") or "").strip()
+            if not desc_preview:
+                desc_tip = "Descripcion vacia. Clic para editar este video."
+            else:
+                compact = " ".join(desc_preview.split())
+                desc_tip = f"Descripcion actual: {compact[:260]}"
+                if len(compact) > 260:
+                    desc_tip += "..."
+            _Tooltip(desc_btn, desc_tip)
 
-            schedule_entry.bind("<FocusOut>", _save_schedule)
-            schedule_entry.bind("<Return>", _save_schedule)
+            eligible, eligibility_detail = self._yt_row_sync_eligibility(row)
+            status_icon = FA_CHECK if eligible else FA_WARNING
+            status_color = C_SUCCESS if eligible else C_ERROR
+            status_btn = ctk.CTkButton(
+                actions,
+                text=status_icon,
+                width=30,
+                height=30,
+                corner_radius=6,
+                fg_color="transparent",
+                hover_color=C_HOVER,
+                border_width=1,
+                border_color=status_color,
+                text_color=status_color,
+                font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(12)),
+                command=lambda _row=row: self._yt_open_row_eligibility_modal(_row),
+            )
+            status_btn.pack(side="left")
+            _Tooltip(status_btn, eligibility_detail)
 
     def _on_generate_youtube(self) -> None:
         """Apply scheduled metadata updates to YouTube using videos.update."""
