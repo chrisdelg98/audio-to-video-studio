@@ -84,8 +84,26 @@ def build_youtube_publisher_panel(
         font=ctk.CTkFont(size=app._fs(11)),
     ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
 
+    ctk.CTkLabel(
+        auth_inner,
+        text=(
+            "Como funciona:\n"
+            "1. Sube tus videos a YouTube Studio como Oculto (privado) y SIN fecha de publicacion.\n"
+            "2. Haz clic en \u00abObtener borradores\u00bb para cargar esos videos en la cola de abajo.\n"
+            "3. Edita el titulo, descripcion, categoria y etiquetas de cada video si lo necesitas.\n"
+            "4. Usa \u00abProgramar\u00bb para distribuir automaticamente las fechas de publicacion.\n"
+            "5. Haz clic en \u00abGenerar\u00bb para aplicar los cambios en YouTube \u2014 los videos se publicaran en la fecha indicada.\n\n"
+            "Nota: esta pestana no sube archivos nuevos. Solo gestiona videos que ya estan en tu canal como borradores privados sin fecha."
+        ),
+        text_color=colors["C_TEXT_DIM"],
+        anchor="w",
+        justify="left",
+        wraplength=620,
+        font=ctk.CTkFont(size=app._fs(10)),
+    ).grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
     auth_btns = ctk.CTkFrame(auth_inner, fg_color="transparent")
-    auth_btns.grid(row=1, column=0, sticky="ew")
+    auth_btns.grid(row=2, column=0, sticky="ew")
     ctk.CTkButton(
         auth_btns,
         text=icons["FA_UPLOAD"] + "  Conectar canal",
