@@ -157,6 +157,46 @@ class SlideshowBuilder:
             "-threads", str(threads),
         ]
 
+    def _global_thread_args(self) -> list[str]:
+        """Flags globales de threads para poner justo después de 'ffmpeg -y'."""
+        threads = _calc_threads(self.settings.get("sl_cpu_mode", "Medium"))
+        return [
+            "-threads", str(threads),
+            "-filter_threads", str(threads),
+            "-filter_complex_threads", str(threads),
+        ]
+
+    def _per_frame_effect_chain(self) -> list[str]:
+        """Retorna filtros per-frame (breath/zoom/vignette/colorshift) como lista de strings."""
+        chain: list[str] = []
+        if self.settings.get("sl_enable_breath", False):
+            bi = float(self.settings.get("sl_breath_intensity", 0.04))
+            bs = float(self.settings.get("sl_breath_speed", 1.0))
+            chain.append(f"eq=brightness='{bi}*sin({bs}*2*PI*t)':eval=frame")
+        if self.settings.get("sl_enable_light_zoom", False):
+            lzm = float(self.settings.get("sl_light_zoom_max", 1.04))
+            lzs = float(self.settings.get("sl_light_zoom_speed", 0.5))
+            half = (lzm - 1.0) / 2.0
+            mid = 1.0 + half
+            sw, sh = self.width, self.height
+            chain.append(
+                f"scale="
+                f"w='trunc(iw*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
+                f"h='trunc(ih*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
+                f"eval=frame,"
+                f"crop={sw}:{sh}:(in_w-{sw})/2:(in_h-{sh})/2"
+            )
+        if self.settings.get("sl_enable_vignette", False):
+            vi = float(self.settings.get("sl_vignette_intensity", 0.4))
+            if vi > 0:
+                angle = 1.5708 - vi * 1.0472
+                chain.append(f"vignette=angle={angle:.4f}")
+        if self.settings.get("sl_enable_color_shift", False):
+            ca = float(self.settings.get("sl_color_shift_amount", 15.0))
+            cs = float(self.settings.get("sl_color_shift_speed", 0.5))
+            chain.append(f"hue=h='{ca:.1f}*sin({cs}*2*PI*t)'")
+        return chain
+
     def _audio_args(self, audio_path: Path | None) -> list[str]:
         if audio_path:
             return ["-c:a", "aac", "-b:a", "320k", "-shortest"]
@@ -242,42 +282,15 @@ class SlideshowBuilder:
         tf.write_text("\n".join(lines), encoding="utf-8")
 
         cmd: list[str] = ["ffmpeg", "-y"]
+        cmd += self._global_thread_args()
         cmd += ["-f", "concat", "-safe", "0", "-i", str(tf)]
         if audio_path:
-            cmd += ["-i", str(audio_path)]
+            cmd += ["-thread_queue_size", "512", "-i", str(audio_path)]
 
         vf = f"{self._scale_crop()},fps={DEFAULT_FPS}"
-        # Lightweight effects
-        sl_breath      = self.settings.get("sl_enable_breath", False)
-        sl_light_zoom  = self.settings.get("sl_enable_light_zoom", False)
-        sl_vignette    = self.settings.get("sl_enable_vignette", False)
-        sl_color_shift = self.settings.get("sl_enable_color_shift", False)
-        if sl_breath:
-            bi = float(self.settings.get("sl_breath_intensity", 0.04))
-            bs = float(self.settings.get("sl_breath_speed", 1.0))
-            vf += f",eq=brightness='{bi}*sin({bs}*2*PI*t)':eval=frame"
-        if sl_light_zoom:
-            lzm = float(self.settings.get("sl_light_zoom_max", 1.04))
-            lzs = float(self.settings.get("sl_light_zoom_speed", 0.5))
-            half = (lzm - 1.0) / 2.0
-            mid = 1.0 + half
-            sw, sh = self.width, self.height
-            vf += (
-                f",scale="
-                f"w='trunc(iw*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
-                f"h='trunc(ih*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
-                f"eval=frame,"
-                f"crop={sw}:{sh}:(in_w-{sw})/2:(in_h-{sh})/2"
-            )
-        if sl_vignette:
-            vi = float(self.settings.get("sl_vignette_intensity", 0.4))
-            if vi > 0:
-                angle = 1.5708 - vi * 1.0472
-                vf += f",vignette=angle={angle:.4f}"
-        if sl_color_shift:
-            ca = float(self.settings.get("sl_color_shift_amount", 15.0))
-            cs = float(self.settings.get("sl_color_shift_speed", 0.5))
-            vf += f",hue=h='{ca:.1f}*sin({cs}*2*PI*t)'"
+        fx = self._per_frame_effect_chain()
+        if fx:
+            vf += "," + ",".join(fx)
         text_filters = self._text_overlay_filters()
         if text_filters:
             vf += "," + ",".join(text_filters)
@@ -297,84 +310,62 @@ class SlideshowBuilder:
         duration: float,
         transition: str,
     ) -> tuple[list[str], None]:
-        """Genera filter_complex con xfade entre cada par de imágenes."""
-        n           = len(image_paths)
-        xd          = XFADE_DUR
-        is_random   = (transition == "Aleatorio")
-        xfade_name  = TRANSITION_MAP.get(transition, "dissolve")
-        d_frames    = int(duration * DEFAULT_FPS)
+        """Genera filter_complex con xfade entre cada par de imágenes.
 
-        # Lightweight effects settings
-        sl_breath      = self.settings.get("sl_enable_breath", False)
-        sl_light_zoom  = self.settings.get("sl_enable_light_zoom", False)
-        sl_vignette    = self.settings.get("sl_enable_vignette", False)
-        sl_color_shift = self.settings.get("sl_enable_color_shift", False)
+        Optimización: efectos per-frame (breath/zoom/vignette/colorshift) se aplican
+        UNA sola vez después del xfade final, no en cada stream individual.
+        """
+        n          = len(image_paths)
+        xd         = XFADE_DUR
+        is_random  = (transition == "Aleatorio")
+        xfade_name = TRANSITION_MAP.get(transition, "dissolve")
 
         cmd: list[str] = ["ffmpeg", "-y"]
+        cmd += self._global_thread_args()
+
         # Cada imagen se loopea duration+xd segundos para que el overlap sea suficiente
         for p in image_paths:
             cmd += ["-loop", "1", "-t", f"{duration + xd:.3f}", "-i", str(p)]
         if audio_path:
-            cmd += ["-i", str(audio_path)]
+            cmd += ["-thread_queue_size", "512", "-i", str(audio_path)]
 
         sc = self._scale_crop()
         parts: list[str] = []
 
-        # Preparar streams de cada imagen
+        # Per-stream: sólo scale+crop+fps — mínimo necesario para que xfade funcione
         for i in range(n):
-            chain = [sc, f"fps={DEFAULT_FPS}"]
-            # Lightweight effects (applied after scale/fps)
-            if sl_breath:
-                bi = float(self.settings.get("sl_breath_intensity", 0.04))
-                bs = float(self.settings.get("sl_breath_speed", 1.0))
-                chain.append(f"eq=brightness='{bi}*sin({bs}*2*PI*t)':eval=frame")
-            if sl_light_zoom:
-                lzm = float(self.settings.get("sl_light_zoom_max", 1.04))
-                lzs = float(self.settings.get("sl_light_zoom_speed", 0.5))
-                half = (lzm - 1.0) / 2.0
-                mid = 1.0 + half
-                sw, sh = self.width, self.height
-                chain.append(
-                    f"scale="
-                    f"w='trunc(iw*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
-                    f"h='trunc(ih*max(1.01,{mid:.6f}+{half:.6f}*sin({lzs:.6f}*2*PI*t))/2)*2':"
-                    f"eval=frame,"
-                    f"crop={sw}:{sh}:(in_w-{sw})/2:(in_h-{sh})/2"
-                )
-            if sl_vignette:
-                vi = float(self.settings.get("sl_vignette_intensity", 0.4))
-                if vi > 0:
-                    angle = 1.5708 - vi * 1.0472
-                    chain.append(f"vignette=angle={angle:.4f}")
-            if sl_color_shift:
-                ca = float(self.settings.get("sl_color_shift_amount", 15.0))
-                cs = float(self.settings.get("sl_color_shift_speed", 0.5))
-                chain.append(f"hue=h='{ca:.1f}*sin({cs}*2*PI*t)'")
-            parts.append(f"[{i}:v]{','.join(chain)}[v{i}]")
+            parts.append(f"[{i}:v]{sc},fps={DEFAULT_FPS}[v{i}]")
 
         # Encadenar xfades
-        # offset para xfade entre imagen i e i+1: (i+1) * (duration - xd)
         prev = "v0"
         for i in range(1, n):
             t      = random.choice(_RANDOM_POOL) if is_random else xfade_name
             offset = i * (duration - xd)
-            label  = "xout" if i == n - 1 else f"x{i:02d}"
+            label  = f"x{i:02d}"
             parts.append(
                 f"[{prev}][v{i}]xfade=transition={t}:"
                 f"duration={xd}:offset={offset:.3f}[{label}]"
             )
             prev = label
 
-        filter_complex = ";".join(parts)
-        final_label    = "xout" if n > 1 else "v0"
+        final_label = prev  # "v0" if n==1, else last xfade label
+
+        # Per-frame effects aplicados UNA VEZ sobre el stream final
+        fx = self._per_frame_effect_chain()
+        if fx:
+            next_label = "vfx"
+            parts.append(f"[{final_label}]{','.join(fx)}[{next_label}]")
+            final_label = next_label
 
         # Texto overlay (estático y/o dinámico)
         total_dur = n * duration
         text_filters = self._text_overlay_filters(dummy_duration=total_dur)
         if text_filters:
-            filter_complex += f";[{final_label}]{','.join(text_filters)}[vtxt]"
-            final_label = "vtxt"
+            next_label = "vtxt"
+            parts.append(f"[{final_label}]{','.join(text_filters)}[{next_label}]")
+            final_label = next_label
 
+        filter_complex = ";".join(parts)
         cmd += ["-filter_complex", filter_complex]
         cmd += ["-map", f"[{final_label}]"]
         if audio_path:
