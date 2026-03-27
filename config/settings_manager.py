@@ -84,6 +84,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "yt_default_made_for_kids": False,
     "yt_bulk_title_prefix": "",
     "yt_bulk_description": "",
+    "yt_cached_channel_title": "",
+    "yt_cached_channel_id": "",
+    "yt_cached_channel_fetched_at": "",
+    "yt_cached_drafts_rows": [],
+    "yt_cached_drafts_fetched_at": "",
 }
 
 # Preset semilla — se crea si presets.json no existe

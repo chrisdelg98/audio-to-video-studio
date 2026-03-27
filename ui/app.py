@@ -1225,6 +1225,8 @@ class AudioToVideoApp(ctk.CTk):
     WINDOW_SIZE = "1280x800"
     MIN_SIZE = (1100, 700)
     SCROLL_SPEED = 3.75   # Multiplicador de velocidad del scroll con rueda del ratón
+    YT_CHANNEL_CACHE_TTL_MINUTES = 30
+    YT_DRAFTS_CACHE_TTL_MINUTES = 20
 
     def __init__(self) -> None:
         # Desactivar manipulación de título antes de que CTk la aplique
@@ -1246,6 +1248,10 @@ class AudioToVideoApp(ctk.CTk):
         self._yt_auth_service: YouTubeAuthService | None = None
         self._yt_auth_dialog: BusyDialog | None = None
         self._yt_auth_in_progress = False
+        self._yt_cached_channel_title = ""
+        self._yt_cached_channel_id = ""
+        self._yt_cached_channel_fetched_at = ""
+        self._yt_cached_drafts_fetched_at = ""
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
         self._startup_dependency_dialog: StartupDependencyDialog | None = None
@@ -3975,8 +3981,9 @@ class AudioToVideoApp(ctk.CTk):
                 "FA_UPLOAD": FA_UPLOAD,
             },
         )
+        self._yt_restore_channel_cache_from_settings()
+        self._yt_restore_drafts_cache_from_settings()
         self._yt_render_queue_preview()
-        self._yt_refresh_channel_status(silent=True)
 
     def _yt_stub_action(self, action: str) -> None:
         labels = {
@@ -3994,6 +4001,320 @@ class AudioToVideoApp(ctk.CTk):
             self._yt_auth_service = YouTubeAuthService()
         return self._yt_auth_service
 
+    def _yt_restore_channel_cache_from_settings(self) -> None:
+        self._yt_cached_channel_title = str(self.settings.get("yt_cached_channel_title", "") or "")
+        self._yt_cached_channel_id = str(self.settings.get("yt_cached_channel_id", "") or "")
+        self._yt_cached_channel_fetched_at = str(
+            self.settings.get("yt_cached_channel_fetched_at", "") or ""
+        )
+
+        if hasattr(self, "_var_yt_channel_status"):
+            if self._yt_cached_channel_title and self._yt_cached_channel_id:
+                self._var_yt_channel_status.set(
+                    f"Conectado (cache): {self._yt_cached_channel_title} ({self._yt_cached_channel_id})"
+                )
+            elif self._yt_get_auth_service().has_stored_credentials():
+                self._var_yt_channel_status.set("Sesion guardada. Pulsa 'Refrescar estado'.")
+            else:
+                self._var_yt_channel_status.set("No conectado.")
+
+        self._yt_update_cache_status_label()
+
+    def _yt_channel_cache_age_minutes(self) -> int | None:
+        if not self._yt_cached_channel_fetched_at:
+            return None
+        try:
+            parsed = dt.datetime.fromisoformat(self._yt_cached_channel_fetched_at)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            now_utc = dt.datetime.now(dt.timezone.utc)
+            age = now_utc - parsed.astimezone(dt.timezone.utc)
+            return max(0, int(age.total_seconds() // 60))
+        except Exception:
+            return None
+
+    def _yt_is_channel_cache_stale(self) -> bool:
+        age = self._yt_channel_cache_age_minutes()
+        if age is None:
+            return True
+        return age >= self.YT_CHANNEL_CACHE_TTL_MINUTES
+
+    def _yt_update_cache_status_label(self) -> None:
+        if not hasattr(self, "_var_yt_cache_status"):
+            return
+
+        if not self._yt_cached_channel_fetched_at:
+            self._var_yt_cache_status.set("Cache: sin datos. Pulsa 'Refrescar estado' para consultar.")
+            return
+
+        age = self._yt_channel_cache_age_minutes()
+        if age is None:
+            self._var_yt_cache_status.set("Cache: fecha invalida. Pulsa 'Refrescar estado'.")
+            return
+
+        if age == 0:
+            age_text = "hace menos de 1 minuto"
+        elif age == 1:
+            age_text = "hace 1 minuto"
+        else:
+            age_text = f"hace {age} minutos"
+
+        if self._yt_is_channel_cache_stale():
+            self._var_yt_cache_status.set(
+                f"Cache vencida ({age_text}). Pulsa 'Refrescar estado' para actualizar."
+            )
+        else:
+            self._var_yt_cache_status.set(
+                f"Cache vigente ({age_text}). Consultas solo bajo demanda."
+            )
+
+    def _yt_save_channel_cache(self, *, title: str, channel_id: str) -> None:
+        previous_channel_id = self._yt_cached_channel_id
+        self._yt_cached_channel_title = title
+        self._yt_cached_channel_id = channel_id
+        self._yt_cached_channel_fetched_at = dt.datetime.now(dt.timezone.utc).isoformat()
+        self.settings.update(
+            {
+                "yt_cached_channel_title": self._yt_cached_channel_title,
+                "yt_cached_channel_id": self._yt_cached_channel_id,
+                "yt_cached_channel_fetched_at": self._yt_cached_channel_fetched_at,
+            }
+        )
+        try:
+            self.settings.save()
+        except Exception:
+            pass
+        self._yt_update_cache_status_label()
+
+        if previous_channel_id and previous_channel_id != channel_id:
+            # Different account/channel: queue cache from previous channel is no longer valid.
+            self._yt_clear_drafts_cache(clear_rows=True)
+
+    def _yt_clear_channel_cache(self) -> None:
+        self._yt_cached_channel_title = ""
+        self._yt_cached_channel_id = ""
+        self._yt_cached_channel_fetched_at = ""
+        self.settings.update(
+            {
+                "yt_cached_channel_title": "",
+                "yt_cached_channel_id": "",
+                "yt_cached_channel_fetched_at": "",
+            }
+        )
+        try:
+            self.settings.save()
+        except Exception:
+            pass
+        self._yt_update_cache_status_label()
+
+    def _yt_restore_drafts_cache_from_settings(self) -> None:
+        raw_rows = self.settings.get("yt_cached_drafts_rows", [])
+        if not isinstance(raw_rows, list):
+            raw_rows = []
+
+        normalized: list[dict[str, str]] = []
+        for item in raw_rows:
+            if not isinstance(item, dict):
+                continue
+            normalized.append(
+                {
+                    "video_id": str(item.get("video_id", "") or ""),
+                    "path": str(item.get("path", "") or ""),
+                    "title": str(item.get("title", "") or ""),
+                    "category": str(item.get("category", "Music") or "Music"),
+                    "kids": "Si" if str(item.get("kids", "No") or "No") == "Si" else "No",
+                    "schedule": str(item.get("schedule", "") or ""),
+                    "description": str(item.get("description", "") or ""),
+                    "tags": str(item.get("tags", "") or ""),
+                }
+            )
+
+        self._yt_video_rows = normalized
+        self._yt_cached_drafts_fetched_at = str(
+            self.settings.get("yt_cached_drafts_fetched_at", "") or ""
+        )
+        self._yt_update_queue_cache_status_label()
+
+    def _yt_drafts_cache_age_minutes(self) -> int | None:
+        if not self._yt_cached_drafts_fetched_at:
+            return None
+        try:
+            parsed = dt.datetime.fromisoformat(self._yt_cached_drafts_fetched_at)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            now_utc = dt.datetime.now(dt.timezone.utc)
+            age = now_utc - parsed.astimezone(dt.timezone.utc)
+            return max(0, int(age.total_seconds() // 60))
+        except Exception:
+            return None
+
+    def _yt_is_drafts_cache_stale(self) -> bool:
+        age = self._yt_drafts_cache_age_minutes()
+        if age is None:
+            return True
+        return age >= self.YT_DRAFTS_CACHE_TTL_MINUTES
+
+    def _yt_update_queue_cache_status_label(self) -> None:
+        if not hasattr(self, "_var_yt_queue_cache_status"):
+            return
+
+        row_count = len(self._yt_video_rows)
+        if not self._yt_cached_drafts_fetched_at:
+            if row_count:
+                self._var_yt_queue_cache_status.set(
+                    f"Cola: {row_count} video(s) cargados localmente sin marca de consulta."
+                )
+            else:
+                self._var_yt_queue_cache_status.set(
+                    "Cola: sin cache. Pulsa 'Obtener borradores'."
+                )
+            return
+
+        age = self._yt_drafts_cache_age_minutes()
+        if age is None:
+            self._var_yt_queue_cache_status.set(
+                "Cola: cache con fecha invalida. Pulsa 'Obtener borradores'."
+            )
+            return
+
+        if age == 0:
+            age_text = "hace menos de 1 minuto"
+        elif age == 1:
+            age_text = "hace 1 minuto"
+        else:
+            age_text = f"hace {age} minutos"
+
+        if self._yt_is_drafts_cache_stale():
+            self._var_yt_queue_cache_status.set(
+                f"Cola cache vencida ({age_text}) con {row_count} video(s). Pulsa 'Obtener borradores' para actualizar."
+            )
+        else:
+            self._var_yt_queue_cache_status.set(
+                f"Cola cache vigente ({age_text}) con {row_count} video(s)."
+            )
+
+    def _yt_save_drafts_cache(self) -> None:
+        serializable_rows = [dict(row) for row in self._yt_video_rows]
+        self._yt_cached_drafts_fetched_at = dt.datetime.now(dt.timezone.utc).isoformat()
+        self.settings.update(
+            {
+                "yt_cached_drafts_rows": serializable_rows,
+                "yt_cached_drafts_fetched_at": self._yt_cached_drafts_fetched_at,
+            }
+        )
+        try:
+            self.settings.save()
+        except Exception:
+            pass
+        self._yt_update_queue_cache_status_label()
+
+    def _yt_mark_drafts_cache_stale(self) -> None:
+        stale_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+            minutes=self.YT_DRAFTS_CACHE_TTL_MINUTES + 1
+        )
+        self._yt_cached_drafts_fetched_at = stale_at.isoformat()
+        self.settings.update(
+            {
+                "yt_cached_drafts_rows": [dict(row) for row in self._yt_video_rows],
+                "yt_cached_drafts_fetched_at": self._yt_cached_drafts_fetched_at,
+            }
+        )
+        try:
+            self.settings.save()
+        except Exception:
+            pass
+        self._yt_update_queue_cache_status_label()
+
+    def _yt_clear_drafts_cache(self, *, clear_rows: bool) -> None:
+        if clear_rows:
+            self._yt_video_rows = []
+        self._yt_cached_drafts_fetched_at = ""
+        self.settings.update(
+            {
+                "yt_cached_drafts_rows": [],
+                "yt_cached_drafts_fetched_at": "",
+            }
+        )
+        try:
+            self.settings.save()
+        except Exception:
+            pass
+        self._yt_update_queue_cache_status_label()
+
+    def _yt_merge_drafts_preserving_local(
+        self,
+        fresh_rows: list[dict[str, str]],
+    ) -> tuple[list[dict[str, str]], int, int]:
+        """Merge fresh API rows with local queue by video_id, preserving local edits.
+
+        Returns:
+            merged_rows, preserved_count, dropped_local_count
+        """
+        editable_keys = ("title", "category", "kids", "schedule", "description", "tags")
+        local_by_id: dict[str, dict[str, str]] = {}
+        for row in self._yt_video_rows:
+            vid = (row.get("video_id") or "").strip()
+            if vid:
+                local_by_id[vid] = row
+
+        merged: list[dict[str, str]] = []
+        preserved = 0
+        seen_ids: set[str] = set()
+
+        for fresh in fresh_rows:
+            vid = (fresh.get("video_id") or "").strip()
+            if not vid:
+                merged.append(fresh)
+                continue
+
+            seen_ids.add(vid)
+            local = local_by_id.get(vid)
+            if not local:
+                merged.append(fresh)
+                continue
+
+            row = dict(fresh)
+            for key in editable_keys:
+                local_val = local.get(key)
+                if local_val is not None:
+                    row[key] = local_val
+            merged.append(row)
+            preserved += 1
+
+        dropped_local = len([vid for vid in local_by_id.keys() if vid not in seen_ids])
+        return merged, preserved, dropped_local
+
+    def _yt_fetch_drafts_with_merge(self, *, source_label: str = "manual") -> bool:
+        """Fetch drafts from API and merge with local queue preserving user edits.
+
+        Returns:
+            True if refresh succeeded, False otherwise.
+        """
+        self._log("[YouTube] Consultando borradores privados sin fecha...")
+        try:
+            fresh_rows = self._yt_get_auth_service().list_private_unscheduled_drafts(limit=200)
+        except YouTubeAuthError as exc:
+            self._log(f"[YouTube] {exc}")
+            self._yt_update_queue_cache_status_label()
+            messagebox.showwarning("YouTube Publisher", str(exc))
+            return False
+        except Exception as exc:
+            self._log(f"[YouTube] Error al cargar borradores: {exc}")
+            self._yt_update_queue_cache_status_label()
+            messagebox.showwarning("YouTube Publisher", f"Error al cargar borradores: {exc}")
+            return False
+
+        merged_rows, preserved, dropped = self._yt_merge_drafts_preserving_local(fresh_rows)
+        self._yt_video_rows = merged_rows
+        self._yt_save_drafts_cache()
+        self._yt_render_queue_preview()
+
+        self._log(
+            f"[YouTube] Cola actualizada ({source_label}): {len(merged_rows)} video(s), "
+            f"progreso conservado en {preserved}, removidos {dropped} que ya no estaban elegibles."
+        )
+        return True
+
     def _yt_refresh_channel_status(self, silent: bool = False) -> None:
         """Refresh channel status label using stored OAuth credentials if available."""
         if not hasattr(self, "_var_yt_channel_status"):
@@ -4003,6 +4324,7 @@ class AudioToVideoApp(ctk.CTk):
         try:
             if not service.has_stored_credentials():
                 self._var_yt_channel_status.set("No conectado.")
+                self._yt_clear_channel_cache()
                 if not silent:
                     self._log("[YouTube] No hay sesion guardada. Pulsa 'Conectar canal'.")
                 return
@@ -4011,14 +4333,27 @@ class AudioToVideoApp(ctk.CTk):
             self._var_yt_channel_status.set(
                 f"Conectado: {info.title} ({info.channel_id})"
             )
+            self._yt_save_channel_cache(title=info.title, channel_id=info.channel_id)
             if not silent:
                 self._log(f"[YouTube] Canal activo: {info.title}")
         except YouTubeAuthError as exc:
-            self._var_yt_channel_status.set("No conectado.")
+            if self._yt_cached_channel_title and self._yt_cached_channel_id:
+                self._var_yt_channel_status.set(
+                    f"Conectado (cache): {self._yt_cached_channel_title} ({self._yt_cached_channel_id})"
+                )
+            else:
+                self._var_yt_channel_status.set("No conectado.")
+            self._yt_update_cache_status_label()
             if not silent:
                 self._log(f"[YouTube] {exc}")
         except Exception as exc:
-            self._var_yt_channel_status.set("No conectado.")
+            if self._yt_cached_channel_title and self._yt_cached_channel_id:
+                self._var_yt_channel_status.set(
+                    f"Conectado (cache): {self._yt_cached_channel_title} ({self._yt_cached_channel_id})"
+                )
+            else:
+                self._var_yt_channel_status.set("No conectado.")
+            self._yt_update_cache_status_label()
             if not silent:
                 self._log(f"[YouTube] Error inesperado al refrescar canal: {exc}")
 
@@ -4083,26 +4418,13 @@ class AudioToVideoApp(ctk.CTk):
             msg = f"Error durante la autenticacion de YouTube: {error}"
 
         self._var_yt_channel_status.set("No conectado.")
+        self._yt_update_cache_status_label()
         self._log(f"[YouTube] {msg}")
         messagebox.showerror("YouTube Publisher", msg)
 
     def _yt_fetch_drafts(self) -> None:
         """Load private videos without publishAt from YouTube into queue preview."""
-        self._log("[YouTube] Consultando borradores privados sin fecha...")
-        try:
-            rows = self._yt_get_auth_service().list_private_unscheduled_drafts(limit=200)
-        except YouTubeAuthError as exc:
-            self._log(f"[YouTube] {exc}")
-            messagebox.showwarning("YouTube Publisher", str(exc))
-            return
-        except Exception as exc:
-            self._log(f"[YouTube] Error al cargar borradores: {exc}")
-            messagebox.showwarning("YouTube Publisher", f"Error al cargar borradores: {exc}")
-            return
-
-        self._yt_video_rows = rows
-        self._yt_render_queue_preview()
-        self._log(f"[YouTube] Borradores listos para programar: {len(rows)} video(s).")
+        self._yt_fetch_drafts_with_merge(source_label="manual")
 
     def _yt_open_bulk_modal(self) -> None:
         modal = __import__('customtkinter').CTkToplevel(self)
@@ -4156,6 +4478,7 @@ class AudioToVideoApp(ctk.CTk):
                 row['kids'] = 'Si' if kids else 'No'
                 if desc: row['description'] = desc
                 if tags_raw: row['tags'] = tags_raw
+            self._yt_save_drafts_cache()
             self._yt_render_queue_preview()
             self._log(f"[YouTube] Metadatos en lote aplicados a {len(self._yt_video_rows)} video(s).")
             modal.destroy()
@@ -4165,6 +4488,7 @@ class AudioToVideoApp(ctk.CTk):
             border_width=2, border_color=C_BORDER, text_color=C_TEXT, command=modal.destroy).pack(side='left')
 
     def _yt_open_schedule_modal(self) -> None:
+        import calendar as _cal
         import datetime as _dt
         import tkinter as _tk3
         import customtkinter as _ctk3
@@ -4197,13 +4521,125 @@ class AudioToVideoApp(ctk.CTk):
             fg_color=C_INPUT, button_color=C_ACCENT_YT, button_hover_color=C_ACCENT_YT_H,
             text_color=C_TEXT, dropdown_fg_color=C_CARD, dropdown_text_color=C_TEXT, dropdown_hover_color=C_HOVER,
         ).grid(row=2, column=1, sticky='ew', pady=(0,6))
-        _var_sd = _tk3.StringVar(value=_dt.date.today().strftime('%Y-%m-%d'))
+        today = _dt.date.today()
+        _var_year = _tk3.StringVar(value=str(today.year))
+        _var_month = _tk3.StringVar(value=f"{today.month:02d}")
+        _var_day = _tk3.StringVar(value=f"{today.day:02d}")
+        _years = [str(y) for y in range(today.year, today.year + 6)]
+        _months = [f"{m:02d}" for m in range(1, 13)]
+
         _ctk3.CTkLabel(inner, text='Fecha inicial', **_lbl).grid(row=3, column=0, sticky='w', padx=(0,10), pady=(0,6))
-        _ctk3.CTkEntry(inner, textvariable=_var_sd, placeholder_text='YYYY-MM-DD', **_ent).grid(row=3, column=1, sticky='ew', pady=(0,6))
+        _date_row = _ctk3.CTkFrame(inner, fg_color='transparent')
+        _date_row.grid(row=3, column=1, sticky='ew', pady=(0,6))
+        _om_year = _ctk3.CTkOptionMenu(
+            _date_row,
+            variable=_var_year,
+            values=_years,
+            width=92,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_YT,
+            button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_text_color=C_TEXT,
+            dropdown_hover_color=C_HOVER,
+            dynamic_resizing=False,
+        )
+        _om_year.pack(side='left')
+        _ctk3.CTkLabel(_date_row, text='-', text_color=C_TEXT_DIM).pack(side='left', padx=4)
+        _om_month = _ctk3.CTkOptionMenu(
+            _date_row,
+            variable=_var_month,
+            values=_months,
+            width=72,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_YT,
+            button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_text_color=C_TEXT,
+            dropdown_hover_color=C_HOVER,
+            dynamic_resizing=False,
+        )
+        _om_month.pack(side='left')
+        _ctk3.CTkLabel(_date_row, text='-', text_color=C_TEXT_DIM).pack(side='left', padx=4)
+        _om_day = _ctk3.CTkOptionMenu(
+            _date_row,
+            variable=_var_day,
+            values=[f"{d:02d}" for d in range(1, 32)],
+            width=72,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_YT,
+            button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_text_color=C_TEXT,
+            dropdown_hover_color=C_HOVER,
+            dynamic_resizing=False,
+        )
+        _om_day.pack(side='left')
+
+        def _refresh_day_values(_: str | None = None) -> None:
+            try:
+                yy = int(_var_year.get())
+                mm = int(_var_month.get())
+                max_day = _cal.monthrange(yy, mm)[1]
+            except Exception:
+                return
+
+            day_values = [f"{d:02d}" for d in range(1, max_day + 1)]
+            _om_day.configure(values=day_values)
+            try:
+                dd = int(_var_day.get())
+                if dd > max_day:
+                    _var_day.set(f"{max_day:02d}")
+            except Exception:
+                _var_day.set(day_values[0])
+
+        _om_year.configure(command=_refresh_day_values)
+        _om_month.configure(command=_refresh_day_values)
+        _refresh_day_values()
+
         st = self._var_yt_window_start.get() if hasattr(self,'_var_yt_window_start') else '09:00'
-        _var_st = _tk3.StringVar(value=st)
+        try:
+            _default_h, _default_m = [int(x) for x in st.split(':', 1)]
+        except Exception:
+            _default_h, _default_m = 9, 0
+        _var_hour = _tk3.StringVar(value=f"{_default_h:02d}")
+        _var_minute = _tk3.StringVar(value=f"{_default_m:02d}")
+
         _ctk3.CTkLabel(inner, text='Hora de inicio', **_lbl).grid(row=4, column=0, sticky='w', padx=(0,10), pady=(0,6))
-        _ctk3.CTkEntry(inner, textvariable=_var_st, placeholder_text='HH:MM', **_ent).grid(row=4, column=1, sticky='ew', pady=(0,10))
+        _time_row = _ctk3.CTkFrame(inner, fg_color='transparent')
+        _time_row.grid(row=4, column=1, sticky='w', pady=(0,10))
+        _ctk3.CTkOptionMenu(
+            _time_row,
+            variable=_var_hour,
+            values=[f"{h:02d}" for h in range(0, 24)],
+            width=72,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_YT,
+            button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_text_color=C_TEXT,
+            dropdown_hover_color=C_HOVER,
+            dynamic_resizing=False,
+        ).pack(side='left')
+        _ctk3.CTkLabel(_time_row, text=':', text_color=C_TEXT, font=_ctk3.CTkFont(size=self._fs(12), weight='bold')).pack(side='left', padx=4)
+        _ctk3.CTkOptionMenu(
+            _time_row,
+            variable=_var_minute,
+            values=[f"{m:02d}" for m in range(0, 60)],
+            width=72,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_YT,
+            button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_text_color=C_TEXT,
+            dropdown_hover_color=C_HOVER,
+            dynamic_resizing=False,
+        ).pack(side='left')
         n_v = len(self._yt_video_rows) if hasattr(self,'_yt_video_rows') else 0
         _ctk3.CTkLabel(inner, text=f'{n_v} video(s) en cola.', text_color=C_TEXT_DIM,
             anchor='w', font=_ctk3.CTkFont(size=self._fs(10))).grid(row=5, column=0, columnspan=2, sticky='ew')
@@ -4215,14 +4651,15 @@ class AudioToVideoApp(ctk.CTk):
                     messagebox.showwarning("YouTube Publisher", "No hay videos en cola para programar.")
                     return
 
-                start_date = dt.datetime.strptime(_var_sd.get().strip(), "%Y-%m-%d").date()
+                start_date = _dt.date(int(_var_year.get()), int(_var_month.get()), int(_var_day.get()))
                 videos_per_day = max(1, int(_var_vpd.get()))
-                start_h, start_m = [int(x) for x in self._var_yt_window_start.get().split(":", 1)]
+                start_h = int(_var_hour.get())
+                start_m = int(_var_minute.get())
                 end_h, end_m = [int(x) for x in self._var_yt_window_end.get().split(":", 1)]
             except Exception:
                 messagebox.showwarning(
                     "YouTube Publisher",
-                    "Valores de programacion invalidos. Revisa fecha y ventana horaria (HH:MM).",
+                    "Valores de programacion invalidos. Revisa fecha, hora y ventana horaria.",
                 )
                 return
 
@@ -4251,6 +4688,7 @@ class AudioToVideoApp(ctk.CTk):
                 d = start_date + dt.timedelta(days=day_offset)
                 row["schedule"] = f"{d.strftime('%Y-%m-%d')} {hh:02d}:{mm:02d}"
 
+            self._yt_save_drafts_cache()
             self._yt_render_queue_preview()
             self._log(
                 f"[YouTube] Programacion aplicada a {len(self._yt_video_rows)} video(s) "
@@ -4312,6 +4750,7 @@ class AudioToVideoApp(ctk.CTk):
 
             def _save_title(_e: Any = None, *, _row: dict[str, str] = row, _var: tk.StringVar = title_var) -> None:
                 _row["title"] = _var.get().strip()
+                self._yt_save_drafts_cache()
 
             title_entry.bind("<FocusOut>", _save_title)
             title_entry.bind("<Return>", _save_title)
@@ -4346,6 +4785,7 @@ class AudioToVideoApp(ctk.CTk):
 
             def _save_schedule(_e: Any = None, *, _row: dict[str, str] = row, _var: tk.StringVar = schedule_var) -> None:
                 _row["schedule"] = _var.get().strip()
+                self._yt_save_drafts_cache()
 
             schedule_entry.bind("<FocusOut>", _save_schedule)
             schedule_entry.bind("<Return>", _save_schedule)
@@ -4355,6 +4795,24 @@ class AudioToVideoApp(ctk.CTk):
         if not self._yt_video_rows:
             messagebox.showwarning("YouTube Publisher", "No hay videos en cola.")
             return
+
+        if self._yt_is_drafts_cache_stale():
+            decision = messagebox.askyesnocancel(
+                "YouTube Publisher",
+                "La cola cache esta vencida.\n\n"
+                "Si: refrescar ahora manteniendo tu progreso local por video.\n"
+                "No: continuar con la cola actual.\n"
+                "Cancelar: detener Sync.",
+            )
+            if decision is None:
+                return
+            if decision is True:
+                ok_refresh = self._yt_fetch_drafts_with_merge(source_label="pre-sync")
+                if not ok_refresh:
+                    return
+                if not self._yt_video_rows:
+                    messagebox.showwarning("YouTube Publisher", "No hay videos en cola despues del refresco.")
+                    return
 
         tz_name = self._var_yt_timezone.get() if hasattr(self, "_var_yt_timezone") else "America/El_Salvador"
         try:
@@ -4418,6 +4876,7 @@ class AudioToVideoApp(ctk.CTk):
 
         ok = 0
         fail = 0
+        successful_video_ids: set[str] = set()
         svc = self._yt_get_auth_service()
         self._log(f"[YouTube] Enviando {len(pending)} actualizacion(es) a YouTube...")
         for item in pending:
@@ -4432,6 +4891,7 @@ class AudioToVideoApp(ctk.CTk):
                     publish_at_utc=item["publish_at_utc"],
                 )
                 ok += 1
+                successful_video_ids.add(item["video_id"])
                 self._log(f"[YouTube] Programado: {item['video_id']} -> {item['publish_at_utc']}")
             except YouTubeAuthError as exc:
                 fail += 1
@@ -4439,6 +4899,17 @@ class AudioToVideoApp(ctk.CTk):
             except Exception as exc:
                 fail += 1
                 self._log(f"[YouTube] Error inesperado {item['video_id']}: {exc}")
+
+        if successful_video_ids:
+            before_count = len(self._yt_video_rows)
+            self._yt_video_rows = [
+                row for row in self._yt_video_rows
+                if (row.get("video_id") or "").strip() not in successful_video_ids
+            ]
+            removed_count = before_count - len(self._yt_video_rows)
+            self._yt_save_drafts_cache()
+            self._yt_render_queue_preview()
+            self._log(f"[YouTube] Cola actualizada: {removed_count} video(s) exitosos removidos.")
 
         self._log(f"[YouTube] Resultado envio -> OK: {ok}, Error: {fail}")
         if fail == 0:
@@ -5194,6 +5665,8 @@ class AudioToVideoApp(ctk.CTk):
             if hasattr(self, "_thumb_strip_vert"):
                 self._thumb_strip_vert.grid_remove()
             self._lbl_audio_count.configure(text="YouTube Publisher", text_color=C_ACCENT_YT)
+            self._yt_update_cache_status_label()
+            self._yt_update_queue_cache_status_label()
             self._btn_generate.configure(text="SYNC BORRADORES", command=self._on_generate_youtube)
 
     def _sl_browse_images_folder(self) -> None:

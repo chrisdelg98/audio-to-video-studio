@@ -84,6 +84,19 @@ def build_youtube_publisher_panel(
         font=ctk.CTkFont(size=app._fs(11)),
     ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
 
+    app._var_yt_cache_status = tk.StringVar(
+        value="Cache: sin datos. Pulsa 'Refrescar estado' para consultar."
+    )
+    ctk.CTkLabel(
+        auth_inner,
+        textvariable=app._var_yt_cache_status,
+        text_color=colors["C_MUTED"],
+        anchor="w",
+        justify="left",
+        wraplength=620,
+        font=ctk.CTkFont(size=app._fs(10)),
+    ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
+
     ctk.CTkLabel(
         auth_inner,
         text=(
@@ -100,10 +113,10 @@ def build_youtube_publisher_panel(
         justify="left",
         wraplength=620,
         font=ctk.CTkFont(size=app._fs(10)),
-    ).grid(row=1, column=0, sticky="ew", pady=(0, 10))
+    ).grid(row=2, column=0, sticky="ew", pady=(0, 10))
 
     auth_btns = ctk.CTkFrame(auth_inner, fg_color="transparent")
-    auth_btns.grid(row=2, column=0, sticky="ew")
+    auth_btns.grid(row=3, column=0, sticky="ew")
     ctk.CTkButton(
         auth_btns,
         text=icons["FA_UPLOAD"] + "  Conectar canal",
@@ -210,6 +223,19 @@ def build_youtube_publisher_panel(
         border_width=2, border_color=colors["C_BORDER"], text_color=colors["C_TEXT"],
         command=app._yt_open_schedule_modal,
     ).pack(side="left")
+
+    app._var_yt_queue_cache_status = tk.StringVar(
+        value="Cola: sin cache. Pulsa 'Obtener borradores'."
+    )
+    ctk.CTkLabel(
+        tab_queue,
+        textvariable=app._var_yt_queue_cache_status,
+        text_color=colors["C_MUTED"],
+        anchor="w",
+        justify="left",
+        wraplength=760,
+        font=ctk.CTkFont(size=app._fs(10)),
+    ).pack(fill="x", padx=16, pady=(0, 4))
 
     ctk.CTkFrame(tab_queue, fg_color=colors["C_BORDER"], height=1).pack(
         fill="x", padx=0, pady=(6, 0))
