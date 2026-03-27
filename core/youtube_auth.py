@@ -188,17 +188,56 @@ class YouTubeAuthService:
             raise YouTubeAuthError(f"No se pudo preparar cliente YouTube: {exc}") from exc
 
         rows: list[dict[str, Any]] = []
+
+        # videos.list does not support mine=True. We must traverse the channel uploads playlist.
+        try:
+            ch_resp = youtube.channels().list(
+                part="contentDetails",
+                mine=True,
+                maxResults=1,
+            ).execute()
+            ch_items = ch_resp.get("items", [])
+            if not ch_items:
+                return rows
+            uploads_playlist_id = (
+                ch_items[0]
+                .get("contentDetails", {})
+                .get("relatedPlaylists", {})
+                .get("uploads", "")
+            )
+            if not uploads_playlist_id:
+                return rows
+        except Exception as exc:
+            raise YouTubeAuthError(f"No se pudo resolver el canal autenticado: {exc}") from exc
+
         page_token: str | None = None
 
         try:
             while len(rows) < limit:
-                req = youtube.videos().list(
-                    part="id,snippet,status",
-                    mine=True,
+                pl_resp = youtube.playlistItems().list(
+                    part="contentDetails",
+                    playlistId=uploads_playlist_id,
                     maxResults=50,
                     pageToken=page_token,
-                )
-                resp = req.execute()
+                ).execute()
+
+                video_ids = [
+                    it.get("contentDetails", {}).get("videoId", "")
+                    for it in pl_resp.get("items", [])
+                ]
+                video_ids = [vid for vid in video_ids if vid]
+
+                if not video_ids:
+                    page_token = pl_resp.get("nextPageToken")
+                    if not page_token:
+                        break
+                    continue
+
+                resp = youtube.videos().list(
+                    part="id,snippet,status",
+                    id=",".join(video_ids),
+                    maxResults=50,
+                ).execute()
 
                 for item in resp.get("items", []):
                     status = item.get("status", {})
@@ -232,7 +271,7 @@ class YouTubeAuthService:
                 if len(rows) >= limit:
                     break
 
-                page_token = resp.get("nextPageToken")
+                page_token = pl_resp.get("nextPageToken")
                 if not page_token:
                     break
         except Exception as exc:
