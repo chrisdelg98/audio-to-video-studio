@@ -83,6 +83,48 @@ $isccCandidates = @(
     "C:\Program Files\Inno Setup 6\ISCC.exe"
 )
 
+# Try registry-based discovery (works when installed in custom path)
+try {
+    $regRoots = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1",
+        "HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1"
+    )
+    foreach ($rk in $regRoots) {
+        if (Test-Path $rk) {
+            $reg = Get-ItemProperty -Path $rk -ErrorAction SilentlyContinue
+            if ($reg) {
+                if ($reg.InstallLocation) {
+                    $cand = Join-Path $reg.InstallLocation "ISCC.exe"
+                    if ($cand -and -not ($isccCandidates -contains $cand)) {
+                        $isccCandidates += $cand
+                    }
+                }
+                if ($reg.DisplayIcon) {
+                    $iconPath = ($reg.DisplayIcon -split ',')[0].Trim('"')
+                    if ($iconPath) {
+                        $iconDir = Split-Path $iconPath -Parent
+                        if ($iconDir) {
+                            $cand = Join-Path $iconDir "ISCC.exe"
+                            if ($cand -and -not ($isccCandidates -contains $cand)) {
+                                $isccCandidates += $cand
+                            }
+                        }
+                    }
+                    if ($iconPath -and (Split-Path $iconPath -Leaf).ToLower() -eq "iscc.exe") {
+                        if (-not ($isccCandidates -contains $iconPath)) {
+                            $isccCandidates += $iconPath
+                        }
+                    }
+                }
+            }
+        }
+    }
+} catch {
+    # non-fatal
+}
+
 $iscc = $null
 foreach ($candidate in $isccCandidates) {
     if (Get-Command $candidate -ErrorAction SilentlyContinue) {
@@ -98,7 +140,7 @@ foreach ($candidate in $isccCandidates) {
 if (-not $iscc) {
     Write-Host "    [SKIP] Inno Setup no encontrado." -ForegroundColor Yellow
     Write-Host "           Instalalo desde: https://jrsoftware.org/isinfo.php" -ForegroundColor DarkGray
-    Write-Host "           Luego ejecuta:   iscc installer\AudioToVideoStudio.iss" -ForegroundColor DarkGray
+    Write-Host "           Luego ejecuta:   iscc installer\CreatorFlowStudio.iss" -ForegroundColor DarkGray
     exit 0
 }
 

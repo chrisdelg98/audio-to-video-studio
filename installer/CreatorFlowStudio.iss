@@ -241,8 +241,10 @@ begin
 end;
 
 function TryInstallBundledVCRedist(var ErrorText: string): Boolean;
+#if defined(HasBundledVCRedistX64) || defined(HasBundledVCRedistX86)
 var
   Code: Integer;
+#endif
 begin
   Result := True;
   ErrorText := '';
@@ -313,6 +315,10 @@ begin
 end;
 
 procedure InitializeWizard();
+var
+  MemoMinH: Integer;
+  BtnTop: Integer;
+  BtnH: Integer;
 begin
   InstallNeedsRestart := False;
 
@@ -327,7 +333,10 @@ begin
   ReqMemo.Left := 0;
   ReqMemo.Top := 0;
   ReqMemo.Width := ReqPage.SurfaceWidth;
-  ReqMemo.Height := 136;
+  MemoMinH := ScaleY(92);
+  ReqMemo.Height := ReqPage.SurfaceHeight - ScaleY(220);
+  if ReqMemo.Height < MemoMinH then
+    ReqMemo.Height := MemoMinH;
   ReqMemo.ReadOnly := True;
   ReqMemo.WantReturns := True;
   ReqMemo.ScrollBars := ssVertical;
@@ -343,22 +352,26 @@ begin
   ReqStatus.Left := 0;
   ReqStatus.Top := ReqMemo.Top + ReqMemo.Height + 8;
   ReqStatus.Width := ReqPage.SurfaceWidth;
-  ReqStatus.Height := 48;
+  ReqStatus.Height := ScaleY(40);
   ReqStatus.AutoSize := False;
 
   ChkAutoPrereqs := TNewCheckBox.Create(ReqPage);
   ChkAutoPrereqs.Parent := ReqPage.Surface;
   ChkAutoPrereqs.Left := 0;
-  ChkAutoPrereqs.Top := ReqStatus.Top + ReqStatus.Height + 6;
+  ChkAutoPrereqs.Top := ReqStatus.Top + ReqStatus.Height + ScaleY(4);
   ChkAutoPrereqs.Width := ReqPage.SurfaceWidth;
   ChkAutoPrereqs.Checked := True;
   ChkAutoPrereqs.Caption := 'Instalar prerequisitos automaticamente (recomendado)';
 
+  BtnH := ScaleY(24);
+  BtnTop := ChkAutoPrereqs.Top + ScaleY(26);
+
   BtnOpenSP1 := TNewButton.Create(ReqPage);
   BtnOpenSP1.Parent := ReqPage.Surface;
   BtnOpenSP1.Left := 0;
-  BtnOpenSP1.Top := ChkAutoPrereqs.Top + 30;
+  BtnOpenSP1.Top := BtnTop;
   BtnOpenSP1.Width := 140;
+  BtnOpenSP1.Height := BtnH;
   BtnOpenSP1.Caption := 'Abrir SP1';
   BtnOpenSP1.OnClick := @BtnOpenSP1Click;
 
@@ -367,6 +380,7 @@ begin
   BtnOpenSHA2.Left := BtnOpenSP1.Left + BtnOpenSP1.Width + 8;
   BtnOpenSHA2.Top := BtnOpenSP1.Top;
   BtnOpenSHA2.Width := 140;
+  BtnOpenSHA2.Height := BtnH;
   BtnOpenSHA2.Caption := 'Abrir SHA-2';
   BtnOpenSHA2.OnClick := @BtnOpenSHA2Click;
 
@@ -375,16 +389,21 @@ begin
   BtnOpenVCRedist.Left := BtnOpenSHA2.Left + BtnOpenSHA2.Width + 8;
   BtnOpenVCRedist.Top := BtnOpenSP1.Top;
   BtnOpenVCRedist.Width := 160;
+  BtnOpenVCRedist.Height := BtnH;
   BtnOpenVCRedist.Caption := 'Abrir VC++ Runtime';
   BtnOpenVCRedist.OnClick := @BtnOpenVCRedistClick;
 
   BtnCopyPS := TNewButton.Create(ReqPage);
   BtnCopyPS.Parent := ReqPage.Surface;
   BtnCopyPS.Left := 0;
-  BtnCopyPS.Top := BtnOpenSP1.Top + 34;
+  BtnCopyPS.Top := BtnOpenSP1.Top + BtnH + ScaleY(8);
   BtnCopyPS.Width := 220;
+  BtnCopyPS.Height := BtnH;
   BtnCopyPS.Caption := 'Copiar comando PowerShell';
   BtnCopyPS.OnClick := @BtnCopyPSClick;
+
+  if (BtnCopyPS.Top + BtnCopyPS.Height) > ReqPage.SurfaceHeight then
+    BtnCopyPS.Top := ReqPage.SurfaceHeight - BtnCopyPS.Height - ScaleY(2);
 
   UpdateReqStatusText;
 end;

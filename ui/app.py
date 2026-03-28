@@ -8845,6 +8845,34 @@ class AudioToVideoApp(ctk.CTk):
             self._var_yt_default_category.set(s.get("yt_default_category", "Music"))
             self._var_yt_default_made_for_kids.set(bool(s.get("yt_default_made_for_kids", False)))
 
+        # Ensure slider knobs visually reflect loaded variable values.
+        self.after_idle(self._sync_slider_visuals)
+
+    def _sync_slider_visuals(self) -> None:
+        """Force CTkSlider widgets to redraw knob positions from linked tk variables."""
+
+        def _walk(widget: Any) -> None:
+            try:
+                children = widget.winfo_children()
+            except Exception:
+                return
+
+            for child in children:
+                try:
+                    if isinstance(child, ctk.CTkSlider):
+                        var_name = child.cget("variable")
+                        if var_name:
+                            raw = self.getvar(str(var_name))
+                            value = float(raw)
+                            child.set(value)
+                except Exception:
+                    # Non-blocking: keep walking even if one slider cannot be synced.
+                    pass
+
+                _walk(child)
+
+        _walk(self)
+
     def _save_settings(self) -> None:
         self._collect_settings()
         try:
