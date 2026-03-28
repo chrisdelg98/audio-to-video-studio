@@ -1410,13 +1410,14 @@ class AudioToVideoApp(ctk.CTk):
             header, fg_color=C_CARD, corner_radius=8,
             border_width=1, border_color=C_BORDER,
         )
-        mode_grp.grid(row=0, column=2, padx=(20, 0))
+        mode_grp.grid(row=0, column=2, padx=(24, 0))
 
         def _create_mode_btn(icon, acronym, is_active, accent, cmd, prefix):
+            btn_w = 126
             # Outer wrapper: fixed 110×42px, placed children for precise layout
             wrap = ctk.CTkFrame(mode_grp, fg_color="transparent",
-                                corner_radius=0, width=110, height=42)
-            wrap.pack(side="left", padx=2, pady=(4, 0))
+                                corner_radius=0, width=btn_w, height=42)
+            wrap.pack(side="left", padx=3, pady=(4, 0))
             wrap.pack_propagate(False)
 
             bg  = C_INPUT if is_active else "transparent"
@@ -1425,7 +1426,7 @@ class AudioToVideoApp(ctk.CTk):
 
             # Content area (40px tall) — fills wrap, bar sits beneath it
             inner = ctk.CTkFrame(wrap, fg_color=bg, corner_radius=6,
-                                 cursor="hand2", width=110, height=40)
+                                 cursor="hand2", width=btn_w, height=40)
             inner.pack(fill="x")
             inner.pack_propagate(False)
 

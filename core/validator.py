@@ -50,6 +50,24 @@ def _run_version(cmd: str) -> str:
         return ""
 
 
+def _is_win7_profile() -> bool:
+    """Detecta si la app se esta ejecutando con el perfil Win7 (Python 3.8)."""
+    env_hint = (os.environ.get("CREATORFLOW_WIN7_PROFILE") or "").strip().lower()
+    if env_hint in {"1", "true", "yes", "on"}:
+        return True
+
+    candidates = [
+        os.environ.get("VIRTUAL_ENV", ""),
+        getattr(sys, "prefix", ""),
+        getattr(sys, "executable", ""),
+    ]
+    for value in candidates:
+        v = (value or "").replace("\\", "/").lower()
+        if "/.venv-win7" in v or v.endswith(".venv-win7"):
+            return True
+    return False
+
+
 def validate_environment() -> ValidationResult:
     """
     Valida todo el entorno requerido por la aplicación.
@@ -62,14 +80,19 @@ def validate_environment() -> ValidationResult:
     # --- Python ---
     py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     is_frozen = bool(getattr(sys, "frozen", False))
-    py_ok = is_frozen or sys.version_info >= (3, 10)
+    is_win7_profile = _is_win7_profile()
+    min_required = (3, 8) if is_win7_profile else (3, 10)
+    py_ok = is_frozen or sys.version_info >= min_required
     if py_ok:
         if is_frozen:
             result.add("python", True, f"✔ Python embebido {py_version}")
+        elif is_win7_profile:
+            result.add("python", True, f"✔ Python {py_version} (perfil Win7)")
         else:
             result.add("python", True, f"✔ Python {py_version}")
     else:
-        result.add("python", False, f"✘ Python {py_version} — Se requiere Python 3.10 o superior.")
+        required_text = "3.8" if is_win7_profile else "3.10"
+        result.add("python", False, f"✘ Python {py_version} — Se requiere Python {required_text} o superior.")
 
     # --- FFmpeg ---
     ffmpeg_version = _run_version("ffmpeg")
