@@ -1229,6 +1229,7 @@ class AudioToVideoApp(ctk.CTk):
     SCROLL_SPEED = 3.75   # Multiplicador de velocidad del scroll con rueda del ratón
     YT_CHANNEL_CACHE_TTL_MINUTES = 30
     YT_DRAFTS_CACHE_TTL_MINUTES = 20
+    YT_PLAYLISTS_CACHE_TTL_MINUTES = 240
 
     def __init__(self) -> None:
         # Desactivar manipulación de título antes de que CTk la aplique
@@ -1254,6 +1255,16 @@ class AudioToVideoApp(ctk.CTk):
         self._yt_cached_channel_id = ""
         self._yt_cached_channel_fetched_at = ""
         self._yt_cached_drafts_fetched_at = ""
+        self._yt_cached_playlists: list[dict[str, str]] = []
+        self._yt_cached_playlists_fetched_at = ""
+        self._yt_activate_subtab = None
+        self._yt_sync_in_progress = False
+        self._yt_sync_modal = None
+        self._yt_sync_progress = None
+        self._yt_sync_status_var = None
+        self._yt_sync_summary_var = None
+        self._yt_sync_close_btn = None
+        self._yt_sync_total = 0
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
         self._startup_dependency_dialog: StartupDependencyDialog | None = None
@@ -3985,6 +3996,7 @@ class AudioToVideoApp(ctk.CTk):
         )
         self._yt_restore_channel_cache_from_settings()
         self._yt_restore_drafts_cache_from_settings()
+        self._yt_restore_playlists_cache_from_settings()
         self._yt_render_queue_preview()
 
     def _yt_stub_action(self, action: str) -> None:
@@ -4002,6 +4014,148 @@ class AudioToVideoApp(ctk.CTk):
         if self._yt_auth_service is None:
             self._yt_auth_service = YouTubeAuthService()
         return self._yt_auth_service
+
+    def _yt_has_linked_channel(self) -> bool:
+        try:
+            return bool(self._yt_get_auth_service().has_stored_credentials())
+        except Exception:
+            return False
+
+    def _yt_require_channel_link(self, *, show_message: bool = True) -> bool:
+        if self._yt_has_linked_channel():
+            return True
+
+        if callable(self._yt_activate_subtab):
+            try:
+                self._yt_activate_subtab("channel")
+            except Exception:
+                pass
+
+        if show_message:
+            msg = (
+                "Debes enlazar tu canal de YouTube antes de usar la Cola o hacer Sync.\n\n"
+                "Pulsa 'Conectar canal' en la pestaña Canal."
+            )
+            messagebox.showwarning("YouTube Publisher", msg)
+            self._log("[YouTube] Accion bloqueada: no hay canal enlazado.")
+        return False
+
+    def _yt_on_subtab_activate(self, tab_name: str) -> bool:
+        if tab_name != "queue":
+            return True
+        return self._yt_require_channel_link(show_message=True)
+
+    def _yt_open_sync_modal(self, total: int) -> None:
+        import customtkinter as _ctk8
+
+        total = max(1, int(total))
+        self._yt_sync_total = total
+
+        modal = _ctk8.CTkToplevel(self)
+        modal.title('Sync de borradores')
+        w, h = 560, 250
+        modal.geometry(f'{w}x{h}')
+        modal.resizable(False, False)
+        modal.grab_set()
+        modal.focus_force()
+        modal.configure(fg_color=C_BG)
+        modal.protocol('WM_DELETE_WINDOW', lambda: None)
+        modal.update_idletasks()
+        self.update_idletasks()
+        px, py = self.winfo_x(), self.winfo_y()
+        pw, ph = self.winfo_width(), self.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        modal.geometry(f'{w}x{h}+{x}+{y}')
+
+        inner = _ctk8.CTkFrame(modal, fg_color='transparent')
+        inner.pack(fill='both', expand=True, padx=20, pady=(16, 12))
+        inner.grid_columnconfigure(0, weight=1)
+
+        _ctk8.CTkLabel(
+            inner,
+            text='Sincronizando borradores con YouTube',
+            text_color=C_TEXT,
+            anchor='w',
+            font=_ctk8.CTkFont(size=self._fs(14), weight='bold'),
+        ).grid(row=0, column=0, sticky='ew', pady=(0, 10))
+
+        self._yt_sync_status_var = tk.StringVar(value='Preparando envio...')
+        _ctk8.CTkLabel(
+            inner,
+            textvariable=self._yt_sync_status_var,
+            text_color=C_TEXT_DIM,
+            anchor='w',
+            justify='left',
+            wraplength=500,
+            font=_ctk8.CTkFont(size=self._fs(11)),
+        ).grid(row=1, column=0, sticky='ew', pady=(0, 8))
+
+        bar = _ctk8.CTkProgressBar(inner, height=12, corner_radius=999)
+        bar.grid(row=2, column=0, sticky='ew', pady=(0, 8))
+        bar.set(0)
+
+        self._yt_sync_summary_var = tk.StringVar(value=f'0/{total} completados  |  OK: 0  |  Error: 0')
+        _ctk8.CTkLabel(
+            inner,
+            textvariable=self._yt_sync_summary_var,
+            text_color=C_MUTED,
+            anchor='w',
+            font=_ctk8.CTkFont(size=self._fs(10)),
+        ).grid(row=3, column=0, sticky='ew')
+
+        btns = _ctk8.CTkFrame(modal, fg_color='transparent')
+        btns.pack(fill='x', padx=20, pady=(4, 16))
+        close_btn = _ctk8.CTkButton(
+            btns,
+            text='Sincronizando...',
+            fg_color='transparent',
+            hover_color=C_HOVER,
+            border_width=2,
+            border_color=C_BORDER,
+            text_color=C_TEXT_DIM,
+            state='disabled',
+            command=modal.destroy,
+        )
+        close_btn.pack(side='left')
+
+        self._yt_sync_modal = modal
+        self._yt_sync_progress = bar
+        self._yt_sync_close_btn = close_btn
+
+    def _yt_update_sync_modal(
+        self,
+        done: int,
+        total: int,
+        ok: int,
+        fail: int,
+        status: str,
+    ) -> None:
+        if self._yt_sync_status_var is not None:
+            self._yt_sync_status_var.set(status)
+        if self._yt_sync_summary_var is not None:
+            self._yt_sync_summary_var.set(f'{done}/{total} completados  |  OK: {ok}  |  Error: {fail}')
+        if self._yt_sync_progress is not None:
+            self._yt_sync_progress.set(0 if total <= 0 else min(1.0, max(0.0, done / total)))
+
+    def _yt_finish_sync_modal(self, *, ok: int, fail: int, total: int) -> None:
+        final_status = (
+            f'Sync finalizado. OK: {ok}, Error: {fail}.'
+            if fail
+            else f'Sync finalizado correctamente. OK: {ok} de {total}.'
+        )
+        self._yt_update_sync_modal(total, total, ok, fail, final_status)
+        if self._yt_sync_close_btn is not None:
+            self._yt_sync_close_btn.configure(
+                text='Cerrar',
+                state='normal',
+                text_color=C_TEXT,
+            )
+        if self._yt_sync_modal is not None:
+            try:
+                self._yt_sync_modal.protocol('WM_DELETE_WINDOW', self._yt_sync_modal.destroy)
+            except Exception:
+                pass
 
     def _yt_restore_channel_cache_from_settings(self) -> None:
         self._yt_cached_channel_title = str(self.settings.get("yt_cached_channel_title", "") or "")
@@ -4128,6 +4282,8 @@ class AudioToVideoApp(ctk.CTk):
                     "schedule": str(item.get("schedule", "") or ""),
                     "description": str(item.get("description", "") or ""),
                     "tags": str(item.get("tags", "") or ""),
+                    "playlist_id": str(item.get("playlist_id", "") or ""),
+                    "playlist_title": str(item.get("playlist_title", "") or ""),
                 }
             )
 
@@ -4243,6 +4399,245 @@ class AudioToVideoApp(ctk.CTk):
             pass
         self._yt_update_queue_cache_status_label()
 
+    def _yt_restore_playlists_cache_from_settings(self) -> None:
+        raw = self.settings.get("yt_cached_playlists", [])
+        if not isinstance(raw, list):
+            raw = []
+
+        playlists: list[dict[str, str]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            pid = str(item.get("id", "") or "").strip()
+            title = str(item.get("title", "") or "").strip()
+            if not pid:
+                continue
+            playlists.append({"id": pid, "title": title or pid})
+
+        playlists.sort(key=lambda x: (x.get("title", "") or "").lower())
+        self._yt_cached_playlists = playlists
+        self._yt_cached_playlists_fetched_at = str(
+            self.settings.get("yt_cached_playlists_fetched_at", "") or ""
+        )
+
+    def _yt_playlists_cache_age_minutes(self) -> int | None:
+        if not self._yt_cached_playlists_fetched_at:
+            return None
+        try:
+            parsed = dt.datetime.fromisoformat(self._yt_cached_playlists_fetched_at)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            now_utc = dt.datetime.now(dt.timezone.utc)
+            age = now_utc - parsed.astimezone(dt.timezone.utc)
+            return max(0, int(age.total_seconds() // 60))
+        except Exception:
+            return None
+
+    def _yt_is_playlists_cache_stale(self) -> bool:
+        age = self._yt_playlists_cache_age_minutes()
+        if age is None:
+            return True
+        return age >= self.YT_PLAYLISTS_CACHE_TTL_MINUTES
+
+    def _yt_playlists_cache_status_text(self) -> str:
+        count = len(self._yt_cached_playlists)
+        age = self._yt_playlists_cache_age_minutes()
+        if not self._yt_cached_playlists_fetched_at:
+            return f"Sin cache de playlists. Hay {count} en memoria local."
+        if age is None:
+            return f"Cache de playlists con fecha invalida ({count} item(s))."
+        if age == 0:
+            age_text = "hace menos de 1 minuto"
+        elif age == 1:
+            age_text = "hace 1 minuto"
+        else:
+            age_text = f"hace {age} minutos"
+        if self._yt_is_playlists_cache_stale():
+            return f"Cache de playlists vencida ({age_text}) con {count} item(s)."
+        return f"Cache de playlists vigente ({age_text}) con {count} item(s)."
+
+    def _yt_save_playlists_cache(self, playlists: list[dict[str, str]]) -> None:
+        normalized: list[dict[str, str]] = []
+        for item in playlists:
+            pid = str(item.get("id", "") or "").strip()
+            title = str(item.get("title", "") or "").strip()
+            if not pid:
+                continue
+            normalized.append({"id": pid, "title": title or pid})
+        normalized.sort(key=lambda x: (x.get("title", "") or "").lower())
+
+        self._yt_cached_playlists = normalized
+        self._yt_cached_playlists_fetched_at = dt.datetime.now(dt.timezone.utc).isoformat()
+        self.settings.update(
+            {
+                "yt_cached_playlists": [dict(x) for x in normalized],
+                "yt_cached_playlists_fetched_at": self._yt_cached_playlists_fetched_at,
+            }
+        )
+        try:
+            self.settings.save()
+        except Exception:
+            pass
+
+    def _yt_fetch_playlists_and_cache(self) -> bool:
+        if not self._yt_require_channel_link(show_message=True):
+            return False
+        self._log("[YouTube] Consultando playlists del canal...")
+        try:
+            playlists = self._yt_get_auth_service().list_my_playlists(limit=200)
+        except YouTubeAuthError as exc:
+            self._log(f"[YouTube] {exc}")
+            messagebox.showwarning("YouTube Publisher", str(exc))
+            return False
+        except Exception as exc:
+            self._log(f"[YouTube] Error al consultar playlists: {exc}")
+            messagebox.showwarning("YouTube Publisher", f"Error al consultar playlists: {exc}")
+            return False
+
+        self._yt_save_playlists_cache(playlists)
+        self._log(f"[YouTube] Playlists cacheadas: {len(self._yt_cached_playlists)} item(s).")
+        return True
+
+    def _yt_playlist_options(self) -> list[str]:
+        options = ["Sin playlist (no asignar)"]
+        for p in self._yt_cached_playlists:
+            title = (p.get("title") or "").strip() or p.get("id", "")
+            pid = (p.get("id") or "").strip()
+            if not pid:
+                continue
+            options.append(f"{title} [{pid}]")
+        return options
+
+    def _yt_playlist_label_to_data(self, label: str) -> tuple[str, str]:
+        label = (label or "").strip()
+        if not label or label == "Sin playlist (no asignar)":
+            return "", ""
+        for p in self._yt_cached_playlists:
+            pid = (p.get("id") or "").strip()
+            title = (p.get("title") or "").strip() or pid
+            if label == f"{title} [{pid}]":
+                return pid, title
+        if label.endswith("]") and "[" in label:
+            title_part, id_part = label.rsplit("[", 1)
+            pid = id_part[:-1].strip()
+            title = title_part.strip()
+            if pid:
+                return pid, (title or pid)
+        return "", ""
+
+    def _yt_playlist_data_to_label(self, playlist_id: str, playlist_title: str = "") -> str:
+        pid = (playlist_id or "").strip()
+        if not pid:
+            return "Sin playlist (no asignar)"
+        for p in self._yt_cached_playlists:
+            if (p.get("id") or "").strip() == pid:
+                title = (p.get("title") or "").strip() or pid
+                return f"{title} [{pid}]"
+        title = (playlist_title or "").strip() or pid
+        return f"{title} [{pid}]"
+
+    def _yt_open_playlists_modal(self) -> None:
+        import customtkinter as _ctk7
+
+        modal = _ctk7.CTkToplevel(self)
+        modal.title('Playlists del canal')
+        w, h = 640, 420
+        modal.geometry(f'{w}x{h}')
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.focus_force()
+        modal.configure(fg_color=C_BG)
+        modal.update_idletasks()
+        self.update_idletasks()
+        px, py = self.winfo_x(), self.winfo_y()
+        pw, ph = self.winfo_width(), self.winfo_height()
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        modal.geometry(f'{w}x{h}+{x}+{y}')
+
+        inner = _ctk7.CTkFrame(modal, fg_color='transparent')
+        inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
+        inner.grid_columnconfigure(0, weight=1)
+        inner.grid_rowconfigure(2, weight=1)
+
+        _ctk7.CTkLabel(
+            inner,
+            text='Playlists',
+            text_color=C_TEXT,
+            anchor='w',
+            font=_ctk7.CTkFont(size=self._fs(14), weight='bold'),
+        ).grid(row=0, column=0, sticky='ew', pady=(0, 6))
+
+        status_var = tk.StringVar(value=self._yt_playlists_cache_status_text())
+        _ctk7.CTkLabel(
+            inner,
+            textvariable=status_var,
+            text_color=C_MUTED,
+            anchor='w',
+            justify='left',
+            wraplength=560,
+            font=_ctk7.CTkFont(size=self._fs(10)),
+        ).grid(row=1, column=0, sticky='ew', pady=(0, 8))
+
+        list_box = _ctk7.CTkScrollableFrame(inner, fg_color=C_CARD)
+        list_box.grid(row=2, column=0, sticky='nsew')
+        list_box.grid_columnconfigure(0, weight=1)
+
+        def _render_items() -> None:
+            for wdg in list_box.winfo_children():
+                wdg.destroy()
+            if not self._yt_cached_playlists:
+                _ctk7.CTkLabel(
+                    list_box,
+                    text='No hay playlists cacheadas. Pulsa "Recargar playlists".',
+                    text_color=C_TEXT_DIM,
+                    anchor='w',
+                    justify='left',
+                    font=_ctk7.CTkFont(size=self._fs(11)),
+                ).grid(row=0, column=0, sticky='ew', padx=8, pady=8)
+                return
+            for idx, p in enumerate(self._yt_cached_playlists):
+                title = (p.get('title') or '').strip() or (p.get('id') or '').strip()
+                pid = (p.get('id') or '').strip()
+                _ctk7.CTkLabel(
+                    list_box,
+                    text=f'{title} [{pid}]',
+                    text_color=C_TEXT,
+                    anchor='w',
+                    justify='left',
+                    wraplength=560,
+                    font=_ctk7.CTkFont(size=self._fs(11)),
+                ).grid(row=idx, column=0, sticky='ew', padx=8, pady=4)
+
+        _render_items()
+
+        btns = _ctk7.CTkFrame(modal, fg_color='transparent')
+        btns.pack(fill='x', padx=20, pady=(8, 16))
+
+        def _reload() -> None:
+            if self._yt_fetch_playlists_and_cache():
+                status_var.set(self._yt_playlists_cache_status_text())
+                _render_items()
+
+        _ctk7.CTkButton(
+            btns,
+            text='Recargar playlists',
+            fg_color=C_ACCENT_YT,
+            hover_color=C_ACCENT_YT_H,
+            text_color='#FFFFFF',
+            command=_reload,
+        ).pack(side='left', padx=(0, 8))
+        _ctk7.CTkButton(
+            btns,
+            text='Cerrar',
+            fg_color='transparent',
+            hover_color=C_HOVER,
+            border_width=2,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side='left')
+
     def _yt_merge_drafts_preserving_local(
         self,
         fresh_rows: list[dict[str, str]],
@@ -4252,7 +4647,16 @@ class AudioToVideoApp(ctk.CTk):
         Returns:
             merged_rows, preserved_count, dropped_local_count
         """
-        editable_keys = ("title", "category", "kids", "schedule", "description", "tags")
+        editable_keys = (
+            "title",
+            "category",
+            "kids",
+            "schedule",
+            "description",
+            "tags",
+            "playlist_id",
+            "playlist_title",
+        )
         local_by_id: dict[str, dict[str, str]] = {}
         for row in self._yt_video_rows:
             vid = (row.get("video_id") or "").strip()
@@ -4292,6 +4696,8 @@ class AudioToVideoApp(ctk.CTk):
         Returns:
             True if refresh succeeded, False otherwise.
         """
+        if not self._yt_require_channel_link(show_message=True):
+            return False
         self._log("[YouTube] Consultando borradores privados sin fecha...")
         try:
             fresh_rows = self._yt_get_auth_service().list_private_unscheduled_drafts(limit=200)
@@ -4429,9 +4835,10 @@ class AudioToVideoApp(ctk.CTk):
         self._yt_fetch_drafts_with_merge(source_label="manual")
 
     def _yt_open_bulk_modal(self) -> None:
+        self._yt_restore_playlists_cache_from_settings()
         modal = __import__('customtkinter').CTkToplevel(self)
         modal.title('Metadatos en lote')
-        modal.geometry('600x510')
+        modal.geometry('600x620')
         modal.resizable(False, False)
         modal.grab_set()
         modal.focus_force()
@@ -4451,33 +4858,61 @@ class AudioToVideoApp(ctk.CTk):
         _lbl = dict(text_color=C_MUTED, anchor='w', font=_ctk2.CTkFont(size=self._fs(11)))
         _opt = dict(fg_color=C_INPUT, button_color=C_ACCENT_YT, button_hover_color=C_ACCENT_YT_H,
             text_color=C_TEXT, dropdown_fg_color=C_CARD, dropdown_text_color=C_TEXT, dropdown_hover_color=C_HOVER)
-        _ctk2.CTkLabel(inner, text='Categoria', **_lbl).grid(row=1, column=0, sticky='ew', pady=(0,4))
+        _ctk2.CTkLabel(inner, text='Titulo (mismo para todos, opcional)', **_lbl).grid(row=1, column=0, sticky='ew', pady=(0,4))
+        _var_title_all = _tk2.StringVar()
+        _ctk2.CTkEntry(
+            inner,
+            textvariable=_var_title_all,
+            placeholder_text='Ej: Deep Focus Session',
+            fg_color=C_INPUT,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            height=34,
+        ).grid(row=2, column=0, sticky='ew', pady=(0,10))
+
+        playlist_options = self._yt_playlist_options()
+        _ctk2.CTkLabel(inner, text='Playlist (opcional)', **_lbl).grid(row=3, column=0, sticky='ew', pady=(0,4))
+        _var_playlist = _tk2.StringVar(value='Sin playlist (no asignar)')
+        _ctk2.CTkOptionMenu(
+            inner,
+            variable=_var_playlist,
+            values=playlist_options,
+            **_opt,
+        ).grid(row=4, column=0, sticky='ew', pady=(0,10))
+
+        _ctk2.CTkLabel(inner, text='Categoria', **_lbl).grid(row=5, column=0, sticky='ew', pady=(0,4))
         _var_cat = _tk2.StringVar(value=self._var_yt_default_category.get() if hasattr(self,'_var_yt_default_category') else 'Music')
         _ctk2.CTkOptionMenu(inner, variable=_var_cat,
             values=['Music','Entertainment','People & Blogs','Education','Film & Animation','Howto & Style','Gaming','Science & Technology','News & Politics','Sports'],
-            **_opt).grid(row=2, column=0, sticky='ew', pady=(0,10))
+            **_opt).grid(row=6, column=0, sticky='ew', pady=(0,10))
         _var_kids = _tk2.BooleanVar(value=False)
         _ctk2.CTkCheckBox(inner, text='Hecho para ninos', variable=_var_kids,
             fg_color=C_ACCENT_YT, hover_color=C_ACCENT_YT_H, text_color=C_TEXT,
-            font=_ctk2.CTkFont(size=self._fs(11))).grid(row=3, column=0, sticky='w', pady=(0,10))
-        _ctk2.CTkLabel(inner, text='Descripcion (se aplica a todos los videos)', **_lbl).grid(row=4, column=0, sticky='ew', pady=(0,4))
+            font=_ctk2.CTkFont(size=self._fs(11))).grid(row=7, column=0, sticky='w', pady=(0,10))
+        _ctk2.CTkLabel(inner, text='Descripcion (se aplica a todos los videos)', **_lbl).grid(row=8, column=0, sticky='ew', pady=(0,4))
         _txt_desc = _ctk2.CTkTextbox(inner, height=120, fg_color=C_INPUT,
             border_width=1, border_color=C_BORDER, text_color=C_TEXT, font=_ctk2.CTkFont(size=self._fs(11)))
-        _txt_desc.grid(row=5, column=0, sticky='ew', pady=(0,10))
-        _ctk2.CTkLabel(inner, text='Tags (separados por coma)', **_lbl).grid(row=6, column=0, sticky='ew', pady=(0,4))
+        _txt_desc.grid(row=9, column=0, sticky='ew', pady=(0,10))
+        _ctk2.CTkLabel(inner, text='Tags (separados por coma)', **_lbl).grid(row=10, column=0, sticky='ew', pady=(0,4))
         _var_tags = _tk2.StringVar()
         _ctk2.CTkEntry(inner, textvariable=_var_tags, placeholder_text='lofi, music, chill...',
-            fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT, height=45).grid(row=7, column=0, sticky='ew', pady=(0,4))
+            fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT, height=45).grid(row=11, column=0, sticky='ew', pady=(0,4))
         btns = _ctk2.CTkFrame(modal, fg_color='transparent')
         btns.pack(fill='x', padx=20, pady=(0,16))
         def _apply_bulk():
+            title_all = _var_title_all.get().strip()
             desc = _txt_desc.get('1.0','end').strip()
             cat = _var_cat.get()
             kids = _var_kids.get()
             tags_raw = _var_tags.get().strip()
+            selected_playlist_id, selected_playlist_title = self._yt_playlist_label_to_data(_var_playlist.get())
             for row in self._yt_video_rows:
+                if title_all:
+                    row['title'] = title_all
                 row['category'] = cat
                 row['kids'] = 'Si' if kids else 'No'
+                row['playlist_id'] = selected_playlist_id
+                row['playlist_title'] = selected_playlist_title
                 if desc: row['description'] = desc
                 if tags_raw: row['tags'] = tags_raw
             self._yt_save_drafts_cache()
@@ -4869,10 +5304,13 @@ class AudioToVideoApp(ctk.CTk):
     def _yt_open_row_description_modal(self, row: dict[str, str]) -> None:
         """Open modal to inspect/edit description for a single queue row."""
         import customtkinter as _ctk5
+        import tkinter as _tk5
+
+        self._yt_restore_playlists_cache_from_settings()
 
         modal = _ctk5.CTkToplevel(self)
         modal.title('Descripcion del video')
-        modal.geometry('640x380')
+        modal.geometry('640x470')
         modal.resizable(True, True)
         modal.grab_set()
         modal.focus_force()
@@ -4881,7 +5319,7 @@ class AudioToVideoApp(ctk.CTk):
         inner = _ctk5.CTkFrame(modal, fg_color='transparent')
         inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
         inner.grid_columnconfigure(0, weight=1)
-        inner.grid_rowconfigure(1, weight=1)
+        inner.grid_rowconfigure(3, weight=1)
 
         _ctk5.CTkLabel(
             inner,
@@ -4891,6 +5329,31 @@ class AudioToVideoApp(ctk.CTk):
             font=_ctk5.CTkFont(size=self._fs(13), weight='bold'),
         ).grid(row=0, column=0, sticky='ew', pady=(0, 8))
 
+        _lbl = dict(text_color=C_MUTED, anchor='w', font=_ctk5.CTkFont(size=self._fs(11)))
+        _ctk5.CTkLabel(inner, text='Playlist (opcional)', **_lbl).grid(row=1, column=0, sticky='ew', pady=(0,4))
+        playlist_options = self._yt_playlist_options()
+        current_playlist_label = self._yt_playlist_data_to_label(
+            row.get('playlist_id', ''),
+            row.get('playlist_title', ''),
+        )
+        if current_playlist_label not in playlist_options:
+            playlist_options.append(current_playlist_label)
+        _var_playlist = _tk5.StringVar(value=current_playlist_label)
+        _ctk5.CTkOptionMenu(
+            inner,
+            variable=_var_playlist,
+            values=playlist_options,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_YT,
+            button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_text_color=C_TEXT,
+            dropdown_hover_color=C_HOVER,
+        ).grid(row=2, column=0, sticky='ew', pady=(0,10))
+
+        _ctk5.CTkLabel(inner, text='Descripcion', **_lbl).grid(row=3, column=0, sticky='ew', pady=(0,4))
+
         txt = _ctk5.CTkTextbox(
             inner,
             fg_color=C_INPUT,
@@ -4899,14 +5362,17 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_TEXT,
             font=_ctk5.CTkFont(size=self._fs(11)),
         )
-        txt.grid(row=1, column=0, sticky='nsew')
+        txt.grid(row=4, column=0, sticky='nsew')
         txt.insert('1.0', row.get('description', ''))
 
         btns = _ctk5.CTkFrame(modal, fg_color='transparent')
         btns.pack(fill='x', padx=20, pady=(8, 16))
 
         def _apply() -> None:
+            playlist_id, playlist_title = self._yt_playlist_label_to_data(_var_playlist.get())
             row['description'] = txt.get('1.0', 'end').strip()
+            row['playlist_id'] = playlist_id
+            row['playlist_title'] = playlist_title
             self._yt_save_drafts_cache()
             self._yt_render_queue_preview()
             modal.destroy()
@@ -5200,6 +5666,13 @@ class AudioToVideoApp(ctk.CTk):
 
     def _on_generate_youtube(self) -> None:
         """Apply scheduled metadata updates to YouTube using videos.update."""
+        if self._yt_sync_in_progress:
+            messagebox.showinfo("YouTube Publisher", "Ya hay un Sync en progreso.")
+            return
+
+        if not self._yt_require_channel_link(show_message=True):
+            return
+
         if not self._yt_video_rows:
             messagebox.showwarning("YouTube Publisher", "No hay videos en cola.")
             return
@@ -5266,6 +5739,8 @@ class AudioToVideoApp(ctk.CTk):
                 "tags": tags,
                 "category": row.get("category", "Music"),
                 "made_for_kids": (row.get("kids", "No") == "Si"),
+                "playlist_id": (row.get("playlist_id") or "").strip(),
+                "playlist_title": (row.get("playlist_title") or "").strip(),
                 "publish_at_utc": publish_at_utc,
             })
 
@@ -5282,32 +5757,101 @@ class AudioToVideoApp(ctk.CTk):
         ):
             return
 
+        self._yt_sync_in_progress = True
+        self._set_processing_state(True)
+        self._yt_open_sync_modal(len(pending))
+        self._log(f"[YouTube] Enviando {len(pending)} actualizacion(es) a YouTube...")
+        threading.Thread(
+            target=self._yt_sync_worker,
+            args=(pending,),
+            daemon=True,
+        ).start()
+
+    def _yt_sync_worker(self, pending: list[dict[str, Any]]) -> None:
+        total = len(pending)
         ok = 0
         fail = 0
         successful_video_ids: set[str] = set()
-        svc = self._yt_get_auth_service()
-        self._log(f"[YouTube] Enviando {len(pending)} actualizacion(es) a YouTube...")
-        for item in pending:
-            try:
-                svc.update_video_metadata_and_schedule(
-                    video_id=item["video_id"],
-                    title=item["title"],
-                    description=item["description"],
-                    tags=item["tags"],
-                    category_name=item["category"],
-                    made_for_kids=item["made_for_kids"],
-                    publish_at_utc=item["publish_at_utc"],
-                )
-                ok += 1
-                successful_video_ids.add(item["video_id"])
-                self._log(f"[YouTube] Programado: {item['video_id']} -> {item['publish_at_utc']}")
-            except YouTubeAuthError as exc:
-                fail += 1
-                self._log(f"[YouTube] Error {item['video_id']}: {exc}")
-            except Exception as exc:
-                fail += 1
-                self._log(f"[YouTube] Error inesperado {item['video_id']}: {exc}")
 
+        try:
+            svc = self._yt_get_auth_service()
+            for idx, item in enumerate(pending, start=1):
+                vid = item.get("video_id", "")
+                self.after(
+                    0,
+                    self._yt_update_sync_modal,
+                    idx - 1,
+                    total,
+                    ok,
+                    fail,
+                    f"Procesando {idx}/{total}: {vid}",
+                )
+
+                try:
+                    svc.update_video_metadata_and_schedule(
+                        video_id=item["video_id"],
+                        title=item["title"],
+                        description=item["description"],
+                        tags=item["tags"],
+                        category_name=item["category"],
+                        made_for_kids=item["made_for_kids"],
+                        publish_at_utc=item["publish_at_utc"],
+                    )
+                    playlist_id = (item.get("playlist_id") or "").strip()
+                    if playlist_id:
+                        try:
+                            svc.add_video_to_playlist(
+                                video_id=item["video_id"],
+                                playlist_id=playlist_id,
+                            )
+                            playlist_title = (item.get("playlist_title") or "").strip() or playlist_id
+                            self._log(
+                                f"[YouTube] Playlist asignada: {item['video_id']} -> {playlist_title}"
+                            )
+                        except YouTubeAuthError as exc:
+                            self._log(
+                                f"[YouTube] Aviso playlist {item['video_id']}: {exc}"
+                            )
+
+                    ok += 1
+                    successful_video_ids.add(item["video_id"])
+                    self._log(f"[YouTube] Programado: {item['video_id']} -> {item['publish_at_utc']}")
+                except YouTubeAuthError as exc:
+                    fail += 1
+                    self._log(f"[YouTube] Error {item['video_id']}: {exc}")
+                except Exception as exc:
+                    fail += 1
+                    self._log(f"[YouTube] Error inesperado {item['video_id']}: {exc}")
+
+                self.after(
+                    0,
+                    self._yt_update_sync_modal,
+                    idx,
+                    total,
+                    ok,
+                    fail,
+                    f"Completado {idx}/{total}: {vid}",
+                )
+        except Exception as exc:
+            fail += max(0, total - ok - fail)
+            self._log(f"[YouTube] Error fatal durante Sync: {exc}")
+
+        self.after(
+            0,
+            self._yt_finish_sync,
+            ok,
+            fail,
+            total,
+            successful_video_ids,
+        )
+
+    def _yt_finish_sync(
+        self,
+        ok: int,
+        fail: int,
+        total: int,
+        successful_video_ids: set[str],
+    ) -> None:
         if successful_video_ids:
             before_count = len(self._yt_video_rows)
             self._yt_video_rows = [
@@ -5320,10 +5864,9 @@ class AudioToVideoApp(ctk.CTk):
             self._log(f"[YouTube] Cola actualizada: {removed_count} video(s) exitosos removidos.")
 
         self._log(f"[YouTube] Resultado envio -> OK: {ok}, Error: {fail}")
-        if fail == 0:
-            messagebox.showinfo("YouTube Publisher", f"Programacion enviada. Videos OK: {ok}")
-        else:
-            messagebox.showwarning("YouTube Publisher", f"Proceso finalizado. OK: {ok}, Error: {fail}")
+        self._yt_finish_sync_modal(ok=ok, fail=fail, total=total)
+        self._yt_sync_in_progress = False
+        self._set_processing_state(False)
     # --- Footer -------------------------------------------------------
 
     def _build_footer(self) -> None:
@@ -5490,6 +6033,7 @@ class AudioToVideoApp(ctk.CTk):
         parent: ctk.CTkFrame,
         tabs: list,
         accent: str,
+        on_before_activate: Any | None = None,
     ) -> tuple:
         """
         Creates an underline-style tab panel.
@@ -5554,6 +6098,13 @@ class AudioToVideoApp(ctk.CTk):
             tab_data[name] = {"frame": tf, "label": lbl, "underline": ul, "btn": btn}
 
         def _activate(name: str) -> None:
+            if on_before_activate is not None:
+                try:
+                    allowed = on_before_activate(name)
+                except Exception:
+                    allowed = True
+                if allowed is False:
+                    return
             for k, d in tab_data.items():
                 active = k == name
                 if active:
@@ -5573,9 +6124,18 @@ class AudioToVideoApp(ctk.CTk):
             for w in (d["btn"], d["label"]):
                 w.bind("<Button-1>", lambda e, n=name: _activate(n))
 
+        # Optional external access (e.g., force back to first tab after guard).
+        setattr(outer, "_activate_tab", _activate)
+
         return outer, {n: d["frame"] for n, d in tab_data.items()}
 
-    def _section_header(self, parent: Any, text: str) -> ctk.CTkFrame:
+    def _section_header(
+        self,
+        parent: Any,
+        text: str,
+        *,
+        collapse_on_startup: bool = True,
+    ) -> ctk.CTkFrame:
         """Collapsible section header with chevron toggle.
 
         Clicking the header or chevron toggles visibility of all sibling
@@ -5643,7 +6203,7 @@ class AudioToVideoApp(ctk.CTk):
             w.bind("<Button-1>", _toggle)
 
         # Register for initial collapse
-        if hasattr(self, "_section_toggles"):
+        if collapse_on_startup and hasattr(self, "_section_toggles"):
             self._section_toggles.append(_toggle)
 
         return hdr

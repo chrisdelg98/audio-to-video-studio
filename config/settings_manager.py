@@ -89,6 +89,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "yt_cached_channel_fetched_at": "",
     "yt_cached_drafts_rows": [],
     "yt_cached_drafts_fetched_at": "",
+    "yt_cached_playlists": [],
+    "yt_cached_playlists_fetched_at": "",
 }
 
 # Preset semilla — se crea si presets.json no existe

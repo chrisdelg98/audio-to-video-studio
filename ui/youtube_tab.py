@@ -97,7 +97,9 @@ def build_youtube_publisher_panel(
             ("Cola", "queue"),
         ],
         accent=accent,
+        on_before_activate=app._yt_on_subtab_activate,
     )
+    app._yt_activate_subtab = getattr(panel, "_activate_tab", None)
     panel.grid(row=0, column=0, sticky="nsew", padx=0)
     panel.grid_remove()
 
@@ -115,7 +117,11 @@ def build_youtube_publisher_panel(
     )
     card_auth.grid(row=0, column=0, sticky="ew", pady=(0, 10))
     card_auth.grid_columnconfigure(0, weight=1)
-    app._section_header(card_auth, "Conexion del canal").grid(row=0, column=0, sticky="ew")
+    app._section_header(
+        card_auth,
+        "Conexion del canal",
+        collapse_on_startup=False,
+    ).grid(row=0, column=0, sticky="ew")
 
     auth_inner = ctk.CTkFrame(card_auth, fg_color="transparent")
     auth_inner.grid(row=1, column=0, sticky="ew", padx=14, pady=(10, 14))
@@ -254,6 +260,12 @@ def build_youtube_publisher_panel(
         toolbar, text="Obtener borradores",
         fg_color=accent, hover_color=accent, text_color="#FFFFFF",
         command=app._yt_fetch_drafts,
+    ).pack(side="left", padx=(0, 8))
+    ctk.CTkButton(
+        toolbar, text="Playlists", width=100,
+        fg_color="transparent", hover_color=colors["C_HOVER"],
+        border_width=2, border_color=colors["C_BORDER"], text_color=colors["C_TEXT"],
+        command=app._yt_open_playlists_modal,
     ).pack(side="left", padx=(0, 8))
     ctk.CTkButton(
         toolbar, text="Metadatos en lote", width=140,

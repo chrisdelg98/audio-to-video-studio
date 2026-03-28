@@ -263,6 +263,8 @@ class YouTubeAuthService:
                         "schedule": "",
                         "description": snippet.get("description", ""),
                         "tags": ", ".join(snippet.get("tags", []) or []),
+                        "playlist_id": "",
+                        "playlist_title": "",
                     })
 
                     if len(rows) >= limit:
@@ -323,6 +325,77 @@ class YouTubeAuthService:
             youtube.videos().update(part="snippet,status", body=body).execute()
         except Exception as exc:
             raise YouTubeAuthError(f"Error actualizando video {video_id}: {exc}") from exc
+
+    def list_my_playlists(self, limit: int = 200) -> list[dict[str, str]]:
+        """List playlists from authenticated channel (id + title)."""
+        if limit <= 0:
+            return []
+
+        try:
+            youtube = self.get_authorized_service()
+        except Exception as exc:
+            raise YouTubeAuthError(f"No se pudo preparar cliente YouTube: {exc}") from exc
+
+        rows: list[dict[str, str]] = []
+        page_token: str | None = None
+
+        try:
+            while len(rows) < limit:
+                resp = youtube.playlists().list(
+                    part="id,snippet",
+                    mine=True,
+                    maxResults=50,
+                    pageToken=page_token,
+                ).execute()
+
+                for item in resp.get("items", []):
+                    pid = str(item.get("id", "") or "").strip()
+                    title = str(item.get("snippet", {}).get("title", "") or "").strip()
+                    if not pid:
+                        continue
+                    rows.append({"id": pid, "title": title or pid})
+                    if len(rows) >= limit:
+                        break
+
+                if len(rows) >= limit:
+                    break
+
+                page_token = resp.get("nextPageToken")
+                if not page_token:
+                    break
+        except Exception as exc:
+            raise YouTubeAuthError(f"No se pudo listar playlists: {exc}") from exc
+
+        rows.sort(key=lambda x: (x.get("title", "") or "").lower())
+        return rows
+
+    def add_video_to_playlist(self, *, video_id: str, playlist_id: str) -> None:
+        """Insert a video into the given playlist."""
+        video_id = (video_id or "").strip()
+        playlist_id = (playlist_id or "").strip()
+        if not video_id:
+            raise YouTubeAuthError("Video sin ID; no se puede agregar a playlist.")
+        if not playlist_id:
+            raise YouTubeAuthError("Playlist sin ID; no se puede agregar video.")
+
+        try:
+            youtube = self.get_authorized_service()
+            youtube.playlistItems().insert(
+                part="snippet",
+                body={
+                    "snippet": {
+                        "playlistId": playlist_id,
+                        "resourceId": {
+                            "kind": "youtube#video",
+                            "videoId": video_id,
+                        },
+                    }
+                },
+            ).execute()
+        except Exception as exc:
+            raise YouTubeAuthError(
+                f"Error agregando video {video_id} a playlist {playlist_id}: {exc}"
+            ) from exc
 
     def clear_token(self) -> None:
         """Optional helper to force re-authentication."""
