@@ -26,6 +26,7 @@ _DEFAULT_DATA: dict[str, Any] = {
                     "skills": [
                         {
                             "name": "Asistente General",
+                            "description": "Asistente base para respuestas generales y accionables.",
                             "instructions": "Responde en espanol claro y con foco en ejecucion.",
                             "updated_at": "",
                         }
@@ -41,6 +42,7 @@ _DEFAULT_DATA: dict[str, Any] = {
 class PromptSkill:
     name: str
     instructions: str
+    description: str = ""
 
 
 @dataclass
@@ -93,6 +95,25 @@ class PromptLabManager:
             return []
         return [s["name"] for s in cat.get("skills", []) if isinstance(s, dict)]
 
+    def skill_objects(self, workspace_name: str, category_name: str) -> list[PromptSkill]:
+        cat = self._find_category(workspace_name, category_name)
+        if not cat:
+            return []
+        out: list[PromptSkill] = []
+        for skill in cat.get("skills", []):
+            if isinstance(skill, dict):
+                nm = str(skill.get("name", "")).strip()
+                if not nm:
+                    continue
+                out.append(
+                    PromptSkill(
+                        name=nm,
+                        instructions=str(skill.get("instructions", "")).strip(),
+                        description=str(skill.get("description", "")).strip(),
+                    )
+                )
+        return out
+
     def get_skill(self, workspace_name: str, category_name: str, skill_name: str) -> PromptSkill | None:
         cat = self._find_category(workspace_name, category_name)
         if not cat:
@@ -102,6 +123,7 @@ class PromptLabManager:
                 return PromptSkill(
                     name=str(skill.get("name", "")).strip(),
                     instructions=str(skill.get("instructions", "")).strip(),
+                    description=str(skill.get("description", "")).strip(),
                 )
         return None
 
@@ -243,12 +265,32 @@ class PromptLabManager:
         ws.setdefault("categories", []).append({"name": nm, "skills": []})
         self.save()
 
+    def delete_category(self, workspace_name: str, category_name: str) -> None:
+        ws = self._find_workspace(workspace_name)
+        if not ws:
+            raise ValueError("Workspace no encontrado.")
+        nm = category_name.strip()
+        if not nm:
+            raise ValueError("Nombre de categoria vacio.")
+        if nm.lower() == "general":
+            raise ValueError("La categoria General no se puede eliminar.")
+
+        categories = [c for c in ws.get("categories", []) if isinstance(c, dict)]
+        kept = [c for c in categories if str(c.get("name", "")).strip() != nm]
+        if len(kept) == len(categories):
+            raise ValueError("Categoria no encontrada.")
+        if not kept:
+            kept = [{"name": "General", "skills": []}]
+        ws["categories"] = kept
+        self.save()
+
     def upsert_skill(
         self,
         workspace_name: str,
         category_name: str,
         skill_name: str,
         instructions: str,
+        description: str = "",
     ) -> None:
         self.ensure_category(workspace_name, category_name)
         cat = self._find_category(workspace_name, category_name)
@@ -263,6 +305,7 @@ class PromptLabManager:
         for skill in cat.get("skills", []):
             if str(skill.get("name", "")).strip() == nm:
                 skill["instructions"] = instructions.strip()
+                skill["description"] = description.strip()
                 skill["updated_at"] = now
                 revisions = skill.setdefault("revisions", [])
                 if not isinstance(revisions, list):
@@ -290,6 +333,7 @@ class PromptLabManager:
             {
                 "name": nm,
                 "instructions": instructions.strip(),
+                "description": description.strip(),
                 "updated_at": now,
                 "revisions": [first_revision],
             }
@@ -346,6 +390,7 @@ class PromptLabManager:
                                 if not sk_name:
                                     continue
                                 sk_instructions = str(skill.get("instructions", "")).strip()
+                                sk_description = str(skill.get("description", "")).strip()
                                 sk_updated_at = str(skill.get("updated_at", "")).strip()
                                 revisions_raw = skill.get("revisions", [])
                                 revisions: list[dict[str, Any]] = []
@@ -376,6 +421,7 @@ class PromptLabManager:
                                     {
                                         "name": sk_name,
                                         "instructions": sk_instructions,
+                                        "description": sk_description,
                                         "updated_at": sk_updated_at,
                                         "revisions": revisions,
                                     }

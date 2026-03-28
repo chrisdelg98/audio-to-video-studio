@@ -27,6 +27,7 @@ import datetime as dt
 import json
 import os
 import threading
+import time
 import tkinter as tk
 import tkinter.colorchooser as colorchooser
 import tkinter.filedialog as filedialog
@@ -52,6 +53,16 @@ from core.slideshow_runner import SlideshowRunner
 from core.naming_manager import NamingManager as _NamingManager
 from core.utils import get_audio_files, get_audio_duration, get_image_files, get_bundle_dir
 from core.ffmpeg_setup import ensure_ffmpeg
+from core.ollama_setup import (
+    collect_status as collect_ollama_status,
+    estimate_models_size_gb,
+    install_ollama_windows,
+    list_installed_models_with_sizes,
+    pull_models as pull_ollama_models,
+    remove_models as remove_ollama_models,
+    try_start_ollama_server,
+    uninstall_ollama_windows,
+)
 from core.prompt_lab_backend import PromptBackendConfig, PromptLabBackend, PromptLabBackendError
 from core.youtube_auth import YouTubeAuthError, YouTubeAuthService
 from core.validator import ValidationResult, validate_environment
@@ -1057,12 +1068,14 @@ class StartupDependencyDialog(ctk.CTkToplevel):
         super().__init__(parent)
         self.title("Preparando CreatorFlow Studio")
         self.resizable(False, False)
+        self.overrideredirect(True)
         self.transient(parent)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", lambda: None)
         self.configure(fg_color=C_CARD)
 
         self._progress_mode = "indeterminate"
+        self._on_cancel = None
         self._var_title = tk.StringVar(value="Verificando dependencias...")
         self._var_detail = tk.StringVar(value="Preparando herramientas necesarias para iniciar.")
 
@@ -1104,7 +1117,30 @@ class StartupDependencyDialog(ctk.CTkToplevel):
         self._progress.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 18))
         self._progress.start()
 
-        self.geometry("460x160")
+        ctk.CTkLabel(
+            self,
+            text="No cierres la app durante esta instalacion.",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=C_WARN,
+            anchor="w",
+            justify="left",
+        ).grid(row=4, column=0, sticky="ew", padx=18, pady=(0, 10))
+
+        self._btn_cancel = ctk.CTkButton(
+            self,
+            text="Cancelar",
+            height=30,
+            fg_color=C_BTN_SECONDARY,
+            hover_color=C_HOVER,
+            text_color=C_TEXT,
+            border_width=1,
+            border_color=C_BORDER,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._handle_cancel,
+        )
+        self._btn_cancel.grid(row=5, column=0, sticky="e", padx=18, pady=(0, 14))
+
+        self.geometry("460x225")
         self.after(60, self._center)
 
     def _center(self) -> None:
@@ -1127,6 +1163,16 @@ class StartupDependencyDialog(ctk.CTkToplevel):
             self._progress.configure(mode="determinate")
             self._progress_mode = "determinate"
         self._progress.set(max(0.0, min(progress, 100.0)) / 100.0)
+
+    def set_cancel_handler(self, callback) -> None:
+        self._on_cancel = callback
+
+    def set_cancel_enabled(self, enabled: bool) -> None:
+        self._btn_cancel.configure(state="normal" if enabled else "disabled")
+
+    def _handle_cancel(self) -> None:
+        if self._on_cancel:
+            self._on_cancel()
 
     def close(self) -> None:
         self._progress.stop()
@@ -1202,6 +1248,318 @@ class BusyDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+class ThemedConfirmDialog(ctk.CTkToplevel):
+    """Themed Yes/No modal that follows app colors and typography."""
+
+    def __init__(self, parent: ctk.CTk, title: str, headline: str, detail: str) -> None:
+        super().__init__(parent)
+        self._result = False
+        self._font_scale = float(getattr(parent, "_font_scale", 1.0) or 1.0)
+
+        self.title(title)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self._on_no)
+        self.configure(fg_color=C_CARD)
+
+        self.grid_columnconfigure(0, weight=1)
+
+        width = max(580, min(760, int(640 * self._font_scale)))
+        wraplength = width - 60
+        chars_per_line = max(34, int(wraplength / max(7.0, 7.0 * self._font_scale)))
+
+        wrapped_lines = 0
+        for raw_line in detail.splitlines() or [detail]:
+            line = raw_line if raw_line else " "
+            wrapped_lines += max(1, (len(line) + chars_per_line - 1) // chars_per_line)
+        wrapped_lines = max(4, min(wrapped_lines, 16))
+        detail_height = int(18 * self._font_scale * wrapped_lines)
+        window_height = 136 + detail_height
+
+        ctk.CTkLabel(
+            self,
+            text=headline,
+            font=ctk.CTkFont(size=max(16, int(18 * self._font_scale)), weight="bold"),
+            text_color=C_TEXT,
+            anchor="w",
+            justify="left",
+        ).grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 6))
+
+        ctk.CTkLabel(
+            self,
+            text=detail,
+            font=ctk.CTkFont(size=max(12, int(14 * self._font_scale))),
+            text_color=C_TEXT_DIM,
+            anchor="w",
+            justify="left",
+            wraplength=wraplength,
+        ).grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 10))
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 18))
+        buttons.grid_columnconfigure(0, weight=1)
+        buttons.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkButton(
+            buttons,
+            text="No",
+            height=34,
+            fg_color=C_BTN_SECONDARY,
+            hover_color=C_HOVER,
+            text_color=C_TEXT,
+            border_width=1,
+            border_color=C_BORDER,
+            font=ctk.CTkFont(size=max(12, int(13 * self._font_scale)), weight="bold"),
+            command=self._on_no,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+
+        ctk.CTkButton(
+            buttons,
+            text="Si, continuar",
+            height=34,
+            fg_color=C_ACCENT,
+            hover_color=C_ACCENT_H,
+            text_color=C_BTN_PRIMARY_TEXT,
+            font=ctk.CTkFont(size=max(12, int(13 * self._font_scale)), weight="bold"),
+            command=self._on_yes,
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        self.geometry(f"{width}x{window_height}")
+        self.after(60, self._center)
+
+    def _center(self) -> None:
+        _center_window_on_screen(self)
+
+    def _on_yes(self) -> None:
+        self._result = True
+        self._close()
+
+    def _on_no(self) -> None:
+        self._result = False
+        self._close()
+
+    def _close(self) -> None:
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+
+    def run_modal(self) -> bool:
+        self.wait_window()
+        return self._result
+
+
+class ModelSelectionDialog(ctk.CTkToplevel):
+    """Modal para seleccionar modelos de Ollama a instalar con peso estimado."""
+
+    def __init__(
+        self,
+        parent: ctk.CTk,
+        *,
+        title: str,
+        missing_models: list[str],
+        estimate_cb,
+    ) -> None:
+        super().__init__(parent)
+        self._result: list[str] = []
+        self._estimate_cb = estimate_cb
+        self._font_scale = float(getattr(parent, "_font_scale", 1.0) or 1.0)
+
+        self.title(title)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.configure(fg_color=C_CARD)
+
+        self._catalog = [
+            {
+                "model": "llama3.1:8b",
+                "label": "Llama 3.1 8B",
+                "purpose": "Respuestas mas robustas y detalladas (modo Calidad alta).",
+                "ram": "16 GB recomendados (minimo 12 GB)",
+                "recommended": True,
+                "alternative": False,
+            },
+            {
+                "model": "llama3.2:3b",
+                "label": "Llama 3.2 3B",
+                "purpose": "Respuestas rapidas con buen balance calidad/rendimiento.",
+                "ram": "8 GB recomendados (minimo 6 GB)",
+                "recommended": True,
+                "alternative": False,
+            },
+            {
+                "model": "llama3.2:1b",
+                "label": "Llama 3.2 1B (Ligero)",
+                "purpose": "Opcion liviana: menor calidad, pero util para tareas simples.",
+                "ram": "4 GB recomendados (minimo 3 GB)",
+                "recommended": False,
+                "alternative": True,
+            },
+        ]
+
+        missing_set = {m.strip().lower() for m in missing_models if m.strip()}
+        self._vars: dict[str, tk.BooleanVar] = {}
+        for item in self._catalog:
+            model = item["model"]
+            # Preseleccionar recomendaciones faltantes; la ligera queda opcional.
+            default_checked = (model.lower() in missing_set) and (not item["alternative"])
+            self._vars[model] = tk.BooleanVar(value=default_checked)
+
+        self.grid_columnconfigure(0, weight=1)
+        width = max(680, min(820, int(740 * self._font_scale)))
+
+        ctk.CTkLabel(
+            self,
+            text="Selecciona los modelos a instalar",
+            font=ctk.CTkFont(size=max(16, int(18 * self._font_scale)), weight="bold"),
+            text_color=C_TEXT,
+            anchor="w",
+            justify="left",
+        ).grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 6))
+
+        ctk.CTkLabel(
+            self,
+            text=(
+                "Recomendado: instalar Llama 3.1 8B + Llama 3.2 3B. "
+                "La opcion 1B es alternativa ligera para equipos con menos recursos."
+            ),
+            font=ctk.CTkFont(size=max(12, int(13 * self._font_scale))),
+            text_color=C_TEXT_DIM,
+            anchor="w",
+            justify="left",
+            wraplength=width - 70,
+        ).grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 10))
+
+        options = ctk.CTkFrame(self, fg_color=C_PANEL, corner_radius=8)
+        options.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 10))
+        options.grid_columnconfigure(0, weight=1)
+
+        row = 0
+        for item in self._catalog:
+            model = item["model"]
+            tag = "Recomendado" if item["recommended"] else "Alternativa ligera"
+            tag_color = C_SUCCESS if item["recommended"] else C_WARN
+
+            line = ctk.CTkFrame(options, fg_color="transparent")
+            line.grid(row=row, column=0, sticky="ew", padx=12, pady=(10 if row == 0 else 2, 4))
+            line.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkCheckBox(
+                line,
+                text=f"{item['label']}  ({model})",
+                variable=self._vars[model],
+                font=ctk.CTkFont(size=max(12, int(13 * self._font_scale)), weight="bold"),
+                text_color=C_TEXT,
+                command=self._refresh_estimate,
+            ).grid(row=0, column=0, sticky="w")
+
+            ctk.CTkLabel(
+                line,
+                text=tag,
+                font=ctk.CTkFont(size=max(11, int(11 * self._font_scale)), weight="bold"),
+                text_color=tag_color,
+                anchor="e",
+                justify="right",
+            ).grid(row=0, column=1, sticky="e", padx=(8, 0))
+
+            ctk.CTkLabel(
+                options,
+                text=f"{item['purpose']}\nRAM recomendada: {item['ram']}",
+                font=ctk.CTkFont(size=max(11, int(12 * self._font_scale))),
+                text_color=C_MUTED,
+                anchor="w",
+                justify="left",
+                wraplength=width - 110,
+            ).grid(row=row + 1, column=0, sticky="ew", padx=16, pady=(0, 6))
+
+            row += 2
+
+        self._var_estimate = tk.StringVar(value="")
+        ctk.CTkLabel(
+            self,
+            textvariable=self._var_estimate,
+            font=ctk.CTkFont(size=max(12, int(13 * self._font_scale)), weight="bold"),
+            text_color=C_ACCENT,
+            anchor="w",
+            justify="left",
+        ).grid(row=3, column=0, sticky="ew", padx=20, pady=(0, 10))
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 18))
+        buttons.grid_columnconfigure(0, weight=1)
+        buttons.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkButton(
+            buttons,
+            text="Cancelar",
+            height=34,
+            fg_color=C_BTN_SECONDARY,
+            hover_color=C_HOVER,
+            text_color=C_TEXT,
+            border_width=1,
+            border_color=C_BORDER,
+            font=ctk.CTkFont(size=max(12, int(13 * self._font_scale)), weight="bold"),
+            command=self._on_cancel,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+
+        ctk.CTkButton(
+            buttons,
+            text="Instalar seleccion",
+            height=34,
+            fg_color=C_ACCENT,
+            hover_color=C_ACCENT_H,
+            text_color=C_BTN_PRIMARY_TEXT,
+            font=ctk.CTkFont(size=max(12, int(13 * self._font_scale)), weight="bold"),
+            command=self._on_confirm,
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        self._refresh_estimate()
+        self.geometry(f"{width}x520")
+        self.after(60, self._center)
+
+    def _center(self) -> None:
+        _center_window_on_screen(self)
+
+    def _selected_models(self) -> list[str]:
+        out: list[str] = []
+        for item in self._catalog:
+            model = item["model"]
+            if self._vars[model].get():
+                out.append(model)
+        return out
+
+    def _refresh_estimate(self) -> None:
+        selected = self._selected_models()
+        if not selected:
+            self._var_estimate.set("Peso estimado: 0 GB (sin seleccion)")
+            return
+        total = float(self._estimate_cb(selected))
+        self._var_estimate.set(f"Peso estimado segun seleccion: {total:.1f} GB")
+
+    def _on_confirm(self) -> None:
+        self._result = self._selected_models()
+        self._close()
+
+    def _on_cancel(self) -> None:
+        self._result = []
+        self._close()
+
+    def _close(self) -> None:
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+
+    def run_modal(self) -> list[str]:
+        self.wait_window()
+        return list(self._result)
+
+
 class AudioToVideoApp(ctk.CTk):
     """Ventana principal de la aplicación."""
 
@@ -1256,11 +1614,22 @@ class AudioToVideoApp(ctk.CTk):
         self._var_pl_backend_url = tk.StringVar(value=self.settings.get("pl_backend_url", "http://127.0.0.1:11434"))
         self._var_pl_model_quality = tk.StringVar(value=self.settings.get("pl_model_quality", "llama3.1:8b"))
         self._var_pl_model_fast = tk.StringVar(value=self.settings.get("pl_model_fast", "llama3.2:3b"))
+        raw_active_skills = self.settings.get("pl_active_skills", [])
+        self._pl_active_skills: list[dict[str, str]] = []
+        if isinstance(raw_active_skills, list):
+            for item in raw_active_skills:
+                if not isinstance(item, dict):
+                    continue
+                cat = str(item.get("category", "")).strip()
+                sk = str(item.get("skill", "")).strip()
+                if cat and sk:
+                    self._pl_active_skills.append({"category": cat, "skill": sk})
         self._pl_generation_in_progress = False
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
         self._startup_dependency_dialog: StartupDependencyDialog | None = None
         self._startup_last_status_message = ""
+        self._startup_cancel_requested = threading.Event()
         self._validation_in_progress = False
         self._log_queue: list[str] = []
         self._log_lock = threading.Lock()
@@ -4044,6 +4413,22 @@ class AudioToVideoApp(ctk.CTk):
         if current not in categories:
             current = categories[0]
             self._var_pl_category.set(current)
+
+        # Keep only compatible active skills (General + current category).
+        allowed = {"General", current}
+        filtered: list[dict[str, str]] = []
+        for item in self._pl_active_skills:
+            cat = str(item.get("category", "")).strip()
+            sk = str(item.get("skill", "")).strip()
+            if not cat or not sk:
+                continue
+            if cat not in allowed:
+                continue
+            if sk not in self._prompt_lab.skills(ws, cat):
+                continue
+            filtered.append({"category": cat, "skill": sk})
+        self._pl_active_skills = filtered
+
         self._pl_on_category_selected()
 
     def _pl_on_category_selected(self) -> None:
@@ -4057,7 +4442,32 @@ class AudioToVideoApp(ctk.CTk):
         if current not in skills:
             current = skills[0]
             self._var_pl_skill.set(current)
+
+        if not self._pl_active_skills:
+            self._pl_active_skills = [{"category": cat, "skill": current}]
+
+        # Ensure selected skill exists in active list.
+        found = False
+        for item in self._pl_active_skills:
+            if item.get("category") == cat and item.get("skill") == current:
+                found = True
+                break
+        if not found:
+            self._pl_active_skills.append({"category": cat, "skill": current})
+
+        self._pl_refresh_applied_skills_label()
         self._pl_on_skill_selected()
+
+    def _pl_refresh_applied_skills_label(self) -> None:
+        if not hasattr(self, "_lbl_pl_applied_skills"):
+            return
+        if not self._pl_active_skills:
+            self._lbl_pl_applied_skills.configure(text="Skills aplicadas: ninguna")
+            return
+        text = "Skills aplicadas: " + ", ".join(
+            [f"{item.get('category', '')}:{item.get('skill', '')}" for item in self._pl_active_skills]
+        )
+        self._lbl_pl_applied_skills.configure(text=text)
 
     def _pl_on_skill_selected(self) -> None:
         if not hasattr(self, "_lbl_pl_status"):
@@ -4071,6 +4481,7 @@ class AudioToVideoApp(ctk.CTk):
             if hasattr(self, "_txt_pl_instructions"):
                 self._txt_pl_instructions.delete("1.0", "end")
                 self._txt_pl_instructions.insert("1.0", skill.instructions)
+            self._pl_refresh_applied_skills_label()
         else:
             self._lbl_pl_status.configure(text="Skill sin instrucciones")
             if hasattr(self, "_txt_pl_instructions"):
@@ -4214,6 +4625,612 @@ class AudioToVideoApp(ctk.CTk):
             command=modal.destroy,
         ).pack(side="left")
 
+    def _pl_open_model_manager_modal(self) -> None:
+        base_url = "http://127.0.0.1:11434"
+        if hasattr(self, "_var_pl_backend_url"):
+            base_url = self._var_pl_backend_url.get().strip() or base_url
+        else:
+            base_url = str(self.settings.get("pl_backend_url", base_url) or base_url).strip()
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Gestion de almacenamiento IA")
+        modal.geometry("760x560")
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=20, pady=(14, 14))
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(
+            root,
+            text="Gestionar modelos y Ollama",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(14), weight="bold"),
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 4))
+
+        ctk.CTkLabel(
+            root,
+            text=(
+                "Desde aqui puedes eliminar modelos individuales o desinstalar Ollama completo "
+                "para liberar espacio en disco."
+            ),
+            text_color=C_TEXT_DIM,
+            anchor="w",
+            justify="left",
+            wraplength=700,
+            font=ctk.CTkFont(size=self._fs(11)),
+        ).grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        box = ctk.CTkScrollableFrame(root, fg_color=C_CARD)
+        box.grid(row=2, column=0, sticky="nsew")
+        box.grid_columnconfigure(0, weight=1)
+
+        summary_var = tk.StringVar(value="Cargando modelos instalados...")
+        ctk.CTkLabel(
+            root,
+            textvariable=summary_var,
+            text_color=C_ACCENT_LAB,
+            anchor="w",
+            justify="left",
+            font=ctk.CTkFont(size=self._fs(11), weight="bold"),
+        ).grid(row=3, column=0, sticky="ew", pady=(10, 8))
+
+        btns = ctk.CTkFrame(root, fg_color="transparent")
+        btns.grid(row=4, column=0, sticky="ew")
+
+        model_vars: dict[str, tk.BooleanVar] = {}
+        model_sizes: dict[str, float] = {}
+
+        def _update_summary() -> None:
+            selected = [name for name, var in model_vars.items() if var.get()]
+            selected_gb = round(sum(model_sizes.get(name, 0.0) for name in selected), 2)
+            total_gb = round(sum(model_sizes.values()), 2)
+            summary_var.set(
+                f"Modelos instalados: {len(model_vars)} | Seleccionados: {len(selected)} | "
+                f"Peso seleccionado: {selected_gb:.2f} GB | Total aprox: {total_gb:.2f} GB"
+            )
+
+        def _set_buttons(enabled: bool) -> None:
+            state = "normal" if enabled else "disabled"
+            btn_delete.configure(state=state)
+            btn_uninstall.configure(state=state)
+            btn_refresh.configure(state=state)
+            btn_close.configure(state=state)
+
+        def _load_models() -> None:
+            for child in box.winfo_children():
+                child.destroy()
+            model_vars.clear()
+            model_sizes.clear()
+
+            try:
+                models = list_installed_models_with_sizes(base_url)
+            except Exception as exc:
+                ctk.CTkLabel(
+                    box,
+                    text=f"No se pudo consultar modelos: {exc}",
+                    text_color=C_ERROR,
+                    anchor="w",
+                    justify="left",
+                    wraplength=680,
+                    font=ctk.CTkFont(size=self._fs(11)),
+                ).grid(row=0, column=0, sticky="ew", padx=12, pady=12)
+                summary_var.set("No fue posible consultar modelos instalados.")
+                return
+
+            if not models:
+                ctk.CTkLabel(
+                    box,
+                    text="No hay modelos instalados en Ollama.",
+                    text_color=C_TEXT_DIM,
+                    anchor="w",
+                    justify="left",
+                    font=ctk.CTkFont(size=self._fs(11)),
+                ).grid(row=0, column=0, sticky="ew", padx=12, pady=12)
+                summary_var.set("No hay modelos instalados.")
+                return
+
+            for idx, item in enumerate(models):
+                name = str(item.get("name", "")).strip()
+                size_gb = float(item.get("size_gb", 0.0) or 0.0)
+                if not name:
+                    continue
+
+                model_sizes[name] = size_gb
+                var = tk.BooleanVar(value=False)
+                model_vars[name] = var
+
+                row = ctk.CTkFrame(box, fg_color="transparent")
+                row.grid(row=idx, column=0, sticky="ew", padx=8, pady=(4, 2))
+                row.grid_columnconfigure(0, weight=1)
+
+                ctk.CTkCheckBox(
+                    row,
+                    text=name,
+                    variable=var,
+                    text_color=C_TEXT,
+                    command=_update_summary,
+                    fg_color=C_ACCENT_LAB,
+                    hover_color=C_ACCENT_LAB_H,
+                    font=ctk.CTkFont(size=self._fs(11), weight="bold"),
+                ).grid(row=0, column=0, sticky="w")
+
+                size_text = f"{size_gb:.2f} GB" if size_gb > 0 else "tamano no reportado"
+                ctk.CTkLabel(
+                    row,
+                    text=size_text,
+                    text_color=C_TEXT_DIM,
+                    anchor="e",
+                    font=ctk.CTkFont(size=self._fs(10)),
+                ).grid(row=0, column=1, sticky="e", padx=(8, 0))
+
+            _update_summary()
+
+        def _run_task(title: str, headline: str, task_fn, on_done) -> None:
+            busy = BusyDialog(self, title=title, headline=headline, detail="Preparando...")
+
+            def _progress(message: str, _pct: float | None = None) -> None:
+                self.after(0, busy.set_detail, headline, message)
+
+            def _worker() -> None:
+                try:
+                    ok, detail = task_fn(_progress)
+                except Exception as exc:
+                    ok, detail = False, str(exc)
+
+                def _done() -> None:
+                    busy.close()
+                    on_done(ok, detail)
+
+                self.after(0, _done)
+
+            threading.Thread(target=_worker, daemon=True).start()
+
+        def _delete_selected_models() -> None:
+            selected = [name for name, var in model_vars.items() if var.get()]
+            if not selected:
+                messagebox.showinfo("Prompt Lab", "Selecciona al menos un modelo para eliminar.")
+                return
+
+            total_gb = round(sum(model_sizes.get(name, 0.0) for name in selected), 2)
+            confirm = ThemedConfirmDialog(
+                self,
+                "Eliminar modelos",
+                "Confirmar eliminacion de modelos",
+                "Se eliminaran los modelos seleccionados de Ollama.\n"
+                f"Espacio estimado a liberar: {total_gb:.2f} GB.\n\n"
+                "Podras volver a descargarlos despues desde Prompt Lab.",
+            ).run_modal()
+            if not confirm:
+                return
+
+            _set_buttons(False)
+
+            def _task(progress_cb):
+                return remove_ollama_models(selected, on_progress=progress_cb)
+
+            def _done(ok: bool, detail: str) -> None:
+                _set_buttons(True)
+                if ok:
+                    self._log(f"[Prompt Lab] Modelos eliminados: {', '.join(selected)}")
+                    messagebox.showinfo("Prompt Lab", "Modelos eliminados correctamente.")
+                    _load_models()
+                else:
+                    messagebox.showerror("Prompt Lab", f"No se pudieron eliminar modelos.\n\n{detail}")
+
+            _run_task("Prompt Lab IA", "Eliminando modelos...", _task, _done)
+
+        def _uninstall_ollama() -> None:
+            confirm = ThemedConfirmDialog(
+                self,
+                "Desinstalar Ollama",
+                "Confirmar desinstalacion completa",
+                "Esto eliminara Ollama del sistema.\n"
+                "Prompt Lab no podra generar respuestas hasta reinstalarlo.\n\n"
+                "Deseas continuar?",
+            ).run_modal()
+            if not confirm:
+                return
+
+            _set_buttons(False)
+
+            def _task(progress_cb):
+                return uninstall_ollama_windows(on_progress=progress_cb)
+
+            def _done(ok: bool, detail: str) -> None:
+                _set_buttons(True)
+                if ok:
+                    self._log("[Prompt Lab] Ollama desinstalado por el usuario.")
+                    messagebox.showinfo(
+                        "Prompt Lab",
+                        "Ollama fue desinstalado correctamente. Prompt Lab IA quedara deshabilitado hasta reinstalarlo.",
+                    )
+                    modal.destroy()
+                else:
+                    messagebox.showerror("Prompt Lab", f"No se pudo desinstalar Ollama.\n\n{detail}")
+
+            _run_task("Prompt Lab IA", "Desinstalando Ollama...", _task, _done)
+
+        btn_delete = ctk.CTkButton(
+            btns,
+            text="Eliminar modelos seleccionados",
+            fg_color=C_BTN_DANGER,
+            hover_color=C_ERROR,
+            text_color="#FFFFFF",
+            command=_delete_selected_models,
+        )
+        btn_delete.pack(side="left")
+
+        btn_uninstall = ctk.CTkButton(
+            btns,
+            text="Desinstalar Ollama",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_uninstall_ollama,
+        )
+        btn_uninstall.pack(side="left", padx=(8, 0))
+
+        btn_refresh = ctk.CTkButton(
+            btns,
+            text="Actualizar lista",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_load_models,
+        )
+        btn_refresh.pack(side="left", padx=(8, 0))
+
+        btn_close = ctk.CTkButton(
+            btns,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        )
+        btn_close.pack(side="right")
+
+        _load_models()
+
+    def _pl_open_categories_modal(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Categorias de skills")
+        modal.geometry("560x440")
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            root,
+            text=f"Workspace: {ws}",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        list_box = ctk.CTkScrollableFrame(root, fg_color=C_CARD)
+        list_box.grid(row=1, column=0, sticky="nsew")
+        list_box.grid_columnconfigure(0, weight=1)
+
+        selected = tk.StringVar(value=self._var_pl_category.get().strip() or "General")
+
+        def _refresh() -> None:
+            for c in list_box.winfo_children():
+                c.destroy()
+            categories = self._prompt_lab.categories(ws) or ["General"]
+            if selected.get() not in categories:
+                selected.set(categories[0])
+            for i, cat_name in enumerate(categories):
+                row = ctk.CTkFrame(list_box, fg_color="transparent")
+                row.grid(row=i, column=0, sticky="ew", padx=8, pady=(4, 2))
+                row.grid_columnconfigure(1, weight=1)
+                ctk.CTkRadioButton(
+                    row,
+                    text=cat_name,
+                    variable=selected,
+                    value=cat_name,
+                    fg_color=C_ACCENT_LAB,
+                    hover_color=C_ACCENT_LAB_H,
+                    text_color=C_TEXT,
+                ).grid(row=0, column=0, sticky="w")
+                if cat_name.lower() == "general":
+                    tag = "Base"
+                    col = C_SUCCESS
+                else:
+                    tag = "Personalizada"
+                    col = C_TEXT_DIM
+                ctk.CTkLabel(
+                    row,
+                    text=tag,
+                    text_color=col,
+                    anchor="e",
+                    font=ctk.CTkFont(size=self._fs(10)),
+                ).grid(row=0, column=1, sticky="e")
+
+        btns = ctk.CTkFrame(root, fg_color="transparent")
+        btns.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+
+        def _add() -> None:
+            dlg = ctk.CTkInputDialog(text="Nombre de la nueva categoria:", title="Prompt Lab")
+            _center_window_on_screen(dlg)
+            name = (dlg.get_input() or "").strip()
+            if not name:
+                return
+            try:
+                self._prompt_lab.ensure_category(ws, name)
+                self._pl_refresh_workspace_menu(select=ws)
+                self._var_pl_category.set(name)
+                self._pl_on_category_selected()
+                _refresh()
+            except ValueError as exc:
+                messagebox.showwarning("Prompt Lab", str(exc))
+
+        def _delete() -> None:
+            name = selected.get().strip()
+            if not name:
+                return
+            confirm = ThemedConfirmDialog(
+                self,
+                "Prompt Lab",
+                "Eliminar categoria",
+                f"Se eliminara la categoria '{name}' y sus skills.\n\nEstas seguro?",
+            ).run_modal()
+            if not confirm:
+                return
+            try:
+                self._prompt_lab.delete_category(ws, name)
+                self._pl_refresh_workspace_menu(select=ws)
+                self._pl_on_category_selected()
+                _refresh()
+            except ValueError as exc:
+                messagebox.showwarning("Prompt Lab", str(exc))
+
+        ctk.CTkButton(
+            btns,
+            text="Nueva categoria",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_add,
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            btns,
+            text="Eliminar categoria",
+            fg_color=C_BTN_DANGER,
+            hover_color=C_ERROR,
+            text_color="#FFFFFF",
+            command=_delete,
+        ).pack(side="left", padx=(8, 0))
+
+        ctk.CTkButton(
+            btns,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side="right")
+
+        _refresh()
+
+    def _pl_open_skill_editor_modal(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+        cat = self._var_pl_category.get().strip() or "General"
+        current_name = self._var_pl_skill.get().strip()
+        if not current_name:
+            messagebox.showwarning("Prompt Lab", "Selecciona una skill primero.")
+            return
+
+        skill = self._prompt_lab.get_skill(ws, cat, current_name)
+        if not skill:
+            messagebox.showwarning("Prompt Lab", "No se encontro la skill seleccionada.")
+            return
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Descripcion de skill")
+        modal.geometry("680x520")
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.grid_columnconfigure(1, weight=1)
+        root.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(root, text="Nombre", text_color=C_MUTED).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        var_name = tk.StringVar(value=skill.name)
+        ent_name = ctk.CTkEntry(root, textvariable=var_name, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
+        ent_name.grid(row=0, column=1, sticky="ew", pady=(0, 8))
+
+        ctk.CTkLabel(root, text="Descripcion", text_color=C_MUTED).grid(row=1, column=0, sticky="nw", padx=(0, 8), pady=(0, 8))
+        txt_desc = ctk.CTkTextbox(root, height=100, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
+        txt_desc.grid(row=1, column=1, sticky="ew", pady=(0, 8))
+        txt_desc.insert("1.0", skill.description)
+
+        ctk.CTkLabel(root, text="Comportamiento (instrucciones)", text_color=C_MUTED).grid(row=2, column=0, sticky="nw", padx=(0, 8), pady=(0, 8))
+        txt_behavior = ctk.CTkTextbox(root, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
+        txt_behavior.grid(row=2, column=1, sticky="nsew", pady=(0, 8))
+        txt_behavior.insert("1.0", skill.instructions)
+
+        btns = ctk.CTkFrame(root, fg_color="transparent")
+        btns.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
+        def _update() -> None:
+            new_name = var_name.get().strip()
+            if not new_name:
+                messagebox.showwarning("Prompt Lab", "El nombre de skill no puede estar vacio.")
+                return
+            desc = txt_desc.get("1.0", "end").strip()
+            behavior = txt_behavior.get("1.0", "end").strip()
+            try:
+                self._prompt_lab.upsert_skill(ws, cat, new_name, behavior, description=desc)
+                self._var_pl_skill.set(new_name)
+                self._pl_on_category_selected()
+                if hasattr(self, "_txt_pl_instructions"):
+                    self._txt_pl_instructions.delete("1.0", "end")
+                    self._txt_pl_instructions.insert("1.0", behavior)
+                self._log(f"[Prompt Lab] Skill actualizada: {new_name}")
+                messagebox.showinfo("Prompt Lab", "Skill actualizada correctamente.")
+            except ValueError as exc:
+                messagebox.showwarning("Prompt Lab", str(exc))
+
+        ctk.CTkButton(
+            btns,
+            text="Actualizar",
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color="#FFFFFF",
+            command=_update,
+        ).pack(side="left")
+        ctk.CTkButton(
+            btns,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side="left", padx=(8, 0))
+
+    def _pl_open_skill_selector_modal(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+        current_cat = self._var_pl_category.get().strip() or "General"
+        categories = ["General"]
+        if current_cat != "General":
+            categories.append(current_cat)
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Aplicar multiples skills")
+        modal.geometry("720x520")
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            root,
+            text="Selecciona skills a aplicar (General + categoria actual)",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        box = ctk.CTkScrollableFrame(root, fg_color=C_CARD)
+        box.grid(row=1, column=0, sticky="nsew")
+        box.grid_columnconfigure(0, weight=1)
+
+        vars_map: dict[tuple[str, str], tk.BooleanVar] = {}
+
+        row_index = 0
+        for cat_name in categories:
+            ctk.CTkLabel(
+                box,
+                text=cat_name,
+                text_color=C_ACCENT_LAB,
+                anchor="w",
+                font=ctk.CTkFont(size=self._fs(11), weight="bold"),
+            ).grid(row=row_index, column=0, sticky="ew", padx=10, pady=(8, 2))
+            row_index += 1
+
+            for sk in self._prompt_lab.skill_objects(ws, cat_name):
+                key = (cat_name, sk.name)
+                default_checked = any(
+                    item.get("category") == cat_name and item.get("skill") == sk.name
+                    for item in self._pl_active_skills
+                )
+                var = tk.BooleanVar(value=default_checked)
+                vars_map[key] = var
+                line = ctk.CTkFrame(box, fg_color="transparent")
+                line.grid(row=row_index, column=0, sticky="ew", padx=16, pady=(2, 2))
+                line.grid_columnconfigure(0, weight=1)
+                ctk.CTkCheckBox(
+                    line,
+                    text=sk.name,
+                    variable=var,
+                    fg_color=C_ACCENT_LAB,
+                    hover_color=C_ACCENT_LAB_H,
+                    text_color=C_TEXT,
+                ).grid(row=0, column=0, sticky="w")
+                desc = sk.description.strip() or "Sin descripcion"
+                ctk.CTkLabel(
+                    line,
+                    text=desc,
+                    text_color=C_TEXT_DIM,
+                    anchor="w",
+                    justify="left",
+                    wraplength=560,
+                    font=ctk.CTkFont(size=self._fs(10)),
+                ).grid(row=1, column=0, sticky="ew", pady=(0, 4))
+                row_index += 1
+
+        btns = ctk.CTkFrame(root, fg_color="transparent")
+        btns.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+
+        def _apply() -> None:
+            chosen: list[dict[str, str]] = []
+            for (cat_name, skill_name), var in vars_map.items():
+                if var.get():
+                    chosen.append({"category": cat_name, "skill": skill_name})
+            if not chosen:
+                messagebox.showwarning("Prompt Lab", "Selecciona al menos una skill.")
+                return
+            self._pl_active_skills = chosen
+            self._pl_refresh_applied_skills_label()
+            self._log(f"[Prompt Lab] Skills aplicadas actualizadas ({len(chosen)}).")
+            modal.destroy()
+
+        ctk.CTkButton(
+            btns,
+            text="Actualizar skills aplicadas",
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color="#FFFFFF",
+            command=_apply,
+        ).pack(side="left")
+        ctk.CTkButton(
+            btns,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side="left", padx=(8, 0))
+
     def _pl_new_workspace_dialog(self) -> None:
         dialog = ctk.CTkInputDialog(text="Nombre del nuevo workspace:", title="Prompt Lab")
         _center_window_on_screen(dialog)
@@ -4250,11 +5267,20 @@ class AudioToVideoApp(ctk.CTk):
         skill_name = (skill_dialog.get_input() or "").strip()
         if not skill_name:
             return
+        desc_dialog = ctk.CTkInputDialog(text="Descripcion breve de la skill:", title="Prompt Lab")
+        _center_window_on_screen(desc_dialog)
+        description = (desc_dialog.get_input() or "").strip()
         instructions = ""
         if hasattr(self, "_txt_pl_instructions"):
             instructions = self._txt_pl_instructions.get("1.0", "end").strip()
         try:
-            self._prompt_lab.upsert_skill(ws, category, skill_name, instructions)
+            self._prompt_lab.upsert_skill(
+                ws,
+                category,
+                skill_name,
+                instructions,
+                description=description,
+            )
             self._var_pl_category.set(category)
             self._var_pl_skill.set(skill_name)
             self._pl_on_workspace_selected()
@@ -4272,8 +5298,16 @@ class AudioToVideoApp(ctk.CTk):
         instructions = ""
         if hasattr(self, "_txt_pl_instructions"):
             instructions = self._txt_pl_instructions.get("1.0", "end").strip()
+        current = self._prompt_lab.get_skill(ws, category, skill_name)
+        description = current.description if current else ""
         try:
-            self._prompt_lab.upsert_skill(ws, category, skill_name, instructions)
+            self._prompt_lab.upsert_skill(
+                ws,
+                category,
+                skill_name,
+                instructions,
+                description=description,
+            )
             self._pl_on_workspace_selected()
             self._log(f"[Prompt Lab] Skill guardada: {skill_name}")
         except ValueError as exc:
@@ -4305,8 +5339,22 @@ class AudioToVideoApp(ctk.CTk):
         cat = self._var_pl_category.get().strip() or "General"
         skill_name = self._var_pl_skill.get().strip() or "Asistente General"
         mode = self._var_pl_model_mode.get().strip() or "Calidad alta"
-        skill = self._prompt_lab.get_skill(ws, cat, skill_name)
-        instructions = skill.instructions if skill else ""
+        if not self._pl_active_skills:
+            self._pl_active_skills = [{"category": cat, "skill": skill_name}]
+
+        parts: list[str] = []
+        for item in self._pl_active_skills:
+            ac = str(item.get("category", "")).strip()
+            an = str(item.get("skill", "")).strip()
+            if not ac or not an:
+                continue
+            sk = self._prompt_lab.get_skill(ws, ac, an)
+            if sk and sk.instructions.strip():
+                parts.append(f"[{ac}/{an}]\n{sk.instructions.strip()}")
+        instructions = "\n\n".join(parts).strip()
+        if not instructions:
+            skill = self._prompt_lab.get_skill(ws, cat, skill_name)
+            instructions = skill.instructions if skill else ""
 
         config = PromptBackendConfig(
             base_url=self._var_pl_backend_url.get().strip(),
@@ -8658,6 +9706,7 @@ class AudioToVideoApp(ctk.CTk):
             return
 
         self._validation_in_progress = True
+        self._startup_cancel_requested.clear()
         self._startup_last_status_message = ""
         self._lbl_status.configure(text="Verificando entorno...", text_color=C_WARN)
         if hasattr(self, "_lbl_status_dot"):
@@ -8669,6 +9718,32 @@ class AudioToVideoApp(ctk.CTk):
         if self._startup_dependency_dialog and self._startup_dependency_dialog.winfo_exists():
             self._startup_dependency_dialog.close()
         self._startup_dependency_dialog = StartupDependencyDialog(self)
+        self._startup_dependency_dialog.set_cancel_handler(self._on_startup_dependency_cancel_request)
+        self._startup_dependency_dialog.set_cancel_enabled(True)
+
+    def _on_startup_dependency_cancel_request(self) -> None:
+        if self._startup_cancel_requested.is_set():
+            return
+
+        confirm = ThemedConfirmDialog(
+            self,
+            "Cancelar preparacion",
+            "Estas seguro de cancelar?",
+            "Se detendra la instalacion/descarga de Ollama en curso.\n"
+            "Prompt Lab puede quedar no disponible hasta completar dependencias.",
+        ).run_modal()
+        if not confirm:
+            return
+
+        self._startup_cancel_requested.set()
+        self._set_startup_dependency_status(
+            "Cancelando...",
+            "Deteniendo tareas de instalacion en curso.",
+            None,
+        )
+        dialog = self._startup_dependency_dialog
+        if dialog and dialog.winfo_exists():
+            dialog.set_cancel_enabled(False)
 
     def _set_startup_dependency_status(self, title: str, detail: str, progress: float | None = None) -> None:
         dialog = self._startup_dependency_dialog
@@ -8693,18 +9768,216 @@ class AudioToVideoApp(ctk.CTk):
             progress,
         )
 
+    def _on_ollama_progress(self, message: str, progress: float | None = None) -> None:
+        if message != self._startup_last_status_message:
+            self._startup_last_status_message = message
+            self.after(0, self._log, message)
+        self.after(
+            0,
+            self._set_startup_dependency_status,
+            "Preparando Prompt Lab IA...",
+            message,
+            progress,
+        )
+
+    def _ask_yes_no_main_thread(self, title: str, headline: str, detail: str) -> bool:
+        result = {"value": False}
+        done = threading.Event()
+
+        def _ask() -> None:
+            try:
+                dlg = ThemedConfirmDialog(self, title, headline, detail)
+                result["value"] = dlg.run_modal()
+            except Exception:
+                result["value"] = False
+            finally:
+                done.set()
+
+        self.after(0, _ask)
+        done.wait()
+        return bool(result["value"])
+
+    def _ask_model_selection_main_thread(self, missing_models: list[str]) -> list[str]:
+        result = {"value": []}
+        done = threading.Event()
+
+        def _ask() -> None:
+            try:
+                dlg = ModelSelectionDialog(
+                    self,
+                    title="Prompt Lab IA",
+                    missing_models=missing_models,
+                    estimate_cb=estimate_models_size_gb,
+                )
+                result["value"] = dlg.run_modal()
+            except Exception:
+                result["value"] = []
+            finally:
+                done.set()
+
+        self.after(0, _ask)
+        done.wait()
+        out = result.get("value")
+        if not isinstance(out, list):
+            return []
+        return [str(v).strip() for v in out if str(v).strip()]
+
+    def _collect_required_ollama_models(self) -> list[str]:
+        models: list[str] = []
+
+        if hasattr(self, "_var_pl_model_quality"):
+            quality = self._var_pl_model_quality.get().strip()
+            if quality and quality not in models:
+                models.append(quality)
+        if hasattr(self, "_var_pl_model_fast"):
+            fast = self._var_pl_model_fast.get().strip()
+            if fast and fast not in models:
+                models.append(fast)
+
+        if not models:
+            for fallback in (
+                str(self.settings.get("pl_model_quality", "")).strip(),
+                str(self.settings.get("pl_model_fast", "")).strip(),
+            ):
+                if fallback and fallback not in models:
+                    models.append(fallback)
+
+        return models
+
+    def _ensure_ollama_dependencies(self) -> None:
+        if self._startup_cancel_requested.is_set():
+            self.after(0, self._log, "Prompt Lab IA: preparacion cancelada por el usuario.")
+            return
+
+        base_url = "http://127.0.0.1:11434"
+        if hasattr(self, "_var_pl_backend_url"):
+            base_url = self._var_pl_backend_url.get().strip() or base_url
+        else:
+            base_url = str(self.settings.get("pl_backend_url", base_url) or base_url).strip()
+
+        required_models = self._collect_required_ollama_models()
+        if not required_models:
+            self.after(0, self._log, "Prompt Lab IA: no hay modelos configurados para validar en arranque.")
+            return
+
+        status = collect_ollama_status(base_url, required_models)
+
+        if not status.supported_os:
+            self.after(0, self._log, "Prompt Lab IA: Ollama no es compatible con este sistema operativo.")
+            return
+
+        if not status.installed:
+            if self._startup_cancel_requested.is_set():
+                self.after(0, self._log, "Prompt Lab IA: preparacion cancelada por el usuario.")
+                return
+
+            wants_install = self._ask_yes_no_main_thread(
+                "Prompt Lab IA",
+                "No se detecto Ollama en este equipo.",
+                "Ollama permite usar la generacion IA local de Prompt Lab.\n"
+                "Si no lo instalas, la seccion Prompt Lab no podra generar respuestas.\n\n"
+                "Quieres instalarlo automaticamente ahora?\n"
+                "Peso estimado: 300 MB.",
+            )
+            if not wants_install:
+                self.after(0, self._log, "Prompt Lab IA: instalacion de Ollama omitida por el usuario.")
+                return
+
+            ok, detail = install_ollama_windows(
+                on_progress=self._on_ollama_progress,
+                cancel_event=self._startup_cancel_requested,
+            )
+            if not ok:
+                if "cancelada" in detail.lower():
+                    self.after(0, self._log, "Prompt Lab IA: instalacion cancelada por el usuario.")
+                else:
+                    self.after(0, self._log, f"Prompt Lab IA: no se pudo instalar Ollama. {detail}")
+                return
+
+            # Give the OS a short window to refresh PATH/process registrations.
+            time.sleep(1.0)
+
+        status = collect_ollama_status(base_url, required_models)
+        if not status.running:
+            if self._startup_cancel_requested.is_set():
+                self.after(0, self._log, "Prompt Lab IA: preparacion cancelada por el usuario.")
+                return
+
+            wants_start = self._ask_yes_no_main_thread(
+                "Prompt Lab IA",
+                "Ollama esta instalado, pero su servicio local no responde.",
+                "Sin el servicio activo, Prompt Lab no podra consultar modelos.\n\n"
+                "Quieres iniciarlo automaticamente ahora?",
+            )
+            if wants_start:
+                started = try_start_ollama_server(base_url, on_progress=self._on_ollama_progress)
+                if not started:
+                    self.after(0, self._log, "Prompt Lab IA: no se pudo iniciar el servicio local de Ollama.")
+                    return
+            else:
+                self.after(0, self._log, "Prompt Lab IA: inicio del servicio Ollama omitido por el usuario.")
+                return
+
+        status = collect_ollama_status(base_url, required_models)
+        if not status.missing_models:
+            self.after(0, self._log, "Prompt Lab IA: modelos requeridos ya disponibles.")
+            return
+
+        if self._startup_cancel_requested.is_set():
+            self.after(0, self._log, "Prompt Lab IA: preparacion cancelada por el usuario.")
+            return
+
+        selected_models = self._ask_model_selection_main_thread(status.missing_models)
+        if not selected_models:
+            self.after(0, self._log, "Prompt Lab IA: descarga de modelos omitida por el usuario.")
+            return
+
+        ok, detail = pull_ollama_models(
+            selected_models,
+            on_progress=self._on_ollama_progress,
+            cancel_event=self._startup_cancel_requested,
+        )
+        if ok:
+            self.after(0, self._log, "Prompt Lab IA: modelos seleccionados descargados correctamente.")
+
+            # Ajustar fallback ligero si el usuario eligio solo el modelo alternativo.
+            lowered = {m.lower() for m in selected_models}
+            if "llama3.2:1b" in lowered and "llama3.2:3b" not in lowered:
+                if hasattr(self, "_var_pl_model_fast"):
+                    self._var_pl_model_fast.set("llama3.2:1b")
+                self.settings.set("pl_model_fast", "llama3.2:1b")
+                try:
+                    self.settings.save()
+                except Exception:
+                    pass
+                self.after(
+                    0,
+                    self._log,
+                    "Prompt Lab IA: modo rapido ajustado a llama3.2:1b (alternativa ligera).",
+                )
+        else:
+            if "cancelada" in detail.lower():
+                self.after(0, self._log, "Prompt Lab IA: descarga de modelos cancelada por el usuario.")
+            else:
+                self.after(0, self._log, f"Prompt Lab IA: error descargando modelos. {detail}")
+
     def _run_validation_worker(self) -> None:
         self.after(
             0,
             self._set_startup_dependency_status,
             "Verificando dependencias...",
-            "Comprobando FFmpeg y herramientas del sistema.",
+            "Comprobando FFmpeg, Ollama y herramientas del sistema.",
             None,
         )
 
         ffmpeg_dir = ensure_ffmpeg(on_progress=self._on_ffmpeg_progress)
         if ffmpeg_dir is None:
             self.after(0, self._log, "? No se pudo localizar ni instalar FFmpeg.")
+
+        try:
+            self._ensure_ollama_dependencies()
+        except Exception as exc:
+            self.after(0, self._log, f"Prompt Lab IA: error en preparacion de Ollama: {exc}")
 
         result = validate_environment()
         self.after(0, self._apply_validation_result, result)
@@ -8895,6 +10168,7 @@ class AudioToVideoApp(ctk.CTk):
             "pl_backend_url": self._var_pl_backend_url.get() if hasattr(self, "_var_pl_backend_url") else "http://127.0.0.1:11434",
             "pl_model_quality": self._var_pl_model_quality.get() if hasattr(self, "_var_pl_model_quality") else "llama3.1:8b",
             "pl_model_fast": self._var_pl_model_fast.get() if hasattr(self, "_var_pl_model_fast") else "llama3.2:3b",
+            "pl_active_skills": list(self._pl_active_skills),
         })
         # Save slideshow settings if panel exists
         if hasattr(self, "_var_sl_images_folder"):
@@ -9214,6 +10488,16 @@ class AudioToVideoApp(ctk.CTk):
             self._var_pl_backend_url.set(s.get("pl_backend_url", "http://127.0.0.1:11434"))
             self._var_pl_model_quality.set(s.get("pl_model_quality", "llama3.1:8b"))
             self._var_pl_model_fast.set(s.get("pl_model_fast", "llama3.2:3b"))
+            loaded_active = s.get("pl_active_skills", [])
+            self._pl_active_skills = []
+            if isinstance(loaded_active, list):
+                for item in loaded_active:
+                    if not isinstance(item, dict):
+                        continue
+                    cat = str(item.get("category", "")).strip()
+                    sk = str(item.get("skill", "")).strip()
+                    if cat and sk:
+                        self._pl_active_skills.append({"category": cat, "skill": sk})
             if hasattr(self, "_txt_pl_prompt"):
                 self._txt_pl_prompt.delete("1.0", "end")
                 self._txt_pl_prompt.insert("1.0", s.get("pl_prompt_text", ""))

@@ -144,6 +144,18 @@ def build_prompt_lab_panel(
     )
     app._pl_category_menu.grid(row=0, column=1, sticky="ew", padx=(0, 14), pady=(12, 8))
 
+    ctk.CTkButton(
+        card_skill,
+        text="Categorias",
+        width=110,
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_open_categories_modal,
+    ).grid(row=0, column=2, sticky="e", padx=(8, 14), pady=(12, 8))
+
     ctk.CTkLabel(
         card_skill,
         text="Skill",
@@ -204,6 +216,40 @@ def build_prompt_lab_panel(
         text_color=colors["C_TEXT"],
         command=app._pl_open_versions_modal,
     ).pack(side="left", padx=(6, 0))
+
+    ctk.CTkButton(
+        skill_btns,
+        text="Descripcion",
+        width=110,
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_open_skill_editor_modal,
+    ).pack(side="left", padx=(6, 0))
+
+    ctk.CTkButton(
+        skill_btns,
+        text="Aplicar multiples",
+        width=130,
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_open_skill_selector_modal,
+    ).pack(side="left", padx=(6, 0))
+
+    app._lbl_pl_applied_skills = ctk.CTkLabel(
+        card_skill,
+        text="Skills aplicadas: Asistente General",
+        text_color=colors["C_TEXT_DIM"],
+        anchor="w",
+        justify="left",
+        font=ctk.CTkFont(size=app._fs(10)),
+    )
+    app._lbl_pl_applied_skills.grid(row=2, column=0, columnspan=3, sticky="ew", padx=14, pady=(0, 10))
 
     card_instructions = ctk.CTkFrame(
         panel,
@@ -314,6 +360,21 @@ def build_prompt_lab_panel(
         height=30,
     )
     app._ent_pl_model_fast.grid(row=3, column=1, sticky="ew", padx=(0, 14), pady=(0, 12))
+
+    model_btns = ctk.CTkFrame(card_model, fg_color="transparent")
+    model_btns.grid(row=4, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 12))
+    model_btns.grid_columnconfigure(0, weight=1)
+
+    ctk.CTkButton(
+        model_btns,
+        text="Gestionar almacenamiento IA",
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_open_model_manager_modal,
+    ).grid(row=0, column=0, sticky="ew")
 
     card_prompt = ctk.CTkFrame(
         panel,

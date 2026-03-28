@@ -102,6 +102,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "pl_backend_url": "http://127.0.0.1:11434",
     "pl_model_quality": "llama3.1:8b",
     "pl_model_fast": "llama3.2:3b",
+    "pl_active_skills": [{"category": "General", "skill": "Asistente General"}],
 }
 
 # Preset semilla — se crea si presets.json no existe

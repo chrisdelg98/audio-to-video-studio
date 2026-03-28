@@ -22,14 +22,19 @@
 #define Win7SHA2URL    "https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/secu/2019/09/windows6.1-kb4474419-v3-x64_b5614c6cea5cb4e198717789633dca16308ef79c.msu"
 #define Win7SSUURL     "https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/secu/2019/03/windows6.1-kb4490628-x64_d3de52d6987f7c8bdc2c015dca69eac96047c76e.msu"
 #define VCRedistURL    "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+#define OllamaURL      "https://ollama.com/download/OllamaSetup.exe"
 #define VCRedistX64    "prereqs\vc_redist.x64.exe"
 #define VCRedistX86    "prereqs\vc_redist.x86.exe"
+#define OllamaSetup    "prereqs\OllamaSetup.exe"
 
 #ifexist "prereqs\vc_redist.x64.exe"
   #define HasBundledVCRedistX64
 #endif
 #ifexist "prereqs\vc_redist.x86.exe"
   #define HasBundledVCRedistX86
+#endif
+#ifexist "prereqs\OllamaSetup.exe"
+  #define HasBundledOllamaSetup
 #endif
 
 [Setup]
@@ -86,6 +91,9 @@ Source: "{#VCRedistX64}"; DestDir: "{tmp}"; Flags: dontcopy
 #ifdef HasBundledVCRedistX86
 Source: "{#VCRedistX86}"; DestDir: "{tmp}"; Flags: dontcopy
 #endif
+#ifdef HasBundledOllamaSetup
+Source: "{#OllamaSetup}"; DestDir: "{tmp}"; Flags: dontcopy
+#endif
 
 [Icons]
 ; Start Menu
@@ -112,6 +120,7 @@ var
   BtnOpenSP1: TNewButton;
   BtnOpenSHA2: TNewButton;
   BtnOpenVCRedist: TNewButton;
+  BtnOpenOllama: TNewButton;
   BtnCopyPS: TNewButton;
   InstallNeedsRestart: Boolean;
 
@@ -157,6 +166,24 @@ begin
 
   if RegQueryDWordValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86', 'Installed', Installed) then
     Result := (Installed = 1);
+end;
+
+function IsOllamaSupportedOS: Boolean;
+var
+  V: TWindowsVersion;
+begin
+  GetWindowsVersionEx(V);
+  Result := (V.Major >= 10);
+end;
+
+function IsOllamaInstalled: Boolean;
+begin
+  Result :=
+    FindOnPath('ollama') or
+    FileExists(ExpandConstant('{localappdata}\Programs\Ollama\ollama app.exe')) or
+    FileExists(ExpandConstant('{localappdata}\Programs\Ollama\ollama.exe')) or
+    FileExists(ExpandConstant('{pf}\Ollama\ollama app.exe')) or
+    FileExists(ExpandConstant('{pf}\Ollama\ollama.exe'));
 end;
 
 function ExecAndWait(const FileName, Params: string): Integer;
@@ -216,6 +243,14 @@ begin
   else
     StatusText := StatusText + 'Visual C++ Runtime: Falta (recomendado instalar)';
 
+  StatusText := StatusText + #13#10;
+  if not IsOllamaSupportedOS then
+    StatusText := StatusText + 'Ollama (Prompt Lab IA): No compatible en este sistema'
+  else if IsOllamaInstalled then
+    StatusText := StatusText + 'Ollama (Prompt Lab IA): OK'
+  else
+    StatusText := StatusText + 'Ollama (Prompt Lab IA): Falta (opcional, recomendado)';
+
   ReqStatus.Caption := StatusText;
 end;
 
@@ -232,6 +267,11 @@ end;
 procedure BtnOpenVCRedistClick(Sender: TObject);
 begin
   OpenURL('{#VCRedistURL}');
+end;
+
+procedure BtnOpenOllamaClick(Sender: TObject);
+begin
+  OpenURL('{#OllamaURL}');
 end;
 
 procedure BtnCopyPSClick(Sender: TObject);
@@ -314,6 +354,48 @@ begin
   end;
 end;
 
+function TryInstallBundledOllama(var ErrorText: string): Boolean;
+#ifdef HasBundledOllamaSetup
+var
+  Code: Integer;
+#endif
+begin
+  Result := True;
+  ErrorText := '';
+
+  if not IsOllamaSupportedOS then
+    exit;
+
+  if IsOllamaInstalled then
+    exit;
+
+  if not ChkAutoPrereqs.Checked then
+    exit;
+
+  #ifdef HasBundledOllamaSetup
+    ExtractTemporaryFile('OllamaSetup.exe');
+    Code := ExecAndWait(ExpandConstant('{tmp}\OllamaSetup.exe'), '/VERYSILENT /NORESTART');
+    if (Code = 3010) then
+      InstallNeedsRestart := True;
+    if not ((Code = 0) or (Code = 1638) or (Code = 3010)) then
+    begin
+      ErrorText :=
+        'No se pudo instalar Ollama automaticamente (codigo: ' + IntToStr(Code) + ').' + #13#10 + #13#10 +
+        'Descargalo manualmente desde:' + #13#10 +
+        '{#OllamaURL}';
+      Result := False;
+      exit;
+    end;
+  #else
+    ErrorText :=
+      'Este instalador no incluye OllamaSetup.exe en installer\prereqs.' + #13#10 + #13#10 +
+      'Descargalo manualmente desde:' + #13#10 +
+      '{#OllamaURL}';
+    Result := False;
+    exit;
+  #endif
+end;
+
 procedure InitializeWizard();
 var
   MemoMinH: Integer;
@@ -344,7 +426,8 @@ begin
     'Este instalador verifica compatibilidad y te ayuda con dependencias.' + #13#10 +
     '1) En Windows 7: SP1 es obligatorio.' + #13#10 +
     '2) SHA-2/SSU pueden ser necesarios en Windows 7 para instaladores modernos.' + #13#10 +
-    '3) Visual C++ Runtime se instalara automaticamente (si viene incluido).' + #13#10 + #13#10 +
+    '3) Visual C++ Runtime se instalara automaticamente (si viene incluido).' + #13#10 +
+    '4) Ollama es opcional (Prompt Lab IA) y tambien puede instalarse automaticamente.' + #13#10 + #13#10 +
     'Si algo no se puede automatizar, veras enlaces y el comando listo para copiar.';
 
   ReqStatus := TNewStaticText.Create(ReqPage);
@@ -352,7 +435,7 @@ begin
   ReqStatus.Left := 0;
   ReqStatus.Top := ReqMemo.Top + ReqMemo.Height + 8;
   ReqStatus.Width := ReqPage.SurfaceWidth;
-  ReqStatus.Height := ScaleY(40);
+  ReqStatus.Height := ScaleY(56);
   ReqStatus.AutoSize := False;
 
   ChkAutoPrereqs := TNewCheckBox.Create(ReqPage);
@@ -402,8 +485,21 @@ begin
   BtnCopyPS.Caption := 'Copiar comando PowerShell';
   BtnCopyPS.OnClick := @BtnCopyPSClick;
 
+  BtnOpenOllama := TNewButton.Create(ReqPage);
+  BtnOpenOllama.Parent := ReqPage.Surface;
+  BtnOpenOllama.Left := BtnCopyPS.Left + BtnCopyPS.Width + 8;
+  BtnOpenOllama.Top := BtnCopyPS.Top;
+  BtnOpenOllama.Width := 180;
+  BtnOpenOllama.Height := BtnH;
+  BtnOpenOllama.Caption := 'Abrir Ollama';
+  BtnOpenOllama.OnClick := @BtnOpenOllamaClick;
+  BtnOpenOllama.Enabled := IsOllamaSupportedOS;
+
   if (BtnCopyPS.Top + BtnCopyPS.Height) > ReqPage.SurfaceHeight then
     BtnCopyPS.Top := ReqPage.SurfaceHeight - BtnCopyPS.Height - ScaleY(2);
+
+  if (BtnOpenOllama.Top + BtnOpenOllama.Height) > ReqPage.SurfaceHeight then
+    BtnOpenOllama.Top := ReqPage.SurfaceHeight - BtnOpenOllama.Height - ScaleY(2);
 
   UpdateReqStatusText;
 end;
@@ -463,6 +559,19 @@ begin
   begin
     Result := Err;
     exit;
+  end;
+
+  if not TryInstallBundledOllama(Err) then
+  begin
+    Log('Ollama prerequisite warning: ' + Err);
+    MsgBox(
+      'No se pudo instalar Ollama automaticamente.' + #13#10 + #13#10 +
+      'La app se instalara igual, pero Prompt Lab IA necesitara Ollama activo.' + #13#10 +
+      'Puedes instalarlo despues desde:' + #13#10 +
+      '{#OllamaURL}',
+      mbInformation,
+      MB_OK
+    );
   end;
 
   NeedsRestart := InstallNeedsRestart;
