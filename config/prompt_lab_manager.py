@@ -43,6 +43,13 @@ class PromptSkill:
     instructions: str
 
 
+@dataclass
+class SkillRevision:
+    version: int
+    updated_at: str
+    instructions: str
+
+
 class PromptLabManager:
     """CRUD JSON for Prompt Lab entities."""
 
@@ -67,6 +74,9 @@ class PromptLabManager:
             json.dumps(self._data, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+
+    def app_version(self) -> int:
+        return int(self._data.get("version", 1))
 
     def workspaces(self) -> list[str]:
         return [w["name"] for w in self._data.get("workspaces", []) if isinstance(w, dict)]
@@ -95,6 +105,61 @@ class PromptLabManager:
                 )
         return None
 
+    def skill_versions(self, workspace_name: str, category_name: str, skill_name: str) -> list[SkillRevision]:
+        cat = self._find_category(workspace_name, category_name)
+        if not cat:
+            return []
+        for skill in cat.get("skills", []):
+            if isinstance(skill, dict) and str(skill.get("name", "")).strip() == skill_name:
+                revisions = skill.get("revisions", [])
+                if not isinstance(revisions, list):
+                    return []
+                out: list[SkillRevision] = []
+                for rev in revisions:
+                    if not isinstance(rev, dict):
+                        continue
+                    try:
+                        out.append(
+                            SkillRevision(
+                                version=int(rev.get("version", 1)),
+                                updated_at=str(rev.get("updated_at", "")).strip(),
+                                instructions=str(rev.get("instructions", "")),
+                            )
+                        )
+                    except Exception:
+                        continue
+                return sorted(out, key=lambda r: r.version)
+        return []
+
+    def restore_skill_version(
+        self,
+        workspace_name: str,
+        category_name: str,
+        skill_name: str,
+        version: int,
+    ) -> None:
+        cat = self._find_category(workspace_name, category_name)
+        if not cat:
+            raise ValueError("Categoria no encontrada.")
+        for skill in cat.get("skills", []):
+            if isinstance(skill, dict) and str(skill.get("name", "")).strip() == skill_name:
+                revisions = skill.get("revisions", [])
+                if not isinstance(revisions, list):
+                    raise ValueError("La skill no tiene historial.")
+                for rev in revisions:
+                    if not isinstance(rev, dict):
+                        continue
+                    if int(rev.get("version", -1)) == int(version):
+                        self.upsert_skill(
+                            workspace_name=workspace_name,
+                            category_name=category_name,
+                            skill_name=skill_name,
+                            instructions=str(rev.get("instructions", "")),
+                        )
+                        return
+                raise ValueError("Version no encontrada.")
+        raise ValueError("Skill no encontrada.")
+
     def create_workspace(self, name: str) -> None:
         nm = name.strip()
         if not nm:
@@ -109,6 +174,51 @@ class PromptLabManager:
             }
         )
         self.save()
+
+    def export_workspace(self, workspace_name: str, output_file: Path) -> None:
+        ws = self._find_workspace(workspace_name)
+        if not ws:
+            raise ValueError("Workspace no encontrado.")
+        payload = {
+            "schema": "prompt-lab-workspace",
+            "version": self.app_version(),
+            "exported_at": datetime.utcnow().isoformat(timespec="seconds"),
+            "workspace": ws,
+        }
+        output_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    def import_workspace(self, input_file: Path, *, replace_if_exists: bool = True) -> str:
+        try:
+            raw = json.loads(input_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise ValueError(f"No se pudo leer el archivo: {exc}") from exc
+
+        if not isinstance(raw, dict):
+            raise ValueError("Formato invalido de importacion.")
+
+        ws = raw.get("workspace")
+        if not isinstance(ws, dict):
+            raise ValueError("El archivo no contiene un workspace valido.")
+
+        ws_name = str(ws.get("name", "")).strip()
+        if not ws_name:
+            raise ValueError("El workspace importado no tiene nombre.")
+
+        normalized_ws = self._normalize({"workspaces": [ws]}).get("workspaces", [])[0]
+        existing = self._find_workspace(ws_name)
+
+        if existing and not replace_if_exists:
+            raise ValueError("Ya existe un workspace con ese nombre.")
+
+        if existing and replace_if_exists:
+            self._data["workspaces"] = [
+                w for w in self._data.get("workspaces", [])
+                if str(w.get("name", "")).strip() != ws_name
+            ]
+
+        self._data.setdefault("workspaces", []).append(normalized_ws)
+        self.save()
+        return ws_name
 
     def delete_workspace(self, name: str) -> None:
         items = self._data.get("workspaces", [])
@@ -154,14 +264,34 @@ class PromptLabManager:
             if str(skill.get("name", "")).strip() == nm:
                 skill["instructions"] = instructions.strip()
                 skill["updated_at"] = now
+                revisions = skill.setdefault("revisions", [])
+                if not isinstance(revisions, list):
+                    revisions = []
+                    skill["revisions"] = revisions
+                next_version = 1
+                if revisions:
+                    next_version = max(int(r.get("version", 0)) for r in revisions if isinstance(r, dict)) + 1
+                revisions.append(
+                    {
+                        "version": next_version,
+                        "updated_at": now,
+                        "instructions": instructions.strip(),
+                    }
+                )
                 self.save()
                 return
 
+        first_revision = {
+            "version": 1,
+            "updated_at": now,
+            "instructions": instructions.strip(),
+        }
         cat.setdefault("skills", []).append(
             {
                 "name": nm,
                 "instructions": instructions.strip(),
                 "updated_at": now,
+                "revisions": [first_revision],
             }
         )
         self.save()
@@ -207,7 +337,7 @@ class PromptLabManager:
                         if not cat_name:
                             continue
                         raw_skills = cat.get("skills", [])
-                        skills: list[dict[str, str]] = []
+                        skills: list[dict[str, Any]] = []
                         if isinstance(raw_skills, list):
                             for skill in raw_skills:
                                 if not isinstance(skill, dict):
@@ -215,11 +345,39 @@ class PromptLabManager:
                                 sk_name = str(skill.get("name", "")).strip()
                                 if not sk_name:
                                     continue
+                                sk_instructions = str(skill.get("instructions", "")).strip()
+                                sk_updated_at = str(skill.get("updated_at", "")).strip()
+                                revisions_raw = skill.get("revisions", [])
+                                revisions: list[dict[str, Any]] = []
+                                if isinstance(revisions_raw, list):
+                                    for rev in revisions_raw:
+                                        if not isinstance(rev, dict):
+                                            continue
+                                        try:
+                                            rev_version = int(rev.get("version", 1))
+                                        except Exception:
+                                            rev_version = 1
+                                        revisions.append(
+                                            {
+                                                "version": rev_version,
+                                                "updated_at": str(rev.get("updated_at", "")).strip(),
+                                                "instructions": str(rev.get("instructions", "")),
+                                            }
+                                        )
+                                if not revisions:
+                                    revisions = [
+                                        {
+                                            "version": 1,
+                                            "updated_at": sk_updated_at,
+                                            "instructions": sk_instructions,
+                                        }
+                                    ]
                                 skills.append(
                                     {
                                         "name": sk_name,
-                                        "instructions": str(skill.get("instructions", "")).strip(),
-                                        "updated_at": str(skill.get("updated_at", "")).strip(),
+                                        "instructions": sk_instructions,
+                                        "updated_at": sk_updated_at,
+                                        "revisions": revisions,
                                     }
                                 )
                         categories.append({"name": cat_name, "skills": skills})

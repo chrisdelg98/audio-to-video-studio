@@ -52,6 +52,7 @@ from core.slideshow_runner import SlideshowRunner
 from core.naming_manager import NamingManager as _NamingManager
 from core.utils import get_audio_files, get_audio_duration, get_image_files, get_bundle_dir
 from core.ffmpeg_setup import ensure_ffmpeg
+from core.prompt_lab_backend import PromptBackendConfig, PromptLabBackend, PromptLabBackendError
 from core.youtube_auth import YouTubeAuthError, YouTubeAuthService
 from core.validator import ValidationResult, validate_environment
 from config.prompt_lab_manager import PromptLabManager
@@ -1219,6 +1220,7 @@ class AudioToVideoApp(ctk.CTk):
 
         self.settings = SettingsManager()
         self._prompt_lab = PromptLabManager()
+        self._prompt_backend = PromptLabBackend()
         self._runner: Runner | None = None
         self._image_assignment: dict[str, Path] = {}
         self._used_names: set[str] = set()
@@ -1251,6 +1253,10 @@ class AudioToVideoApp(ctk.CTk):
         self._var_pl_category = tk.StringVar(value=self.settings.get("pl_category", "General"))
         self._var_pl_skill = tk.StringVar(value=self.settings.get("pl_skill", "Asistente General"))
         self._var_pl_model_mode = tk.StringVar(value=self.settings.get("pl_model_mode", "Calidad alta"))
+        self._var_pl_backend_url = tk.StringVar(value=self.settings.get("pl_backend_url", "http://127.0.0.1:11434"))
+        self._var_pl_model_quality = tk.StringVar(value=self.settings.get("pl_model_quality", "llama3.1:8b"))
+        self._var_pl_model_fast = tk.StringVar(value=self.settings.get("pl_model_fast", "llama3.2:3b"))
+        self._pl_generation_in_progress = False
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
         self._startup_dependency_dialog: StartupDependencyDialog | None = None
@@ -4012,6 +4018,7 @@ class AudioToVideoApp(ctk.CTk):
             },
         )
         self._pl_refresh_workspace_menu(select=self._var_pl_workspace.get())
+        self._pl_on_skill_selected()
         saved_prompt = self.settings.get("pl_prompt_text", "")
         if hasattr(self, "_txt_pl_prompt") and saved_prompt:
             self._txt_pl_prompt.delete("1.0", "end")
@@ -4060,11 +4067,155 @@ class AudioToVideoApp(ctk.CTk):
         skill = self._prompt_lab.get_skill(ws, cat, skill_name)
         if skill:
             self._lbl_pl_status.configure(text=f"Skill activa: {skill.name}")
+            if hasattr(self, "_txt_pl_instructions"):
+                self._txt_pl_instructions.delete("1.0", "end")
+                self._txt_pl_instructions.insert("1.0", skill.instructions)
         else:
             self._lbl_pl_status.configure(text="Skill sin instrucciones")
+            if hasattr(self, "_txt_pl_instructions"):
+                self._txt_pl_instructions.delete("1.0", "end")
+
+    def _pl_export_workspace(self) -> None:
+        ws = self._var_pl_workspace.get().strip()
+        if not ws:
+            return
+        file_path = filedialog.asksaveasfilename(
+            title="Exportar workspace de Prompt Lab",
+            defaultextension=".json",
+            filetypes=[("JSON", "*.json")],
+            initialfile=f"prompt-lab-{ws}.json",
+        )
+        if not file_path:
+            return
+        try:
+            self._prompt_lab.export_workspace(ws, Path(file_path))
+            self._log(f"[Prompt Lab] Workspace exportado: {file_path}")
+            if hasattr(self, "_lbl_pl_status"):
+                self._lbl_pl_status.configure(text=f"Workspace exportado: {ws}")
+        except ValueError as exc:
+            messagebox.showwarning("Prompt Lab", str(exc))
+        except Exception as exc:
+            messagebox.showerror("Prompt Lab", f"Error exportando workspace: {exc}")
+
+    def _pl_import_workspace(self) -> None:
+        file_path = filedialog.askopenfilename(
+            title="Importar workspace de Prompt Lab",
+            filetypes=[("JSON", "*.json"), ("Todos", "*.*")],
+        )
+        if not file_path:
+            return
+        replace = messagebox.askyesno(
+            "Prompt Lab",
+            "Si ya existe un workspace con ese nombre, deseas reemplazarlo?",
+        )
+        try:
+            imported_name = self._prompt_lab.import_workspace(Path(file_path), replace_if_exists=replace)
+            self._pl_refresh_workspace_menu(select=imported_name)
+            self._log(f"[Prompt Lab] Workspace importado: {imported_name}")
+        except ValueError as exc:
+            messagebox.showwarning("Prompt Lab", str(exc))
+        except Exception as exc:
+            messagebox.showerror("Prompt Lab", f"Error importando workspace: {exc}")
+
+    def _pl_open_versions_modal(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+        cat = self._var_pl_category.get().strip() or "General"
+        skill_name = self._var_pl_skill.get().strip()
+        if not skill_name:
+            messagebox.showwarning("Prompt Lab", "Selecciona una skill primero.")
+            return
+
+        versions = self._prompt_lab.skill_versions(ws, cat, skill_name)
+        if not versions:
+            messagebox.showinfo("Prompt Lab", "Esta skill aun no tiene historial de versiones.")
+            return
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Historial de versiones")
+        modal.geometry("640x460")
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
+
+        inner = ctk.CTkFrame(modal, fg_color="transparent")
+        inner.pack(fill="both", expand=True, padx=20, pady=(14, 10))
+        inner.grid_columnconfigure(0, weight=1)
+        inner.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            inner,
+            text=f"Skill: {skill_name} ({len(versions)} versiones)",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        box = ctk.CTkScrollableFrame(inner, fg_color=C_CARD)
+        box.grid(row=1, column=0, sticky="nsew")
+        box.grid_columnconfigure(0, weight=1)
+
+        selected_version = tk.IntVar(value=versions[-1].version)
+        for idx, rev in enumerate(reversed(versions)):
+            row = ctk.CTkFrame(box, fg_color="transparent")
+            row.grid(row=idx, column=0, sticky="ew", padx=8, pady=(2, 4))
+            row.grid_columnconfigure(1, weight=1)
+            ctk.CTkRadioButton(
+                row,
+                text=f"v{rev.version}",
+                variable=selected_version,
+                value=rev.version,
+                fg_color=C_ACCENT_LAB,
+                hover_color=C_ACCENT_LAB_H,
+                text_color=C_TEXT,
+            ).grid(row=0, column=0, sticky="w")
+            ctk.CTkLabel(
+                row,
+                text=rev.updated_at or "sin fecha",
+                text_color=C_TEXT_DIM,
+                anchor="w",
+                font=ctk.CTkFont(size=self._fs(10)),
+            ).grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        btns = ctk.CTkFrame(modal, fg_color="transparent")
+        btns.pack(fill="x", padx=20, pady=(0, 14))
+
+        def _restore_selected() -> None:
+            try:
+                self._prompt_lab.restore_skill_version(
+                    workspace_name=ws,
+                    category_name=cat,
+                    skill_name=skill_name,
+                    version=selected_version.get(),
+                )
+                self._pl_on_skill_selected()
+                self._log(f"[Prompt Lab] Restaurada version v{selected_version.get()} de {skill_name}")
+                modal.destroy()
+            except ValueError as exc:
+                messagebox.showwarning("Prompt Lab", str(exc))
+
+        ctk.CTkButton(
+            btns,
+            text="Restaurar version",
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color="#FFFFFF",
+            command=_restore_selected,
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            btns,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=2,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side="left")
 
     def _pl_new_workspace_dialog(self) -> None:
         dialog = ctk.CTkInputDialog(text="Nombre del nuevo workspace:", title="Prompt Lab")
+        _center_window_on_screen(dialog)
         name = (dialog.get_input() or "").strip()
         if not name:
             return
@@ -4091,14 +4242,16 @@ class AudioToVideoApp(ctk.CTk):
     def _pl_new_skill_dialog(self) -> None:
         ws = self._var_pl_workspace.get().strip() or "General"
         cat_dialog = ctk.CTkInputDialog(text="Categoria (nueva o existente):", title="Prompt Lab")
+        _center_window_on_screen(cat_dialog)
         category = (cat_dialog.get_input() or self._var_pl_category.get()).strip() or "General"
         skill_dialog = ctk.CTkInputDialog(text="Nombre de la skill:", title="Prompt Lab")
+        _center_window_on_screen(skill_dialog)
         skill_name = (skill_dialog.get_input() or "").strip()
         if not skill_name:
             return
         instructions = ""
-        if hasattr(self, "_txt_pl_prompt"):
-            instructions = self._txt_pl_prompt.get("1.0", "end").strip()
+        if hasattr(self, "_txt_pl_instructions"):
+            instructions = self._txt_pl_instructions.get("1.0", "end").strip()
         try:
             self._prompt_lab.upsert_skill(ws, category, skill_name, instructions)
             self._var_pl_category.set(category)
@@ -4116,8 +4269,8 @@ class AudioToVideoApp(ctk.CTk):
             messagebox.showwarning("Prompt Lab", "Selecciona o crea una skill primero.")
             return
         instructions = ""
-        if hasattr(self, "_txt_pl_prompt"):
-            instructions = self._txt_pl_prompt.get("1.0", "end").strip()
+        if hasattr(self, "_txt_pl_instructions"):
+            instructions = self._txt_pl_instructions.get("1.0", "end").strip()
         try:
             self._prompt_lab.upsert_skill(ws, category, skill_name, instructions)
             self._pl_on_workspace_selected()
@@ -4137,6 +4290,9 @@ class AudioToVideoApp(ctk.CTk):
             self._lbl_pl_status.configure(text="Salida copiada al portapapeles")
 
     def _on_generate_prompt_lab(self) -> None:
+        if self._pl_generation_in_progress:
+            messagebox.showinfo("Prompt Lab", "Ya hay una generacion en progreso.")
+            return
         if not hasattr(self, "_txt_pl_prompt") or not hasattr(self, "_txt_pl_output"):
             return
         prompt = self._txt_pl_prompt.get("1.0", "end").strip()
@@ -4151,48 +4307,56 @@ class AudioToVideoApp(ctk.CTk):
         skill = self._prompt_lab.get_skill(ws, cat, skill_name)
         instructions = skill.instructions if skill else ""
 
-        response = self._pl_build_stub_response(
-            prompt=prompt,
-            workspace=ws,
-            category=cat,
-            skill_name=skill_name,
-            skill_instructions=instructions,
-            model_mode=mode,
+        config = PromptBackendConfig(
+            base_url=self._var_pl_backend_url.get().strip(),
+            quality_model=self._var_pl_model_quality.get().strip(),
+            fast_model=self._var_pl_model_fast.get().strip(),
+            timeout_seconds=120,
         )
-        self._txt_pl_output.delete("1.0", "end")
-        self._txt_pl_output.insert("1.0", response)
-        if hasattr(self, "_lbl_pl_status"):
-            self._lbl_pl_status.configure(text=f"Generado con modo: {mode}")
-        self._log(f"[Prompt Lab] Respuesta generada ({mode})")
 
-    def _pl_build_stub_response(
-        self,
-        *,
-        prompt: str,
-        workspace: str,
-        category: str,
-        skill_name: str,
-        skill_instructions: str,
-        model_mode: str,
-    ) -> str:
-        style = (
-            "Profundidad alta: analiza contexto, riesgos y plan por fases."
-            if model_mode == "Calidad alta"
-            else "Velocidad alta: respuesta corta, accionable y directa."
-        )
-        skills_block = skill_instructions or "Sin instrucciones especificas."
-        return (
-            f"Workspace: {workspace}\n"
-            f"Categoria: {category}\n"
-            f"Skill: {skill_name}\n"
-            f"Modo: {model_mode}\n\n"
-            f"Directriz de estilo:\n{style}\n\n"
-            f"Instrucciones de skill:\n{skills_block}\n\n"
-            f"Prompt original:\n{prompt}\n\n"
-            "Borrador de respuesta:\n"
-            "1. Objetivo detectado: definir resultado deseado con claridad.\n"
-            "2. Plan propuesto: dividir en pasos pequenos y verificables.\n"
-            "3. Ejecucion inmediata: empieza por el primer paso critico hoy mismo.\n"
+        self._pl_generation_in_progress = True
+        self._btn_generate.configure(state="disabled")
+        if hasattr(self, "_lbl_pl_status"):
+            self._lbl_pl_status.configure(text=f"Generando con backend local ({mode})...")
+
+        def _worker() -> None:
+            try:
+                response = self._prompt_backend.generate(
+                    prompt=prompt,
+                    skill_instructions=instructions,
+                    mode=mode,
+                    config=config,
+                )
+                self.after(0, self._pl_on_backend_response, response, mode)
+            except Exception as exc:
+                self.after(0, self._pl_on_backend_error, exc)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _pl_on_backend_response(self, response: str, mode: str) -> None:
+        self._pl_generation_in_progress = False
+        self._btn_generate.configure(state="normal")
+        if hasattr(self, "_txt_pl_output"):
+            self._txt_pl_output.delete("1.0", "end")
+            self._txt_pl_output.insert("1.0", response.strip())
+        if hasattr(self, "_lbl_pl_status"):
+            self._lbl_pl_status.configure(text=f"Generado con backend local ({mode})")
+        self._log(f"[Prompt Lab] Respuesta generada via backend local ({mode})")
+
+    def _pl_on_backend_error(self, exc: Exception) -> None:
+        self._pl_generation_in_progress = False
+        self._btn_generate.configure(state="normal")
+        msg = str(exc)
+        if isinstance(exc, PromptLabBackendError):
+            msg = str(exc)
+        if hasattr(self, "_lbl_pl_status"):
+            self._lbl_pl_status.configure(text="Error al generar")
+        self._log(f"[Prompt Lab] Error backend: {msg}")
+        messagebox.showerror(
+            "Prompt Lab",
+            "No fue posible generar con el backend local.\n\n"
+            "Verifica URL/modelos y que el servidor este activo.\n\n"
+            f"Detalle: {msg}",
         )
 
     def _yt_stub_action(self, action: str) -> None:
@@ -7805,6 +7969,7 @@ class AudioToVideoApp(ctk.CTk):
         dialog = ctk.CTkInputDialog(
             text="Nombre del nuevo preset:", title="Nuevo Preset",
         )
+        _center_window_on_screen(dialog)
         name = dialog.get_input()
         if not name or not name.strip():
             return
@@ -7844,6 +8009,7 @@ class AudioToVideoApp(ctk.CTk):
         dialog = ctk.CTkInputDialog(
             text=f"Nuevo nombre para '{old_name}':", title="Renombrar Preset",
         )
+        _center_window_on_screen(dialog)
         new_name = dialog.get_input()
         if not new_name or not new_name.strip():
             return
@@ -8725,6 +8891,9 @@ class AudioToVideoApp(ctk.CTk):
             "pl_skill": self._var_pl_skill.get() if hasattr(self, "_var_pl_skill") else "Asistente General",
             "pl_model_mode": self._var_pl_model_mode.get() if hasattr(self, "_var_pl_model_mode") else "Calidad alta",
             "pl_prompt_text": self._txt_pl_prompt.get("1.0", "end").strip() if hasattr(self, "_txt_pl_prompt") else "",
+            "pl_backend_url": self._var_pl_backend_url.get() if hasattr(self, "_var_pl_backend_url") else "http://127.0.0.1:11434",
+            "pl_model_quality": self._var_pl_model_quality.get() if hasattr(self, "_var_pl_model_quality") else "llama3.1:8b",
+            "pl_model_fast": self._var_pl_model_fast.get() if hasattr(self, "_var_pl_model_fast") else "llama3.2:3b",
         })
         # Save slideshow settings if panel exists
         if hasattr(self, "_var_sl_images_folder"):
@@ -9041,6 +9210,9 @@ class AudioToVideoApp(ctk.CTk):
             self._var_pl_category.set(s.get("pl_category", "General"))
             self._var_pl_skill.set(s.get("pl_skill", "Asistente General"))
             self._var_pl_model_mode.set(s.get("pl_model_mode", "Calidad alta"))
+            self._var_pl_backend_url.set(s.get("pl_backend_url", "http://127.0.0.1:11434"))
+            self._var_pl_model_quality.set(s.get("pl_model_quality", "llama3.1:8b"))
+            self._var_pl_model_fast.set(s.get("pl_model_fast", "llama3.2:3b"))
             if hasattr(self, "_txt_pl_prompt"):
                 self._txt_pl_prompt.delete("1.0", "end")
                 self._txt_pl_prompt.insert("1.0", s.get("pl_prompt_text", ""))

@@ -17,7 +17,8 @@ def build_prompt_lab_panel(
 ) -> ctk.CTkFrame:
     panel = ctk.CTkScrollableFrame(parent, fg_color="transparent")
     panel.grid(row=0, column=0, sticky="nsew", padx=0)
-    panel.grid_columnconfigure(0, weight=1)
+    panel.grid_columnconfigure(0, weight=3)
+    panel.grid_columnconfigure(1, weight=4)
     panel.grid_remove()
 
     card_workspace = ctk.CTkFrame(
@@ -86,6 +87,30 @@ def build_prompt_lab_panel(
         text_color=colors["C_TEXT_DIM"],
         command=app._pl_delete_workspace,
     ).pack(side="left")
+
+    ctk.CTkButton(
+        btns,
+        text="Exportar",
+        width=90,
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_export_workspace,
+    ).pack(side="left", padx=(6, 0))
+
+    ctk.CTkButton(
+        btns,
+        text="Importar",
+        width=90,
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_import_workspace,
+    ).pack(side="left", padx=(6, 0))
 
     card_skill = ctk.CTkFrame(
         panel,
@@ -168,6 +193,46 @@ def build_prompt_lab_panel(
         command=app._pl_save_skill_dialog,
     ).pack(side="left")
 
+    ctk.CTkButton(
+        skill_btns,
+        text="Versiones",
+        width=100,
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_open_versions_modal,
+    ).pack(side="left", padx=(6, 0))
+
+    card_instructions = ctk.CTkFrame(
+        panel,
+        fg_color=colors["C_CARD"],
+        corner_radius=10,
+        border_width=1,
+        border_color=colors["C_BORDER"],
+    )
+    card_instructions.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+    card_instructions.grid_columnconfigure(0, weight=1)
+
+    ctk.CTkLabel(
+        card_instructions,
+        text="Instrucciones de skill (separado del prompt)",
+        text_color=colors["C_TEXT"],
+        font=ctk.CTkFont(size=app._fs(12), weight="bold"),
+    ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 6))
+
+    app._txt_pl_instructions = ctk.CTkTextbox(
+        card_instructions,
+        height=140,
+        fg_color=colors["C_INPUT"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        font=ctk.CTkFont(size=app._fs(11)),
+    )
+    app._txt_pl_instructions.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
+
     card_model = ctk.CTkFrame(
         panel,
         fg_color=colors["C_CARD"],
@@ -175,7 +240,7 @@ def build_prompt_lab_panel(
         border_width=1,
         border_color=colors["C_BORDER"],
     )
-    card_model.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+    card_model.grid(row=3, column=0, sticky="ew", pady=(0, 10))
     card_model.grid_columnconfigure(1, weight=1)
 
     ctk.CTkLabel(
@@ -199,6 +264,57 @@ def build_prompt_lab_panel(
     )
     app._pl_model_menu.grid(row=0, column=1, sticky="ew", padx=(0, 14), pady=12)
 
+    ctk.CTkLabel(
+        card_model,
+        text="Backend URL",
+        text_color=colors["C_MUTED"],
+        font=ctk.CTkFont(size=app._fs(11)),
+    ).grid(row=1, column=0, sticky="w", padx=(14, 8), pady=(0, 8))
+
+    app._ent_pl_backend_url = ctk.CTkEntry(
+        card_model,
+        textvariable=app._var_pl_backend_url,
+        fg_color=colors["C_INPUT"],
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        height=30,
+    )
+    app._ent_pl_backend_url.grid(row=1, column=1, sticky="ew", padx=(0, 14), pady=(0, 8))
+
+    ctk.CTkLabel(
+        card_model,
+        text="Modelo calidad",
+        text_color=colors["C_MUTED"],
+        font=ctk.CTkFont(size=app._fs(11)),
+    ).grid(row=2, column=0, sticky="w", padx=(14, 8), pady=(0, 8))
+
+    app._ent_pl_model_quality = ctk.CTkEntry(
+        card_model,
+        textvariable=app._var_pl_model_quality,
+        fg_color=colors["C_INPUT"],
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        height=30,
+    )
+    app._ent_pl_model_quality.grid(row=2, column=1, sticky="ew", padx=(0, 14), pady=(0, 8))
+
+    ctk.CTkLabel(
+        card_model,
+        text="Modelo rapido",
+        text_color=colors["C_MUTED"],
+        font=ctk.CTkFont(size=app._fs(11)),
+    ).grid(row=3, column=0, sticky="w", padx=(14, 8), pady=(0, 12))
+
+    app._ent_pl_model_fast = ctk.CTkEntry(
+        card_model,
+        textvariable=app._var_pl_model_fast,
+        fg_color=colors["C_INPUT"],
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        height=30,
+    )
+    app._ent_pl_model_fast.grid(row=3, column=1, sticky="ew", padx=(0, 14), pady=(0, 12))
+
     card_prompt = ctk.CTkFrame(
         panel,
         fg_color=colors["C_CARD"],
@@ -206,10 +322,10 @@ def build_prompt_lab_panel(
         border_width=1,
         border_color=colors["C_BORDER"],
     )
-    card_prompt.grid(row=3, column=0, sticky="nsew", pady=(0, 10))
+    card_prompt.grid(row=0, column=1, rowspan=4, sticky="nsew", padx=(12, 0), pady=(8, 10))
     card_prompt.grid_columnconfigure(0, weight=1)
     card_prompt.grid_rowconfigure(1, weight=1)
-    card_prompt.grid_rowconfigure(3, weight=1)
+    card_prompt.grid_rowconfigure(4, weight=2)
 
     ctk.CTkLabel(
         card_prompt,
@@ -220,7 +336,7 @@ def build_prompt_lab_panel(
 
     app._txt_pl_prompt = ctk.CTkTextbox(
         card_prompt,
-        height=180,
+        height=150,
         fg_color=colors["C_INPUT"],
         border_width=1,
         border_color=colors["C_BORDER"],
@@ -269,7 +385,7 @@ def build_prompt_lab_panel(
 
     app._txt_pl_output = ctk.CTkTextbox(
         card_prompt,
-        height=220,
+        height=340,
         fg_color=colors["C_INPUT"],
         border_width=1,
         border_color=colors["C_BORDER"],
