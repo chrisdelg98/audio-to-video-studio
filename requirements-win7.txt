@@ -1,0 +1,21 @@
+# CreatorFlow Studio - Windows 7 compatible build profile
+#
+# Use with Python 3.8.10 x64 and build-win7.ps1
+
+# GUI
+customtkinter==5.2.2
+
+# Image processing
+Pillow==10.4.0
+
+# Timezone database for zoneinfo on Windows
+tzdata==2024.1
+
+# YouTube Data API
+google-auth==2.29.0
+google-auth-oauthlib==1.2.0
+google-api-python-client==2.127.0
+
+# Win7-friendly PyInstaller toolchain (Python 3.8)
+pyinstaller==5.13.2
+pyinstaller-hooks-contrib==2024.0

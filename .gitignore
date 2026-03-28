@@ -12,6 +12,7 @@ build/
 
 # Virtual environments
 .venv/
+.venv-win7/
 venv/
 env/
 ENV/
