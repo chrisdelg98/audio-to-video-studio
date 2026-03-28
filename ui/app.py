@@ -54,7 +54,9 @@ from core.utils import get_audio_files, get_audio_duration, get_image_files, get
 from core.ffmpeg_setup import ensure_ffmpeg
 from core.youtube_auth import YouTubeAuthError, YouTubeAuthService
 from core.validator import ValidationResult, validate_environment
+from config.prompt_lab_manager import PromptLabManager
 from effects.text_overlay_effect import available_fonts
+from ui.prompt_lab_tab import build_prompt_lab_panel
 from ui.youtube_tab import build_youtube_publisher_panel
 
 _BUNDLE_DIR = get_bundle_dir()
@@ -126,6 +128,8 @@ C_ACCENT_SHORTS = "#F97316"   # Orange — modo Shorts
 C_ACCENT_SHORTS_H="#FB923C"   # Orange hover
 C_ACCENT_YT     = "#FF4D4F"   # Red — modo YouTube Publisher
 C_ACCENT_YT_H   = "#FF6B6D"   # Red hover
+C_ACCENT_LAB    = "#14B8A6"   # Teal — modo Prompt Lab
+C_ACCENT_LAB_H  = "#2DD4BF"   # Teal hover
 C_BTN_PRIMARY   = "#7CA8FF"   # Generate / primary CTA (light blue)
 C_BTN_PRIMARY_TEXT = "#002C65" # Text on primary CTA (dark navy)
 C_BTN_SECONDARY = "#0E0E0E"   # Secondary button bg (ghost)
@@ -173,6 +177,7 @@ def _apply_theme(mode: str) -> None:
     global C_ACCENT_SLIDE, C_ACCENT_SLIDE_H
     global C_ACCENT_SHORTS, C_ACCENT_SHORTS_H
     global C_ACCENT_YT, C_ACCENT_YT_H
+    global C_ACCENT_LAB, C_ACCENT_LAB_H
     global C_BTN_PRIMARY, C_BTN_PRIMARY_TEXT, C_BTN_SECONDARY, C_BTN_OK, C_BTN_DANGER
     global C_TEXT, C_TEXT_DIM, C_MUTED, C_HOVER
     global C_SUCCESS, C_ERROR, C_WARN, C_INPUT, C_LOG, C_LOG_TEXT
@@ -183,6 +188,7 @@ def _apply_theme(mode: str) -> None:
     # Shorts/YouTube accents are fixed (not exposed in ThemeManager yet)
     C_ACCENT_SHORTS = "#F97316"; C_ACCENT_SHORTS_H = "#FB923C"
     C_ACCENT_YT = "#FF4D4F"; C_ACCENT_YT_H = "#FF6B6D"
+    C_ACCENT_LAB = "#14B8A6"; C_ACCENT_LAB_H = "#2DD4BF"
     C_BTN_PRIMARY = t["C_BTN_PRIMARY"]; C_BTN_PRIMARY_TEXT = t["C_BTN_PRIMARY_TEXT"]; C_BTN_SECONDARY = t["C_BTN_SECONDARY"]
     C_BTN_OK = t["C_BTN_OK"]; C_BTN_DANGER = t["C_BTN_DANGER"]
     C_TEXT = t["C_TEXT"]; C_TEXT_DIM = t["C_TEXT_DIM"]; C_MUTED = t["C_MUTED"]
@@ -203,6 +209,18 @@ def _hex_to_rgb(h: str) -> tuple:
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
     return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _center_window_on_screen(window: tk.Toplevel) -> None:
+    """Center a toplevel window on the current screen."""
+    window.update_idletasks()
+    w = max(window.winfo_width(), window.winfo_reqwidth())
+    h = max(window.winfo_height(), window.winfo_reqheight())
+    sw = window.winfo_screenwidth()
+    sh = window.winfo_screenheight()
+    x = max(0, (sw - w) // 2)
+    y = max(0, (sh - h) // 2)
+    window.geometry(f"+{x}+{y}")
 
 
 def _animate_widget(widget, props: dict, steps: int = 10, delay: int = 14, _step: int = 0) -> None:
@@ -379,16 +397,7 @@ class ImageAssignmentDialog(ctk.CTkToplevel):
         self.after(50, self._center)
 
     def _center(self) -> None:
-        self.update_idletasks()
-        pw = self.master.winfo_width()
-        ph = self.master.winfo_height()
-        px = self.master.winfo_x()
-        py = self.master.winfo_y()
-        w = self.winfo_width()
-        h = self.winfo_height()
-        x = px + (pw - w) // 2
-        y = py + (ph - h) // 2
-        self.geometry(f"+{x}+{y}")
+        _center_window_on_screen(self)
 
     def _build(self) -> None:
         self.grid_columnconfigure(0, weight=1)
@@ -506,14 +515,7 @@ class NamesListDialog(ctk.CTkToplevel):
         self.after(50, self._center)
 
     def _center(self) -> None:
-        self.update_idletasks()
-        pw = self.master.winfo_width()
-        ph = self.master.winfo_height()
-        px = self.master.winfo_x()
-        py = self.master.winfo_y()
-        w = self.winfo_width()
-        h = self.winfo_height()
-        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+        _center_window_on_screen(self)
 
     def _build(self) -> None:
         self.grid_columnconfigure(0, weight=1)
@@ -681,11 +683,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         self.after(60, self._center)
 
     def _center(self) -> None:
-        self.update_idletasks()
-        px, py = self.master.winfo_x(), self.master.winfo_y()
-        pw, ph = self.master.winfo_width(), self.master.winfo_height()
-        w, h = self.winfo_width(), self.winfo_height()
-        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+        _center_window_on_screen(self)
 
     # -- Build --------------------------------------------------------------
 
@@ -970,14 +968,7 @@ class PresetsDialog(ctk.CTkToplevel):
         self.after(60, self._center)
 
     def _center(self) -> None:
-        self.update_idletasks()
-        pw = self._app.winfo_width()
-        ph = self._app.winfo_height()
-        px = self._app.winfo_x()
-        py = self._app.winfo_y()
-        w = self.winfo_width()
-        h = self.winfo_height()
-        self.geometry(f"{w}x{h}+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+        _center_window_on_screen(self)
 
     def _build(self) -> None:
         self.grid_columnconfigure(0, weight=1)
@@ -1116,15 +1107,7 @@ class StartupDependencyDialog(ctk.CTkToplevel):
         self.after(60, self._center)
 
     def _center(self) -> None:
-        self.update_idletasks()
-        parent = self.master
-        pw = parent.winfo_width()
-        ph = parent.winfo_height()
-        px = parent.winfo_x()
-        py = parent.winfo_y()
-        w = self.winfo_width()
-        h = self.winfo_height()
-        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+        _center_window_on_screen(self)
 
     def set_status(self, title: str, detail: str, progress: float | None = None) -> None:
         self._var_title.set(title)
@@ -1203,15 +1186,7 @@ class BusyDialog(ctk.CTkToplevel):
         self.after(60, self._center)
 
     def _center(self) -> None:
-        self.update_idletasks()
-        parent = self.master
-        pw = parent.winfo_width()
-        ph = parent.winfo_height()
-        px = parent.winfo_x()
-        py = parent.winfo_y()
-        w = self.winfo_width()
-        h = self.winfo_height()
-        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+        _center_window_on_screen(self)
 
     def set_detail(self, headline: str, detail: str) -> None:
         self._var_headline.set(headline)
@@ -1243,6 +1218,7 @@ class AudioToVideoApp(ctk.CTk):
         super().__init__()
 
         self.settings = SettingsManager()
+        self._prompt_lab = PromptLabManager()
         self._runner: Runner | None = None
         self._image_assignment: dict[str, Path] = {}
         self._used_names: set[str] = set()
@@ -1271,6 +1247,10 @@ class AudioToVideoApp(ctk.CTk):
         self._yt_sync_summary_var = None
         self._yt_sync_close_btn = None
         self._yt_sync_total = 0
+        self._var_pl_workspace = tk.StringVar(value=self.settings.get("pl_workspace", "General"))
+        self._var_pl_category = tk.StringVar(value=self.settings.get("pl_category", "General"))
+        self._var_pl_skill = tk.StringVar(value=self.settings.get("pl_skill", "Asistente General"))
+        self._var_pl_model_mode = tk.StringVar(value=self.settings.get("pl_model_mode", "Calidad alta"))
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
         self._startup_dependency_dialog: StartupDependencyDialog | None = None
@@ -1507,6 +1487,8 @@ class AudioToVideoApp(ctk.CTk):
                          C_ACCENT_SHORTS, lambda: self._switch_mode("Shorts"), "shorts")
         _create_mode_btn(FA_YT, "YOUTUBE", self._current_mode == "YouTube Publisher",
                          C_ACCENT_YT, lambda: self._switch_mode("YouTube Publisher"), "yt")
+        _create_mode_btn(FA_WAND, "PROMPT LAB", self._current_mode == "Prompt Lab",
+                 C_ACCENT_LAB, lambda: self._switch_mode("Prompt Lab"), "pl")
 
 
         # -- Badge de estado del entorno ------------------------------
@@ -1616,6 +1598,7 @@ class AudioToVideoApp(ctk.CTk):
         self._build_slideshow_left_panel(main)
         self._build_shorts_left_panel(main)
         self._build_youtube_left_panel(main)
+        self._build_prompt_lab_left_panel(main)
 
     # --- Left panel ---------------------------------------------------
 
@@ -4009,6 +3992,209 @@ class AudioToVideoApp(ctk.CTk):
         self._yt_restore_playlists_cache_from_settings()
         self._yt_render_queue_preview()
 
+    def _build_prompt_lab_left_panel(self, parent: ctk.CTkFrame) -> None:
+        """Panel izquierdo del modo Prompt Lab."""
+        self._pl_scroll_frame = build_prompt_lab_panel(
+            self,
+            parent,
+            accent=C_ACCENT_LAB,
+            colors={
+                "C_CARD": C_CARD,
+                "C_BORDER": C_BORDER,
+                "C_TEXT": C_TEXT,
+                "C_TEXT_DIM": C_TEXT_DIM,
+                "C_MUTED": C_MUTED,
+                "C_HOVER": C_HOVER,
+                "C_INPUT": C_INPUT,
+            },
+            icons={
+                "FA_WAND": FA_WAND,
+            },
+        )
+        self._pl_refresh_workspace_menu(select=self._var_pl_workspace.get())
+        saved_prompt = self.settings.get("pl_prompt_text", "")
+        if hasattr(self, "_txt_pl_prompt") and saved_prompt:
+            self._txt_pl_prompt.delete("1.0", "end")
+            self._txt_pl_prompt.insert("1.0", saved_prompt)
+
+    def _pl_refresh_workspace_menu(self, select: str = "") -> None:
+        if not hasattr(self, "_pl_workspace_menu"):
+            return
+        values = self._prompt_lab.workspaces() or ["General"]
+        self._pl_workspace_menu.configure(values=values)
+        selected = select if select in values else values[0]
+        self._var_pl_workspace.set(selected)
+        self._pl_on_workspace_selected()
+
+    def _pl_on_workspace_selected(self) -> None:
+        if not hasattr(self, "_pl_category_menu"):
+            return
+        ws = self._var_pl_workspace.get().strip() or "General"
+        categories = self._prompt_lab.categories(ws) or ["General"]
+        self._pl_category_menu.configure(values=categories)
+        current = self._var_pl_category.get().strip()
+        if current not in categories:
+            current = categories[0]
+            self._var_pl_category.set(current)
+        self._pl_on_category_selected()
+
+    def _pl_on_category_selected(self) -> None:
+        if not hasattr(self, "_pl_skill_menu"):
+            return
+        ws = self._var_pl_workspace.get().strip() or "General"
+        cat = self._var_pl_category.get().strip() or "General"
+        skills = self._prompt_lab.skills(ws, cat) or ["Asistente General"]
+        self._pl_skill_menu.configure(values=skills)
+        current = self._var_pl_skill.get().strip()
+        if current not in skills:
+            current = skills[0]
+            self._var_pl_skill.set(current)
+        self._pl_on_skill_selected()
+
+    def _pl_on_skill_selected(self) -> None:
+        if not hasattr(self, "_lbl_pl_status"):
+            return
+        ws = self._var_pl_workspace.get().strip()
+        cat = self._var_pl_category.get().strip()
+        skill_name = self._var_pl_skill.get().strip()
+        skill = self._prompt_lab.get_skill(ws, cat, skill_name)
+        if skill:
+            self._lbl_pl_status.configure(text=f"Skill activa: {skill.name}")
+        else:
+            self._lbl_pl_status.configure(text="Skill sin instrucciones")
+
+    def _pl_new_workspace_dialog(self) -> None:
+        dialog = ctk.CTkInputDialog(text="Nombre del nuevo workspace:", title="Prompt Lab")
+        name = (dialog.get_input() or "").strip()
+        if not name:
+            return
+        try:
+            self._prompt_lab.create_workspace(name)
+            self._pl_refresh_workspace_menu(select=name)
+            self._log(f"[Prompt Lab] Workspace creado: {name}")
+        except ValueError as exc:
+            messagebox.showwarning("Prompt Lab", str(exc))
+
+    def _pl_delete_workspace(self) -> None:
+        ws = self._var_pl_workspace.get().strip()
+        if not ws:
+            return
+        if not messagebox.askyesno("Prompt Lab", f"Eliminar workspace '{ws}'?"):
+            return
+        try:
+            self._prompt_lab.delete_workspace(ws)
+            self._pl_refresh_workspace_menu()
+            self._log(f"[Prompt Lab] Workspace eliminado: {ws}")
+        except ValueError as exc:
+            messagebox.showwarning("Prompt Lab", str(exc))
+
+    def _pl_new_skill_dialog(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+        cat_dialog = ctk.CTkInputDialog(text="Categoria (nueva o existente):", title="Prompt Lab")
+        category = (cat_dialog.get_input() or self._var_pl_category.get()).strip() or "General"
+        skill_dialog = ctk.CTkInputDialog(text="Nombre de la skill:", title="Prompt Lab")
+        skill_name = (skill_dialog.get_input() or "").strip()
+        if not skill_name:
+            return
+        instructions = ""
+        if hasattr(self, "_txt_pl_prompt"):
+            instructions = self._txt_pl_prompt.get("1.0", "end").strip()
+        try:
+            self._prompt_lab.upsert_skill(ws, category, skill_name, instructions)
+            self._var_pl_category.set(category)
+            self._var_pl_skill.set(skill_name)
+            self._pl_on_workspace_selected()
+            self._log(f"[Prompt Lab] Skill creada: {skill_name} ({category})")
+        except ValueError as exc:
+            messagebox.showwarning("Prompt Lab", str(exc))
+
+    def _pl_save_skill_dialog(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+        category = self._var_pl_category.get().strip() or "General"
+        skill_name = self._var_pl_skill.get().strip()
+        if not skill_name:
+            messagebox.showwarning("Prompt Lab", "Selecciona o crea una skill primero.")
+            return
+        instructions = ""
+        if hasattr(self, "_txt_pl_prompt"):
+            instructions = self._txt_pl_prompt.get("1.0", "end").strip()
+        try:
+            self._prompt_lab.upsert_skill(ws, category, skill_name, instructions)
+            self._pl_on_workspace_selected()
+            self._log(f"[Prompt Lab] Skill guardada: {skill_name}")
+        except ValueError as exc:
+            messagebox.showwarning("Prompt Lab", str(exc))
+
+    def _pl_copy_output(self) -> None:
+        if not hasattr(self, "_txt_pl_output"):
+            return
+        content = self._txt_pl_output.get("1.0", "end").strip()
+        if not content:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(content)
+        if hasattr(self, "_lbl_pl_status"):
+            self._lbl_pl_status.configure(text="Salida copiada al portapapeles")
+
+    def _on_generate_prompt_lab(self) -> None:
+        if not hasattr(self, "_txt_pl_prompt") or not hasattr(self, "_txt_pl_output"):
+            return
+        prompt = self._txt_pl_prompt.get("1.0", "end").strip()
+        if not prompt:
+            messagebox.showwarning("Prompt Lab", "Escribe un prompt antes de generar.")
+            return
+
+        ws = self._var_pl_workspace.get().strip() or "General"
+        cat = self._var_pl_category.get().strip() or "General"
+        skill_name = self._var_pl_skill.get().strip() or "Asistente General"
+        mode = self._var_pl_model_mode.get().strip() or "Calidad alta"
+        skill = self._prompt_lab.get_skill(ws, cat, skill_name)
+        instructions = skill.instructions if skill else ""
+
+        response = self._pl_build_stub_response(
+            prompt=prompt,
+            workspace=ws,
+            category=cat,
+            skill_name=skill_name,
+            skill_instructions=instructions,
+            model_mode=mode,
+        )
+        self._txt_pl_output.delete("1.0", "end")
+        self._txt_pl_output.insert("1.0", response)
+        if hasattr(self, "_lbl_pl_status"):
+            self._lbl_pl_status.configure(text=f"Generado con modo: {mode}")
+        self._log(f"[Prompt Lab] Respuesta generada ({mode})")
+
+    def _pl_build_stub_response(
+        self,
+        *,
+        prompt: str,
+        workspace: str,
+        category: str,
+        skill_name: str,
+        skill_instructions: str,
+        model_mode: str,
+    ) -> str:
+        style = (
+            "Profundidad alta: analiza contexto, riesgos y plan por fases."
+            if model_mode == "Calidad alta"
+            else "Velocidad alta: respuesta corta, accionable y directa."
+        )
+        skills_block = skill_instructions or "Sin instrucciones especificas."
+        return (
+            f"Workspace: {workspace}\n"
+            f"Categoria: {category}\n"
+            f"Skill: {skill_name}\n"
+            f"Modo: {model_mode}\n\n"
+            f"Directriz de estilo:\n{style}\n\n"
+            f"Instrucciones de skill:\n{skills_block}\n\n"
+            f"Prompt original:\n{prompt}\n\n"
+            "Borrador de respuesta:\n"
+            "1. Objetivo detectado: definir resultado deseado con claridad.\n"
+            "2. Plan propuesto: dividir en pasos pequenos y verificables.\n"
+            "3. Ejecucion inmediata: empieza por el primer paso critico hoy mismo.\n"
+        )
+
     def _yt_stub_action(self, action: str) -> None:
         labels = {
             "connect": "Conexion de canal",
@@ -4070,13 +4256,7 @@ class AudioToVideoApp(ctk.CTk):
         modal.focus_force()
         modal.configure(fg_color=C_BG)
         modal.protocol('WM_DELETE_WINDOW', lambda: None)
-        modal.update_idletasks()
-        self.update_idletasks()
-        px, py = self.winfo_x(), self.winfo_y()
-        pw, ph = self.winfo_width(), self.winfo_height()
-        x = px + max(0, (pw - w) // 2)
-        y = py + max(0, (ph - h) // 2)
-        modal.geometry(f'{w}x{h}+{x}+{y}')
+        _center_window_on_screen(modal)
 
         inner = _ctk8.CTkFrame(modal, fg_color='transparent')
         inner.pack(fill='both', expand=True, padx=20, pady=(16, 12))
@@ -4557,13 +4737,7 @@ class AudioToVideoApp(ctk.CTk):
         modal.grab_set()
         modal.focus_force()
         modal.configure(fg_color=C_BG)
-        modal.update_idletasks()
-        self.update_idletasks()
-        px, py = self.winfo_x(), self.winfo_y()
-        pw, ph = self.winfo_width(), self.winfo_height()
-        x = px + max(0, (pw - w) // 2)
-        y = py + max(0, (ph - h) // 2)
-        modal.geometry(f'{w}x{h}+{x}+{y}')
+        _center_window_on_screen(modal)
 
         inner = _ctk7.CTkFrame(modal, fg_color='transparent')
         inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
@@ -4852,10 +5026,7 @@ class AudioToVideoApp(ctk.CTk):
         modal.resizable(False, False)
         modal.grab_set()
         modal.focus_force()
-        # centered on screen        modal.update_idletasks()
-        x = (modal.winfo_screenwidth() - modal.winfo_width()) // 2
-        y = (modal.winfo_screenheight() - modal.winfo_height()) // 2
-        modal.geometry(f"+{x}+{y}")
+        _center_window_on_screen(modal)
         modal.configure(fg_color=C_BG)
         inner = __import__('customtkinter').CTkFrame(modal, fg_color='transparent')
         inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
@@ -4945,10 +5116,7 @@ class AudioToVideoApp(ctk.CTk):
         modal.resizable(False, False)
         modal.grab_set()
         modal.focus_force()
-        # centered on screen        modal.update_idletasks()
-        x = (modal.winfo_screenwidth() - modal.winfo_width()) // 2 
-        y = (modal.winfo_screenheight() - modal.winfo_height()) // 2
-        modal.geometry(f"+{x}+{y}")
+        _center_window_on_screen(modal)
         modal.configure(fg_color=C_BG)
         inner = _ctk3.CTkFrame(modal, fg_color='transparent')
         inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
@@ -5161,9 +5329,7 @@ class AudioToVideoApp(ctk.CTk):
         modal.grab_set()
         modal.focus_force()
         modal.update_idletasks()
-        x = (modal.winfo_screenwidth() - modal.winfo_width()) // 2
-        y = (modal.winfo_screenheight() - modal.winfo_height()) // 2
-        modal.geometry(f"+{x}+{y}")
+        _center_window_on_screen(modal)
         modal.configure(fg_color=C_BG)
 
         now = _dt.datetime.now()
@@ -5325,6 +5491,7 @@ class AudioToVideoApp(ctk.CTk):
         modal.grab_set()
         modal.focus_force()
         modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
 
         inner = _ctk5.CTkFrame(modal, fg_color='transparent')
         inner.pack(fill='both', expand=True, padx=20, pady=(16, 8))
@@ -5469,13 +5636,7 @@ class AudioToVideoApp(ctk.CTk):
         modal.grab_set()
         modal.focus_force()
         modal.configure(fg_color=C_BG)
-        modal.update_idletasks()
-        self.update_idletasks()
-        px, py = self.winfo_x(), self.winfo_y()
-        pw, ph = self.winfo_width(), self.winfo_height()
-        x = px + max(0, (pw - w) // 2)
-        y = py + max(0, (ph - h) // 2)
-        modal.geometry(f'{w}x{h}+{x}+{y}')
+        _center_window_on_screen(modal)
 
         inner = _ctk6.CTkFrame(modal, fg_color='transparent')
         inner.pack(fill='both', expand=True, padx=20, pady=(16, 12))
@@ -6464,6 +6625,10 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_yt_scroll_frame"):
             self._yt_scroll_frame.destroy()
         self._build_youtube_left_panel(self._main_panel)
+        # Rebuild Prompt Lab panel too
+        if hasattr(self, "_pl_scroll_frame"):
+            self._pl_scroll_frame.destroy()
+        self._build_prompt_lab_left_panel(self._main_panel)
         # Collapse all new sections
         self.after_idle(self._collapse_all_sections)
         if self._current_mode == "Slideshow":
@@ -6477,6 +6642,10 @@ class AudioToVideoApp(ctk.CTk):
             if hasattr(self, "_yt_scroll_frame"):
                 self._yt_scroll_frame.grid()
             self._scroll_frame.grid_remove()
+        elif self._current_mode == "Prompt Lab":
+            if hasattr(self, "_pl_scroll_frame"):
+                self._pl_scroll_frame.grid()
+            self._scroll_frame.grid_remove()
         self._load_settings_to_ui()
         if hasattr(self, "_log_text"):
             self._log_text.configure(font=ctk.CTkFont(family="Consolas", size=self._fs(11)))
@@ -6487,7 +6656,7 @@ class AudioToVideoApp(ctk.CTk):
 
     def _update_mode_buttons(self) -> None:
         """Actualiza el color activo/inactivo de los botones de modo del header."""
-        for prefix in ("atv", "slide", "shorts", "yt"):
+        for prefix in ("atv", "slide", "shorts", "yt", "pl"):
             if not hasattr(self, f"_frame_mode_{prefix}"):
                 continue
             active = (
@@ -6495,6 +6664,7 @@ class AudioToVideoApp(ctk.CTk):
                 or (prefix == "slide" and self._current_mode == "Slideshow")
                 or (prefix == "shorts" and self._current_mode == "Shorts")
                 or (prefix == "yt" and self._current_mode == "YouTube Publisher")
+                or (prefix == "pl" and self._current_mode == "Prompt Lab")
             )
             accent = getattr(self, f"_mode_{prefix}_accent")
             bg = C_INPUT if active else "transparent"
@@ -6532,7 +6702,7 @@ class AudioToVideoApp(ctk.CTk):
                 self._thumb_strip_vert.grid_remove()
 
     def _switch_mode(self, mode: str) -> None:
-        """Alterna entre los paneles Audio?Video, Slideshow y Shorts."""
+        """Alterna entre los paneles Audio?Video, Slideshow, Shorts, YouTube y Prompt Lab."""
         self._current_mode = mode
         self._configure_preview_for_mode(mode)
         self._update_mode_buttons()
@@ -6542,7 +6712,7 @@ class AudioToVideoApp(ctk.CTk):
         # Show/hide the right panel depending on the active mode.
         # YouTube Publisher uses the full window width; all other modes keep
         # the normal 60/40 split with the preview + logs column.
-        if mode == "YouTube Publisher":
+        if mode in ("YouTube Publisher", "Prompt Lab"):
             if hasattr(self, "_right_panel_frame"):
                 self._right_panel_frame.grid_remove()
             self._main_panel.grid_columnconfigure(0, weight=1, minsize=380)
@@ -6560,6 +6730,8 @@ class AudioToVideoApp(ctk.CTk):
             self._sho_scroll_frame.grid_remove()
         if hasattr(self, "_yt_scroll_frame"):
             self._yt_scroll_frame.grid_remove()
+        if hasattr(self, "_pl_scroll_frame"):
+            self._pl_scroll_frame.grid_remove()
 
         if mode == "Audio \u2192 Video":
             self._scroll_frame.grid()
@@ -6636,7 +6808,7 @@ class AudioToVideoApp(ctk.CTk):
             self._rebuild_thumb_strip_sho()
             self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
 
-        else:  # YouTube Publisher
+        elif mode == "YouTube Publisher":
             if hasattr(self, "_yt_scroll_frame"):
                 self._yt_scroll_frame.grid()
             self._thumb_strip.grid_remove()
@@ -6646,6 +6818,14 @@ class AudioToVideoApp(ctk.CTk):
             self._yt_update_cache_status_label()
             self._yt_update_queue_cache_status_label()
             self._btn_generate.configure(text="SYNC BORRADORES", command=self._on_generate_youtube)
+        else:  # Prompt Lab
+            if hasattr(self, "_pl_scroll_frame"):
+                self._pl_scroll_frame.grid()
+            self._thumb_strip.grid_remove()
+            if hasattr(self, "_thumb_strip_vert"):
+                self._thumb_strip_vert.grid_remove()
+            self._lbl_audio_count.configure(text="Prompt Lab", text_color=C_ACCENT_LAB)
+            self._btn_generate.configure(text=FA_WAND + "  GENERAR RESPUESTA", command=self._on_generate_prompt_lab)
 
     def _sl_browse_images_folder(self) -> None:
         path = filedialog.askdirectory(title="Seleccionar carpeta de im\u00e1genes")
@@ -7858,13 +8038,7 @@ class AudioToVideoApp(ctk.CTk):
         dlg.bind("<Escape>", _close)
         lbl.bind("<Double-Button-1>", _close)
 
-        # Center on screen
-        dlg.update_idletasks()
-        dw = dlg.winfo_reqwidth()
-        dh = dlg.winfo_reqheight()
-        x = (sw - dw) // 2
-        y = (sh - dh) // 2
-        dlg.geometry(f"+{x}+{y}")
+        _center_window_on_screen(dlg)
 
     def _update_preview_overlay(self) -> None:
         """Re-renderiza el preview con overlay de texto si está activo."""
@@ -8545,6 +8719,12 @@ class AudioToVideoApp(ctk.CTk):
             "yt_window_end": self._var_yt_window_end.get() if hasattr(self, "_var_yt_window_end") else "21:00",
             "yt_default_category": self._var_yt_default_category.get() if hasattr(self, "_var_yt_default_category") else "Music",
             "yt_default_made_for_kids": self._var_yt_default_made_for_kids.get() if hasattr(self, "_var_yt_default_made_for_kids") else False,
+            # Prompt Lab
+            "pl_workspace": self._var_pl_workspace.get() if hasattr(self, "_var_pl_workspace") else "General",
+            "pl_category": self._var_pl_category.get() if hasattr(self, "_var_pl_category") else "General",
+            "pl_skill": self._var_pl_skill.get() if hasattr(self, "_var_pl_skill") else "Asistente General",
+            "pl_model_mode": self._var_pl_model_mode.get() if hasattr(self, "_var_pl_model_mode") else "Calidad alta",
+            "pl_prompt_text": self._txt_pl_prompt.get("1.0", "end").strip() if hasattr(self, "_txt_pl_prompt") else "",
         })
         # Save slideshow settings if panel exists
         if hasattr(self, "_var_sl_images_folder"):
@@ -8855,6 +9035,17 @@ class AudioToVideoApp(ctk.CTk):
             self._var_yt_default_category.set(s.get("yt_default_category", "Music"))
             self._var_yt_default_made_for_kids.set(bool(s.get("yt_default_made_for_kids", False)))
 
+        # Prompt Lab settings
+        if hasattr(self, "_var_pl_workspace"):
+            self._var_pl_workspace.set(s.get("pl_workspace", "General"))
+            self._var_pl_category.set(s.get("pl_category", "General"))
+            self._var_pl_skill.set(s.get("pl_skill", "Asistente General"))
+            self._var_pl_model_mode.set(s.get("pl_model_mode", "Calidad alta"))
+            if hasattr(self, "_txt_pl_prompt"):
+                self._txt_pl_prompt.delete("1.0", "end")
+                self._txt_pl_prompt.insert("1.0", s.get("pl_prompt_text", ""))
+            self._pl_refresh_workspace_menu(select=self._var_pl_workspace.get())
+
         # Ensure slider knobs visually reflect loaded variable values.
         self.after_idle(self._sync_slider_visuals)
 
@@ -8914,6 +9105,10 @@ class AudioToVideoApp(ctk.CTk):
                 self._btn_generate.configure(
                     state="normal", text="\u25b6  GENERAR SHORTS",
                     command=self._on_generate_shorts)
+            elif self._current_mode == "Prompt Lab":
+                self._btn_generate.configure(
+                    state="normal", text=FA_WAND + "  GENERAR RESPUESTA",
+                    command=self._on_generate_prompt_lab)
             else:
                 self._btn_generate.configure(
                     state="normal", text="SYNC BORRADORES",

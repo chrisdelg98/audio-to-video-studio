@@ -93,6 +93,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "yt_cached_drafts_fetched_at": "",
     "yt_cached_playlists": [],
     "yt_cached_playlists_fetched_at": "",
+    # Prompt Lab
+    "pl_workspace": "General",
+    "pl_category": "General",
+    "pl_skill": "Asistente General",
+    "pl_model_mode": "Calidad alta",
+    "pl_prompt_text": "",
 }
 
 # Preset semilla — se crea si presets.json no existe

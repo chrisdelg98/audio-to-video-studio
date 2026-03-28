@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "workspaces": [
+    {
+      "name": "General",
+      "description": "Workspace base para ideas y prompts.",
+      "categories": [
+        {
+          "name": "General",
+          "skills": [
+            {
+              "name": "Asistente General",
+              "instructions": "Responde en espanol claro y con foco en ejecucion.",
+              "updated_at": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
