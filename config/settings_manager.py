@@ -193,17 +193,63 @@ class SettingsManager:
     # Presets — persistencia
     # ------------------------------------------------------------------
 
+    def _preset_template(self) -> dict[str, Any]:
+        """Base shape for presets, excluding project-specific path keys."""
+        return {k: v for k, v in DEFAULT_SETTINGS.items() if k not in _PRESET_EXCLUDED_KEYS}
+
+    def _normalize_preset(self, preset_data: dict[str, Any]) -> dict[str, Any]:
+        """Backfill missing keys with defaults and drop excluded/unknown keys."""
+        base = self._preset_template()
+        for key, value in preset_data.items():
+            if key in base:
+                base[key] = value
+        return base
+
     def _load_presets(self) -> None:
         """Carga presets desde presets.json; si no existe, crea con preset semilla."""
         if PRESETS_FILE.exists():
             try:
                 with open(PRESETS_FILE, "r", encoding="utf-8") as f:
-                    self._presets = json.load(f)
+                    raw = json.load(f)
+                if not isinstance(raw, dict):
+                    raise ValueError("Formato de presets inválido")
+                normalized: dict[str, dict[str, Any]] = {}
+                changed = False
+                for name, pdata in raw.items():
+                    if not isinstance(pdata, dict):
+                        changed = True
+                        continue
+                    preset_name = str(name)
+                    normalized_data = self._normalize_preset(pdata)
+                    if pdata != normalized_data:
+                        changed = True
+                    normalized[preset_name] = normalized_data
+                if not normalized:
+                    normalized = {
+                        name: self._normalize_preset(data)
+                        for name, data in _SEED_PRESETS.items()
+                    }
+                    changed = True
+                self._presets = normalized
+                if changed:
+                    self._save_presets()
             except (json.JSONDecodeError, OSError):
-                self._presets = dict(_SEED_PRESETS)
+                self._presets = {
+                    name: self._normalize_preset(data)
+                    for name, data in _SEED_PRESETS.items()
+                }
+                self._save_presets()
+            except ValueError:
+                self._presets = {
+                    name: self._normalize_preset(data)
+                    for name, data in _SEED_PRESETS.items()
+                }
                 self._save_presets()
         else:
-            self._presets = dict(_SEED_PRESETS)
+            self._presets = {
+                name: self._normalize_preset(data)
+                for name, data in _SEED_PRESETS.items()
+            }
             self._save_presets()
 
     def _save_presets(self) -> None:
@@ -226,12 +272,12 @@ class SettingsManager:
         """Aplica un preset a la configuración actual."""
         if name not in self._presets:
             raise ValueError(f"Preset desconocido: '{name}'")
-        self._settings.update(self._presets[name])
+        self._settings.update(self._normalize_preset(self._presets[name]))
 
     def save_preset(self, name: str, settings: dict[str, Any]) -> None:
         """Guarda (o reemplaza) un preset con todas las configuraciones (excepto rutas)."""
         filtered = {k: v for k, v in settings.items() if k not in _PRESET_EXCLUDED_KEYS}
-        self._presets[name] = filtered
+        self._presets[name] = self._normalize_preset(filtered)
         self._save_presets()
 
     def delete_preset(self, name: str) -> None:
@@ -290,7 +336,7 @@ class SettingsManager:
                 while f"{name} ({counter})" in self._presets:
                     counter += 1
                 name = f"{name} ({counter})"
-            self._presets[name] = filtered
+            self._presets[name] = self._normalize_preset(filtered)
             imported.append(name)
         if imported:
             self._save_presets()

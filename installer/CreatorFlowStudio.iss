@@ -18,6 +18,19 @@
 #define AppPublisher   "chrisdelg98"
 #define AppURL         "https://github.com/chrisdelg98/audio-to-video-studio"
 #define SourceExe      "..\dist\CreatorFlowStudio.exe"
+#define Win7SP1URL     "https://catalog.s.download.windowsupdate.com/msdownload/update/software/svpk/2011/02/windows6.1-kb976932-x64_74865ef2562006e51d7f9333b4a8d45b7a749dab.exe"
+#define Win7SHA2URL    "https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/secu/2019/09/windows6.1-kb4474419-v3-x64_b5614c6cea5cb4e198717789633dca16308ef79c.msu"
+#define Win7SSUURL     "https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/secu/2019/03/windows6.1-kb4490628-x64_d3de52d6987f7c8bdc2c015dca69eac96047c76e.msu"
+#define VCRedistURL    "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+#define VCRedistX64    "prereqs\vc_redist.x64.exe"
+#define VCRedistX86    "prereqs\vc_redist.x86.exe"
+
+#ifexist "prereqs\vc_redist.x64.exe"
+  #define HasBundledVCRedistX64
+#endif
+#ifexist "prereqs\vc_redist.x86.exe"
+  #define HasBundledVCRedistX86
+#endif
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
@@ -67,6 +80,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Main executable
 Source: {#SourceExe}; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ignoreversion
+#ifdef HasBundledVCRedistX64
+Source: "{#VCRedistX64}"; DestDir: "{tmp}"; Flags: dontcopy
+#endif
+#ifdef HasBundledVCRedistX86
+Source: "{#VCRedistX86}"; DestDir: "{tmp}"; Flags: dontcopy
+#endif
 
 [Icons]
 ; Start Menu
@@ -78,14 +97,24 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
-[UninstallDelete]
-; Remove the config folder created by the app at runtime
-Type: filesandordirs; Name: "{app}\config"
+; Nota: no eliminamos {app}\config en uninstall para preservar
+; configuraciones y presets del usuario entre actualizaciones.
 
 ; ============================================================
-; Code section — FFmpeg check at startup
+; Code section — prerequisites + FFmpeg check
 ; ============================================================
 [Code]
+var
+  ReqPage: TWizardPage;
+  ReqMemo: TNewMemo;
+  ReqStatus: TNewStaticText;
+  ChkAutoPrereqs: TNewCheckBox;
+  BtnOpenSP1: TNewButton;
+  BtnOpenSHA2: TNewButton;
+  BtnOpenVCRedist: TNewButton;
+  BtnCopyPS: TNewButton;
+  InstallNeedsRestart: Boolean;
+
 function FindOnPath(const ExeName: string): Boolean;
 var
   ResultCode: Integer;
@@ -94,14 +123,294 @@ begin
   Result := Result and (ResultCode = 0);
 end;
 
+function IsWindows7: Boolean;
+var
+  V: TWindowsVersion;
+begin
+  GetWindowsVersionEx(V);
+  Result := (V.Major = 6) and (V.Minor = 1);
+end;
+
+function IsWindows7SP1OrLater: Boolean;
+var
+  V: TWindowsVersion;
+begin
+  GetWindowsVersionEx(V);
+  Result := not ((V.Major = 6) and (V.Minor = 1) and (V.ServicePackMajor < 1));
+end;
+
+function IsVCRedistInstalled: Boolean;
+var
+  Installed: Cardinal;
+begin
+  Result := False;
+
+  if IsWin64 then
+  begin
+    if RegQueryDWordValue(HKLM64, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) then
+      if Installed = 1 then
+      begin
+        Result := True;
+        exit;
+      end;
+  end;
+
+  if RegQueryDWordValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86', 'Installed', Installed) then
+    Result := (Installed = 1);
+end;
+
+function ExecAndWait(const FileName, Params: string): Integer;
+var
+  ResultCode: Integer;
+begin
+  if Exec(FileName, Params, '', SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) then
+    Result := ResultCode
+  else
+    Result := -1;
+end;
+
+procedure OpenURL(const URL: string);
+var
+  ResultCode: Integer;
+begin
+  ShellExec('open', URL, '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+end;
+
+procedure CopyTextToClipboardViaClip(const S: string);
+var
+  TempFile: string;
+  ResultCode: Integer;
+begin
+  TempFile := ExpandConstant('{tmp}\creatorflow_prereq_cmd.txt');
+  SaveStringToFile(TempFile, S, False);
+  Exec(ExpandConstant('{cmd}'), '/C type "' + TempFile + '" | clip', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function GetVCRedistPowerShellCommand: string;
+begin
+  Result :=
+    '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12' + #13#10 +
+    '$d = "$env:USERPROFILE\Downloads"' + #13#10 +
+    'Invoke-WebRequest "{#VCRedistURL}" -OutFile "$d\vc_redist.x64.exe"' + #13#10 +
+    'Start-Process "$d\vc_redist.x64.exe" -ArgumentList "/quiet /norestart" -Wait';
+end;
+
+procedure UpdateReqStatusText;
+var
+  StatusText: string;
+begin
+  StatusText := '';
+
+  if IsWindows7 then
+  begin
+    if IsWindows7SP1OrLater then
+      StatusText := StatusText + 'Windows 7 SP1: OK' + #13#10
+    else
+      StatusText := StatusText + 'Windows 7 SP1: FALTA (requerido)' + #13#10;
+  end
+  else
+    StatusText := StatusText + 'Sistema operativo: OK' + #13#10;
+
+  if IsVCRedistInstalled then
+    StatusText := StatusText + 'Visual C++ Runtime: OK'
+  else
+    StatusText := StatusText + 'Visual C++ Runtime: Falta (recomendado instalar)';
+
+  ReqStatus.Caption := StatusText;
+end;
+
+procedure BtnOpenSP1Click(Sender: TObject);
+begin
+  OpenURL('{#Win7SP1URL}');
+end;
+
+procedure BtnOpenSHA2Click(Sender: TObject);
+begin
+  OpenURL('{#Win7SHA2URL}');
+end;
+
+procedure BtnOpenVCRedistClick(Sender: TObject);
+begin
+  OpenURL('{#VCRedistURL}');
+end;
+
+procedure BtnCopyPSClick(Sender: TObject);
+begin
+  CopyTextToClipboardViaClip(GetVCRedistPowerShellCommand());
+  MsgBox('Comando PowerShell copiado al portapapeles.', mbInformation, MB_OK);
+end;
+
+function TryInstallBundledVCRedist(var ErrorText: string): Boolean;
+var
+  Code: Integer;
+begin
+  Result := True;
+  ErrorText := '';
+
+  if IsVCRedistInstalled then
+    exit;
+
+  if not ChkAutoPrereqs.Checked then
+  begin
+    ErrorText :=
+      'Falta Visual C++ Runtime.' + #13#10 + #13#10 +
+      'Activa la opcion de instalacion automatica en la pagina de prerequisitos o instalo manualmente desde:' + #13#10 +
+      '{#VCRedistURL}';
+    Result := False;
+    exit;
+  end;
+
+  if IsWin64 then
+  begin
+    #ifdef HasBundledVCRedistX64
+      ExtractTemporaryFile('vc_redist.x64.exe');
+      Code := ExecAndWait(ExpandConstant('{tmp}\vc_redist.x64.exe'), '/quiet /norestart');
+      if (Code = 3010) then
+        InstallNeedsRestart := True;
+      if not ((Code = 0) or (Code = 1638) or (Code = 3010)) then
+      begin
+        ErrorText :=
+          'No se pudo instalar Visual C++ Runtime x64 automaticamente (codigo: ' + IntToStr(Code) + ').' + #13#10 + #13#10 +
+          'Descargalo manualmente desde:' + #13#10 +
+          '{#VCRedistURL}';
+        Result := False;
+        exit;
+      end;
+    #else
+      ErrorText :=
+        'Este instalador no incluye vc_redist.x64.exe en installer\prereqs.' + #13#10 + #13#10 +
+        'Descargalo manualmente desde:' + #13#10 +
+        '{#VCRedistURL}';
+      Result := False;
+      exit;
+    #endif
+  end
+  else
+  begin
+    #ifdef HasBundledVCRedistX86
+      ExtractTemporaryFile('vc_redist.x86.exe');
+      Code := ExecAndWait(ExpandConstant('{tmp}\vc_redist.x86.exe'), '/quiet /norestart');
+      if (Code = 3010) then
+        InstallNeedsRestart := True;
+      if not ((Code = 0) or (Code = 1638) or (Code = 3010)) then
+      begin
+        ErrorText :=
+          'No se pudo instalar Visual C++ Runtime x86 automaticamente (codigo: ' + IntToStr(Code) + ').' + #13#10 + #13#10 +
+          'Descargalo manualmente desde:' + #13#10 +
+          'https://aka.ms/vs/17/release/vc_redist.x86.exe';
+        Result := False;
+        exit;
+      end;
+    #else
+      ErrorText :=
+        'Este instalador no incluye vc_redist.x86.exe en installer\prereqs.' + #13#10 + #13#10 +
+        'Descargalo manualmente desde:' + #13#10 +
+        'https://aka.ms/vs/17/release/vc_redist.x86.exe';
+      Result := False;
+      exit;
+    #endif
+  end;
+end;
+
 procedure InitializeWizard();
 begin
-  // Welcome message modification (no-op, placeholder)
+  InstallNeedsRestart := False;
+
+  ReqPage := CreateCustomPage(
+    wpWelcome,
+    'Prerequisitos del sistema',
+    'El instalador puede preparar dependencias automaticamente y te indicara cada paso.'
+  );
+
+  ReqMemo := TNewMemo.Create(ReqPage);
+  ReqMemo.Parent := ReqPage.Surface;
+  ReqMemo.Left := 0;
+  ReqMemo.Top := 0;
+  ReqMemo.Width := ReqPage.SurfaceWidth;
+  ReqMemo.Height := 136;
+  ReqMemo.ReadOnly := True;
+  ReqMemo.WantReturns := True;
+  ReqMemo.ScrollBars := ssVertical;
+  ReqMemo.Text :=
+    'Este instalador verifica compatibilidad y te ayuda con dependencias.' + #13#10 +
+    '1) En Windows 7: SP1 es obligatorio.' + #13#10 +
+    '2) SHA-2/SSU pueden ser necesarios en Windows 7 para instaladores modernos.' + #13#10 +
+    '3) Visual C++ Runtime se instalara automaticamente (si viene incluido).' + #13#10 + #13#10 +
+    'Si algo no se puede automatizar, veras enlaces y el comando listo para copiar.';
+
+  ReqStatus := TNewStaticText.Create(ReqPage);
+  ReqStatus.Parent := ReqPage.Surface;
+  ReqStatus.Left := 0;
+  ReqStatus.Top := ReqMemo.Top + ReqMemo.Height + 8;
+  ReqStatus.Width := ReqPage.SurfaceWidth;
+  ReqStatus.Height := 48;
+  ReqStatus.AutoSize := False;
+
+  ChkAutoPrereqs := TNewCheckBox.Create(ReqPage);
+  ChkAutoPrereqs.Parent := ReqPage.Surface;
+  ChkAutoPrereqs.Left := 0;
+  ChkAutoPrereqs.Top := ReqStatus.Top + ReqStatus.Height + 6;
+  ChkAutoPrereqs.Width := ReqPage.SurfaceWidth;
+  ChkAutoPrereqs.Checked := True;
+  ChkAutoPrereqs.Caption := 'Instalar prerequisitos automaticamente (recomendado)';
+
+  BtnOpenSP1 := TNewButton.Create(ReqPage);
+  BtnOpenSP1.Parent := ReqPage.Surface;
+  BtnOpenSP1.Left := 0;
+  BtnOpenSP1.Top := ChkAutoPrereqs.Top + 30;
+  BtnOpenSP1.Width := 140;
+  BtnOpenSP1.Caption := 'Abrir SP1';
+  BtnOpenSP1.OnClick := @BtnOpenSP1Click;
+
+  BtnOpenSHA2 := TNewButton.Create(ReqPage);
+  BtnOpenSHA2.Parent := ReqPage.Surface;
+  BtnOpenSHA2.Left := BtnOpenSP1.Left + BtnOpenSP1.Width + 8;
+  BtnOpenSHA2.Top := BtnOpenSP1.Top;
+  BtnOpenSHA2.Width := 140;
+  BtnOpenSHA2.Caption := 'Abrir SHA-2';
+  BtnOpenSHA2.OnClick := @BtnOpenSHA2Click;
+
+  BtnOpenVCRedist := TNewButton.Create(ReqPage);
+  BtnOpenVCRedist.Parent := ReqPage.Surface;
+  BtnOpenVCRedist.Left := BtnOpenSHA2.Left + BtnOpenSHA2.Width + 8;
+  BtnOpenVCRedist.Top := BtnOpenSP1.Top;
+  BtnOpenVCRedist.Width := 160;
+  BtnOpenVCRedist.Caption := 'Abrir VC++ Runtime';
+  BtnOpenVCRedist.OnClick := @BtnOpenVCRedistClick;
+
+  BtnCopyPS := TNewButton.Create(ReqPage);
+  BtnCopyPS.Parent := ReqPage.Surface;
+  BtnCopyPS.Left := 0;
+  BtnCopyPS.Top := BtnOpenSP1.Top + 34;
+  BtnCopyPS.Width := 220;
+  BtnCopyPS.Caption := 'Copiar comando PowerShell';
+  BtnCopyPS.OnClick := @BtnCopyPSClick;
+
+  UpdateReqStatusText;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+
+  if CurPageID = ReqPage.ID then
+  begin
+    UpdateReqStatusText;
+
+    if IsWindows7 and (not IsWindows7SP1OrLater) then
+    begin
+      MsgBox(
+        'Windows 7 sin SP1 detectado.' + #13#10 + #13#10 +
+        'Debes instalar SP1 (KB976932) para continuar.',
+        mbCriticalError,
+        MB_OK
+      );
+      OpenURL('{#Win7SP1URL}');
+      Result := False;
+      exit;
+    end;
+  end;
+
   // Warn about FFmpeg only once, on the ready-to-install page
   if CurPageID = wpReady then begin
     if not FindOnPath('ffmpeg') then begin
@@ -115,4 +424,33 @@ begin
         Result := False;
     end;
   end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): string;
+var
+  Err: string;
+begin
+  Result := '';
+
+  if IsWindows7 and (not IsWindows7SP1OrLater) then
+  begin
+    Result :=
+      'Windows 7 sin SP1 detectado.' + #13#10 +
+      'Instala KB976932 y vuelve a ejecutar el instalador.';
+    exit;
+  end;
+
+  if not TryInstallBundledVCRedist(Err) then
+  begin
+    Result := Err;
+    exit;
+  end;
+
+  NeedsRestart := InstallNeedsRestart;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = ReqPage.ID then
+    UpdateReqStatusText;
 end;
