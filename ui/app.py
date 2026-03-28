@@ -33,7 +33,13 @@ import tkinter.filedialog as filedialog
 import tkinter.messagebox as messagebox
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    try:
+        from backports.zoneinfo import ZoneInfo  # type: ignore
+    except Exception:
+        ZoneInfo = None  # type: ignore
 
 import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageFont
@@ -1313,9 +1319,13 @@ class AudioToVideoApp(ctk.CTk):
         self.title(self.WINDOW_TITLE)
         self.geometry(self.WINDOW_SIZE)
         self.minsize(*self.MIN_SIZE)
-        self.state("zoomed")
+        try:
+            self.state("zoomed")
+        except tk.TclError:
+            # Some legacy Windows setups can reject this state; keep normal window.
+            pass
         self.configure(fg_color=C_BG)
-        self.protocol("WM_D`ELETE_WINDOW", self._on_close)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         # Icono de la ventana (title bar + taskbar)
         ico = _BUNDLE_DIR / "logoAtV.ico"
         if ico.is_file():

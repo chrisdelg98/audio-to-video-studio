@@ -20,7 +20,7 @@ import sys
 import winreg
 import zipfile
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 from urllib.request import urlopen, Request
 
 from core.utils import get_app_dir
@@ -29,7 +29,7 @@ _FFMPEG_URL = (
     "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 )
 
-ProgressCallback = Callable[[str, float | None], None]
+ProgressCallback = Callable[[str, Optional[float]], None]
 
 _INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "CreatorFlowStudio" / "ffmpeg"
 

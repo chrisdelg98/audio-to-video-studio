@@ -5,6 +5,8 @@ Comprueba que Python, FFmpeg y ffprobe están disponibles en PATH.
 Retorna resultados estructurados para que la UI pueda informar al usuario.
 """
 
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess
@@ -59,9 +61,13 @@ def validate_environment() -> ValidationResult:
 
     # --- Python ---
     py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    py_ok = sys.version_info >= (3, 10)
+    is_frozen = bool(getattr(sys, "frozen", False))
+    py_ok = is_frozen or sys.version_info >= (3, 10)
     if py_ok:
-        result.add("python", True, f"✔ Python {py_version}")
+        if is_frozen:
+            result.add("python", True, f"✔ Python embebido {py_version}")
+        else:
+            result.add("python", True, f"✔ Python {py_version}")
     else:
         result.add("python", False, f"✘ Python {py_version} — Se requiere Python 3.10 o superior.")
 

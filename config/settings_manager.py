@@ -5,6 +5,8 @@ Guarda y carga la configuración del usuario desde config/settings.json.
 Presets personalizados almacenados en config/presets.json.
 """
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path

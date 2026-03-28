@@ -10,6 +10,8 @@ Pillow==10.4.0
 
 # Timezone database for zoneinfo on Windows
 tzdata==2024.1
+backports.zoneinfo==0.2.1
+backports.tarfile==1.2.0
 
 # YouTube Data API
 google-auth==2.29.0
