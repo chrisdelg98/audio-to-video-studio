@@ -158,28 +158,13 @@ def build_prompt_lab_panel(
 
     ctk.CTkLabel(
         card_skill,
-        text="Skill",
+        text="Skills",
         text_color=colors["C_MUTED"],
         font=ctk.CTkFont(size=app._fs(11)),
-    ).grid(row=1, column=0, sticky="w", padx=(14, 8), pady=(0, 12))
-
-    app._pl_skill_menu = ctk.CTkOptionMenu(
-        card_skill,
-        variable=app._var_pl_skill,
-        values=["Asistente General"],
-        fg_color=colors["C_INPUT"],
-        button_color=accent,
-        button_hover_color=accent,
-        text_color=colors["C_TEXT"],
-        dropdown_fg_color=colors["C_CARD"],
-        dropdown_hover_color=colors["C_HOVER"],
-        dropdown_text_color=colors["C_TEXT"],
-        command=lambda _: app._pl_on_skill_selected(),
-    )
-    app._pl_skill_menu.grid(row=1, column=1, sticky="ew", pady=(0, 12))
+    ).grid(row=1, column=0, sticky="w", padx=(14, 8), pady=(0, 8))
 
     skill_btns = ctk.CTkFrame(card_skill, fg_color="transparent")
-    skill_btns.grid(row=1, column=2, sticky="e", padx=(8, 14), pady=(0, 12))
+    skill_btns.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(0, 14), pady=(0, 8))
 
     ctk.CTkButton(
         skill_btns,
@@ -195,39 +180,15 @@ def build_prompt_lab_panel(
 
     ctk.CTkButton(
         skill_btns,
-        text="Guardar",
-        width=90,
+        text="Gestionar skills",
+        width=130,
         fg_color="transparent",
         hover_color=colors["C_HOVER"],
         border_width=1,
         border_color=colors["C_BORDER"],
         text_color=colors["C_TEXT"],
-        command=app._pl_save_skill_dialog,
+        command=app._pl_open_skills_manager_modal,
     ).pack(side="left")
-
-    ctk.CTkButton(
-        skill_btns,
-        text="Versiones",
-        width=100,
-        fg_color="transparent",
-        hover_color=colors["C_HOVER"],
-        border_width=1,
-        border_color=colors["C_BORDER"],
-        text_color=colors["C_TEXT"],
-        command=app._pl_open_versions_modal,
-    ).pack(side="left", padx=(6, 0))
-
-    ctk.CTkButton(
-        skill_btns,
-        text="Descripcion",
-        width=110,
-        fg_color="transparent",
-        hover_color=colors["C_HOVER"],
-        border_width=1,
-        border_color=colors["C_BORDER"],
-        text_color=colors["C_TEXT"],
-        command=app._pl_open_skill_editor_modal,
-    ).pack(side="left", padx=(6, 0))
 
     ctk.CTkButton(
         skill_btns,
@@ -241,15 +202,15 @@ def build_prompt_lab_panel(
         command=app._pl_open_skill_selector_modal,
     ).pack(side="left", padx=(6, 0))
 
-    app._lbl_pl_applied_skills = ctk.CTkLabel(
+    app._pl_skill_tiles = ctk.CTkFrame(
         card_skill,
-        text="Skills aplicadas: Asistente General",
-        text_color=colors["C_TEXT_DIM"],
-        anchor="w",
-        justify="left",
-        font=ctk.CTkFont(size=app._fs(10)),
+        fg_color=colors["C_INPUT"],
+        corner_radius=8,
+        border_width=1,
+        border_color=colors["C_BORDER"],
     )
-    app._lbl_pl_applied_skills.grid(row=2, column=0, columnspan=3, sticky="ew", padx=14, pady=(0, 10))
+    app._pl_skill_tiles.grid(row=2, column=0, columnspan=3, sticky="ew", padx=14, pady=(0, 10))
+    app._pl_skill_tiles.grid_columnconfigure(0, weight=1)
 
     card_instructions = ctk.CTkFrame(
         panel,
@@ -276,6 +237,7 @@ def build_prompt_lab_panel(
         border_color=colors["C_BORDER"],
         text_color=colors["C_TEXT"],
         font=ctk.CTkFont(size=app._fs(11)),
+        wrap="word",
     )
     app._txt_pl_instructions.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
 

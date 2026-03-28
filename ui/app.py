@@ -4432,12 +4432,10 @@ class AudioToVideoApp(ctk.CTk):
         self._pl_on_category_selected()
 
     def _pl_on_category_selected(self) -> None:
-        if not hasattr(self, "_pl_skill_menu"):
-            return
         ws = self._var_pl_workspace.get().strip() or "General"
         cat = self._var_pl_category.get().strip() or "General"
         skills = self._prompt_lab.skills(ws, cat) or ["Asistente General"]
-        self._pl_skill_menu.configure(values=skills)
+
         current = self._var_pl_skill.get().strip()
         if current not in skills:
             current = skills[0]
@@ -4459,15 +4457,91 @@ class AudioToVideoApp(ctk.CTk):
         self._pl_on_skill_selected()
 
     def _pl_refresh_applied_skills_label(self) -> None:
-        if not hasattr(self, "_lbl_pl_applied_skills"):
+        self._pl_render_applied_skill_tiles()
+
+    def _pl_render_applied_skill_tiles(self) -> None:
+        container = getattr(self, "_pl_skill_tiles", None)
+        if container is None:
             return
+        for child in container.winfo_children():
+            child.destroy()
+
         if not self._pl_active_skills:
-            self._lbl_pl_applied_skills.configure(text="Skills aplicadas: ninguna")
+            ctk.CTkLabel(
+                container,
+                text="No hay skills aplicadas.",
+                text_color=C_TEXT_DIM,
+                anchor="w",
+                font=ctk.CTkFont(size=self._fs(10)),
+            ).grid(row=0, column=0, sticky="ew", padx=10, pady=8)
             return
-        text = "Skills aplicadas: " + ", ".join(
-            [f"{item.get('category', '')}:{item.get('skill', '')}" for item in self._pl_active_skills]
-        )
-        self._lbl_pl_applied_skills.configure(text=text)
+
+        for idx, item in enumerate(self._pl_active_skills):
+            cat = str(item.get("category", "")).strip()
+            sk = str(item.get("skill", "")).strip()
+            tile = ctk.CTkFrame(
+                container,
+                fg_color=C_CARD,
+                corner_radius=8,
+                border_width=1,
+                border_color=C_BORDER,
+            )
+            tile.grid(row=idx, column=0, sticky="ew", padx=8, pady=(6 if idx == 0 else 2, 4))
+            tile.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkLabel(
+                tile,
+                text=f"{cat}:{sk}",
+                text_color=C_TEXT,
+                anchor="w",
+                font=ctk.CTkFont(size=self._fs(10), weight="bold"),
+            ).grid(row=0, column=0, sticky="w", padx=10, pady=7)
+
+            ctk.CTkButton(
+                tile,
+                text="Ver",
+                width=58,
+                height=24,
+                fg_color="transparent",
+                hover_color=C_HOVER,
+                border_width=1,
+                border_color=C_BORDER,
+                text_color=C_TEXT,
+                font=ctk.CTkFont(size=self._fs(9)),
+                command=lambda c=cat, s=sk: self._pl_open_skill_editor_modal(c, s),
+            ).grid(row=0, column=1, padx=(6, 4), pady=6)
+
+            ctk.CTkButton(
+                tile,
+                text="Quitar",
+                width=64,
+                height=24,
+                fg_color="transparent",
+                hover_color=C_HOVER,
+                border_width=1,
+                border_color=C_BORDER,
+                text_color=C_TEXT_DIM,
+                font=ctk.CTkFont(size=self._fs(9)),
+                command=lambda c=cat, s=sk: self._pl_remove_active_skill(c, s),
+            ).grid(row=0, column=2, padx=(0, 8), pady=6)
+
+    def _pl_remove_active_skill(self, category: str, skill_name: str) -> None:
+        kept = [
+            item for item in self._pl_active_skills
+            if not (
+                str(item.get("category", "")).strip() == category
+                and str(item.get("skill", "")).strip() == skill_name
+            )
+        ]
+        if not kept:
+            messagebox.showwarning("Prompt Lab", "Debe quedar al menos una skill aplicada.")
+            return
+        self._pl_active_skills = kept
+        first = self._pl_active_skills[0]
+        self._var_pl_category.set(str(first.get("category", "General")))
+        self._var_pl_skill.set(str(first.get("skill", "Asistente General")))
+        self._pl_on_skill_selected()
+        self._pl_refresh_applied_skills_label()
 
     def _pl_on_skill_selected(self) -> None:
         if not hasattr(self, "_lbl_pl_status"):
@@ -5038,10 +5112,10 @@ class AudioToVideoApp(ctk.CTk):
 
         _refresh()
 
-    def _pl_open_skill_editor_modal(self) -> None:
+    def _pl_open_skill_editor_modal(self, category: str = "", skill_name: str = "") -> None:
         ws = self._var_pl_workspace.get().strip() or "General"
-        cat = self._var_pl_category.get().strip() or "General"
-        current_name = self._var_pl_skill.get().strip()
+        cat = category.strip() or self._var_pl_category.get().strip() or "General"
+        current_name = skill_name.strip() or self._var_pl_skill.get().strip()
         if not current_name:
             messagebox.showwarning("Prompt Lab", "Selecciona una skill primero.")
             return
@@ -5052,8 +5126,8 @@ class AudioToVideoApp(ctk.CTk):
             return
 
         modal = ctk.CTkToplevel(self)
-        modal.title("Descripcion de skill")
-        modal.geometry("680x520")
+        modal.title("Ver / editar skill")
+        modal.geometry("820x640")
         modal.resizable(True, True)
         modal.grab_set()
         modal.configure(fg_color=C_BG)
@@ -5069,13 +5143,14 @@ class AudioToVideoApp(ctk.CTk):
         ent_name = ctk.CTkEntry(root, textvariable=var_name, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
         ent_name.grid(row=0, column=1, sticky="ew", pady=(0, 8))
 
-        ctk.CTkLabel(root, text="Descripcion", text_color=C_MUTED).grid(row=1, column=0, sticky="nw", padx=(0, 8), pady=(0, 8))
-        txt_desc = ctk.CTkTextbox(root, height=100, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
-        txt_desc.grid(row=1, column=1, sticky="ew", pady=(0, 8))
-        txt_desc.insert("1.0", skill.description)
+        ctk.CTkLabel(root, text="Nota opcional (1 linea)", text_color=C_MUTED).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        var_note = tk.StringVar(value=(skill.description or "")[:180])
+        ent_note = ctk.CTkEntry(root, textvariable=var_note, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
+        ent_note.grid(row=1, column=1, sticky="ew", pady=(0, 8))
 
         ctk.CTkLabel(root, text="Comportamiento (instrucciones)", text_color=C_MUTED).grid(row=2, column=0, sticky="nw", padx=(0, 8), pady=(0, 8))
         txt_behavior = ctk.CTkTextbox(root, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
+        txt_behavior.configure(wrap="word")
         txt_behavior.grid(row=2, column=1, sticky="nsew", pady=(0, 8))
         txt_behavior.insert("1.0", skill.instructions)
 
@@ -5087,7 +5162,7 @@ class AudioToVideoApp(ctk.CTk):
             if not new_name:
                 messagebox.showwarning("Prompt Lab", "El nombre de skill no puede estar vacio.")
                 return
-            desc = txt_desc.get("1.0", "end").strip()
+            desc = var_note.get().strip()
             behavior = txt_behavior.get("1.0", "end").strip()
             try:
                 self._prompt_lab.upsert_skill(ws, cat, new_name, behavior, description=desc)
@@ -5119,6 +5194,216 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_TEXT,
             command=modal.destroy,
         ).pack(side="left", padx=(8, 0))
+
+    def _pl_open_skills_manager_modal(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+        cat = self._var_pl_category.get().strip() or "General"
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Gestionar skills")
+        modal.geometry("860x620")
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(2, weight=1)
+
+        title_var = tk.StringVar(value=f"Workspace: {ws} | Categoria: {cat}")
+        ctk.CTkLabel(
+            root,
+            textvariable=title_var,
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        filters = ctk.CTkFrame(root, fg_color="transparent")
+        filters.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        filters.grid_columnconfigure(1, weight=1)
+        filters.grid_columnconfigure(3, weight=1)
+
+        ctk.CTkLabel(filters, text="Categoria", text_color=C_MUTED).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        category_filter_var = tk.StringVar(value=cat)
+        category_values = ["Todas"] + (self._prompt_lab.categories(ws) or ["General"])
+        if category_filter_var.get() not in category_values:
+            category_filter_var.set("Todas")
+        category_filter = ctk.CTkOptionMenu(
+            filters,
+            variable=category_filter_var,
+            values=category_values,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_LAB,
+            button_hover_color=C_ACCENT_LAB_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_hover_color=C_HOVER,
+            dropdown_text_color=C_TEXT,
+            command=lambda _v: _refresh(),
+        )
+        category_filter.grid(row=0, column=1, sticky="ew", padx=(0, 12))
+
+        ctk.CTkLabel(filters, text="Buscar", text_color=C_MUTED).grid(row=0, column=2, sticky="w", padx=(0, 8))
+        search_var = tk.StringVar(value="")
+        search_entry = ctk.CTkEntry(
+            filters,
+            textvariable=search_var,
+            fg_color=C_INPUT,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            placeholder_text="Filtrar por nombre de skill...",
+        )
+        search_entry.grid(row=0, column=3, sticky="ew")
+
+        box = ctk.CTkScrollableFrame(root, fg_color=C_CARD)
+        box.grid(row=2, column=0, sticky="nsew")
+        box.grid_columnconfigure(0, weight=1)
+
+        def _refresh() -> None:
+            nonlocal ws, cat
+            ws = self._var_pl_workspace.get().strip() or "General"
+            cat = self._var_pl_category.get().strip() or "General"
+            title_var.set(f"Workspace: {ws} | Categoria: {cat}")
+
+            all_categories = self._prompt_lab.categories(ws) or ["General"]
+            new_values = ["Todas"] + all_categories
+            category_filter.configure(values=new_values)
+            if category_filter_var.get() not in new_values:
+                category_filter_var.set("Todas")
+
+            for child in box.winfo_children():
+                child.destroy()
+
+            selected_cat = category_filter_var.get().strip() or "Todas"
+            query = search_var.get().strip().lower()
+
+            entries: list[tuple[str, str]] = []
+            for cat_name in all_categories:
+                if selected_cat != "Todas" and cat_name != selected_cat:
+                    continue
+                for sk in self._prompt_lab.skill_objects(ws, cat_name):
+                    if query and query not in sk.name.lower():
+                        continue
+                    entries.append((cat_name, sk.name))
+
+            if not entries:
+                ctk.CTkLabel(
+                    box,
+                    text="No hay skills para el filtro actual.",
+                    text_color=C_TEXT_DIM,
+                    anchor="w",
+                ).grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+                return
+
+            for idx, (skill_cat, sk_name) in enumerate(entries):
+                item = ctk.CTkFrame(
+                    box,
+                    fg_color=C_INPUT,
+                    corner_radius=8,
+                    border_width=1,
+                    border_color=C_BORDER,
+                )
+                item.grid(row=idx, column=0, sticky="ew", padx=8, pady=(6 if idx == 0 else 2, 4))
+                item.grid_columnconfigure(0, weight=1)
+
+                ctk.CTkLabel(
+                    item,
+                    text=f"{sk_name}  [{skill_cat}]",
+                    text_color=C_TEXT,
+                    anchor="w",
+                    font=ctk.CTkFont(size=self._fs(11), weight="bold"),
+                ).grid(row=0, column=0, sticky="w", padx=10, pady=8)
+
+                ctk.CTkButton(
+                    item,
+                    text="Ver/Editar",
+                    width=90,
+                    fg_color="transparent",
+                    hover_color=C_HOVER,
+                    border_width=1,
+                    border_color=C_BORDER,
+                    text_color=C_TEXT,
+                    command=lambda c=skill_cat, s=sk_name: self._pl_open_skill_editor_modal(c, s),
+                ).grid(row=0, column=1, padx=(0, 6), pady=6)
+
+                ctk.CTkButton(
+                    item,
+                    text="Versiones",
+                    width=86,
+                    fg_color="transparent",
+                    hover_color=C_HOVER,
+                    border_width=1,
+                    border_color=C_BORDER,
+                    text_color=C_TEXT,
+                    command=lambda c=skill_cat, s=sk_name: [
+                        self._var_pl_category.set(c),
+                        self._var_pl_skill.set(s),
+                        self._pl_open_versions_modal(),
+                    ],
+                ).grid(row=0, column=2, padx=(0, 6), pady=6)
+
+                def _delete_skill(category_name: str, name: str) -> None:
+                    confirm = ThemedConfirmDialog(
+                        self,
+                        "Prompt Lab",
+                        "Eliminar skill",
+                        f"Se eliminara la skill '{name}' de la categoria '{category_name}'.\n\nEstas seguro?",
+                    ).run_modal()
+                    if not confirm:
+                        return
+                    try:
+                        self._prompt_lab.delete_skill(ws, category_name, name)
+                    except ValueError as exc:
+                        messagebox.showwarning("Prompt Lab", str(exc))
+                        return
+
+                    self._pl_active_skills = [
+                        i for i in self._pl_active_skills
+                        if not (i.get("category") == category_name and i.get("skill") == name)
+                    ]
+                    self._pl_on_category_selected()
+                    _refresh()
+
+                ctk.CTkButton(
+                    item,
+                    text="Eliminar",
+                    width=82,
+                    fg_color=C_BTN_DANGER,
+                    hover_color=C_ERROR,
+                    text_color="#FFFFFF",
+                    command=lambda c=skill_cat, s=sk_name: _delete_skill(c, s),
+                ).grid(row=0, column=3, padx=(0, 8), pady=6)
+
+        btns = ctk.CTkFrame(root, fg_color="transparent")
+        btns.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+
+        ctk.CTkButton(
+            btns,
+            text="Actualizar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_refresh,
+        ).pack(side="left")
+        ctk.CTkButton(
+            btns,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side="right")
+
+        search_var.trace_add("write", lambda *_: _refresh())
+
+        _refresh()
 
     def _pl_open_skill_selector_modal(self) -> None:
         ws = self._var_pl_workspace.get().strip() or "General"
@@ -5259,34 +5544,120 @@ class AudioToVideoApp(ctk.CTk):
 
     def _pl_new_skill_dialog(self) -> None:
         ws = self._var_pl_workspace.get().strip() or "General"
-        cat_dialog = ctk.CTkInputDialog(text="Categoria (nueva o existente):", title="Prompt Lab")
-        _center_window_on_screen(cat_dialog)
-        category = (cat_dialog.get_input() or self._var_pl_category.get()).strip() or "General"
-        skill_dialog = ctk.CTkInputDialog(text="Nombre de la skill:", title="Prompt Lab")
-        _center_window_on_screen(skill_dialog)
-        skill_name = (skill_dialog.get_input() or "").strip()
-        if not skill_name:
-            return
-        desc_dialog = ctk.CTkInputDialog(text="Descripcion breve de la skill:", title="Prompt Lab")
-        _center_window_on_screen(desc_dialog)
-        description = (desc_dialog.get_input() or "").strip()
-        instructions = ""
-        if hasattr(self, "_txt_pl_instructions"):
-            instructions = self._txt_pl_instructions.get("1.0", "end").strip()
-        try:
-            self._prompt_lab.upsert_skill(
-                ws,
-                category,
-                skill_name,
-                instructions,
-                description=description,
-            )
-            self._var_pl_category.set(category)
-            self._var_pl_skill.set(skill_name)
-            self._pl_on_workspace_selected()
-            self._log(f"[Prompt Lab] Skill creada: {skill_name} ({category})")
-        except ValueError as exc:
-            messagebox.showwarning("Prompt Lab", str(exc))
+        categories = self._prompt_lab.categories(ws) or ["General"]
+        selected_category = tk.StringVar(value=self._var_pl_category.get().strip() or categories[0])
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Nueva skill")
+        modal.geometry("860x650")
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.grid_columnconfigure(1, weight=1)
+        root.grid_rowconfigure(3, weight=1)
+
+        ctk.CTkLabel(
+            root,
+            text="Crear nueva skill",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+
+        ctk.CTkLabel(root, text="Nombre", text_color=C_MUTED).grid(
+            row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 8)
+        )
+        ent_name = ctk.CTkEntry(
+            root,
+            fg_color=C_INPUT,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            placeholder_text="Ej: Asistente SEO",
+        )
+        ent_name.grid(row=1, column=1, sticky="ew", pady=(0, 8))
+
+        ctk.CTkLabel(root, text="Categoria", text_color=C_MUTED).grid(
+            row=2, column=0, sticky="nw", padx=(0, 8), pady=(0, 8)
+        )
+        category_menu = ctk.CTkOptionMenu(
+            root,
+            variable=selected_category,
+            values=categories,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_LAB,
+            button_hover_color=C_ACCENT_LAB_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_hover_color=C_HOVER,
+            dropdown_text_color=C_TEXT,
+        )
+        category_menu.grid(row=2, column=1, sticky="ew", pady=(0, 8))
+
+        ctk.CTkLabel(root, text="Skill (comportamiento)", text_color=C_MUTED).grid(
+            row=3, column=0, sticky="nw", padx=(0, 8), pady=(0, 8)
+        )
+        txt_skill = ctk.CTkTextbox(
+            root,
+            height=360,
+            fg_color=C_INPUT,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+        )
+        txt_skill.configure(wrap="word")
+        txt_skill.grid(row=3, column=1, sticky="nsew", pady=(0, 8))
+
+        btns = ctk.CTkFrame(root, fg_color="transparent")
+        btns.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+
+        def _create() -> None:
+            skill_name = ent_name.get().strip()
+            category = selected_category.get().strip() or "General"
+            instructions = txt_skill.get("1.0", "end").strip()
+            if not skill_name:
+                messagebox.showwarning("Prompt Lab", "El nombre de la skill no puede estar vacio.")
+                return
+            if not instructions:
+                messagebox.showwarning("Prompt Lab", "Escribe el comportamiento de la skill.")
+                return
+            try:
+                self._prompt_lab.upsert_skill(
+                    ws,
+                    category,
+                    skill_name,
+                    instructions,
+                    description="",
+                )
+                self._var_pl_category.set(category)
+                self._var_pl_skill.set(skill_name)
+                self._pl_on_workspace_selected()
+                self._log(f"[Prompt Lab] Skill creada: {skill_name} ({category})")
+                modal.destroy()
+            except ValueError as exc:
+                messagebox.showwarning("Prompt Lab", str(exc))
+
+        ctk.CTkButton(
+            btns,
+            text="Crear",
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color="#FFFFFF",
+            command=_create,
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            btns,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side="left", padx=(8, 0))
 
     def _pl_save_skill_dialog(self) -> None:
         ws = self._var_pl_workspace.get().strip() or "General"

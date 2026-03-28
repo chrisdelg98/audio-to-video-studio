@@ -284,6 +284,25 @@ class PromptLabManager:
         ws["categories"] = kept
         self.save()
 
+    def delete_skill(self, workspace_name: str, category_name: str, skill_name: str) -> None:
+        cat = self._find_category(workspace_name, category_name)
+        if not cat:
+            raise ValueError("Categoria no encontrada.")
+
+        target = skill_name.strip()
+        if not target:
+            raise ValueError("Nombre de skill vacio.")
+
+        skills = [s for s in cat.get("skills", []) if isinstance(s, dict)]
+        kept = [s for s in skills if str(s.get("name", "")).strip() != target]
+        if len(kept) == len(skills):
+            raise ValueError("Skill no encontrada.")
+        if not kept:
+            raise ValueError("Debe quedar al menos una skill en la categoria.")
+
+        cat["skills"] = kept
+        self.save()
+
     def upsert_skill(
         self,
         workspace_name: str,
