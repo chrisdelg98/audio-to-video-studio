@@ -1392,6 +1392,22 @@ class ModelSelectionDialog(ctk.CTkToplevel):
                 "alternative": False,
             },
             {
+                "model": "qwen2.5:14b",
+                "label": "Qwen 2.5 14B",
+                "purpose": "Alta obediencia a instrucciones y mejor consistencia en prompts complejos.",
+                "ram": "24 GB recomendados (minimo 16 GB)",
+                "recommended": False,
+                "alternative": True,
+            },
+            {
+                "model": "qwen2.5:7b",
+                "label": "Qwen 2.5 7B",
+                "purpose": "Buen equilibrio entre obediencia a skills y rendimiento.",
+                "ram": "12 GB recomendados (minimo 8 GB)",
+                "recommended": False,
+                "alternative": True,
+            },
+            {
                 "model": "llama3.2:1b",
                 "label": "Llama 3.2 1B (Ligero)",
                 "purpose": "Opcion liviana: menor calidad, pero util para tareas simples.",
@@ -4492,7 +4508,7 @@ class AudioToVideoApp(ctk.CTk):
             return "Ligero"
         if ":2b" in name or ":3b" in name or ":4b" in name:
             return "Medio"
-        if ":7b" in name or ":8b" in name or ":13b" in name:
+        if ":7b" in name or ":8b" in name or ":13b" in name or ":14b" in name:
             return "Pesado"
         return "Medio"
 
@@ -4521,7 +4537,7 @@ class AudioToVideoApp(ctk.CTk):
             return ("LIGERO", "Menor consumo de RAM, mas rapido, menor detalle.")
         if ":2b" in name or ":3b" in name or ":4b" in name:
             return ("BALANCEADO", "Buen equilibrio entre velocidad, RAM y calidad.")
-        if ":7b" in name or ":8b" in name or ":13b" in name:
+        if ":7b" in name or ":8b" in name or ":13b" in name or ":14b" in name:
             return ("ALTA CALIDAD", "Mejor redaccion/consistencia, pero mas pesado.")
         return ("ESTANDAR", "Perfil intermedio. Si va lento, usa un modelo 1b o 3b.")
 
@@ -5371,16 +5387,17 @@ class AudioToVideoApp(ctk.CTk):
 
         modal = ctk.CTkToplevel(self)
         modal.title("Gestion de almacenamiento IA")
-        modal.geometry("760x560")
+        modal.geometry("820x640")
         modal.resizable(True, True)
         modal.grab_set()
         modal.configure(fg_color=C_BG)
         _center_window_on_screen(modal)
 
         root = ctk.CTkFrame(modal, fg_color="transparent")
-        root.pack(fill="both", expand=True, padx=20, pady=(14, 14))
+        root.pack(fill="both", expand=True, padx=22, pady=(16, 16))
         root.grid_columnconfigure(0, weight=1)
-        root.grid_rowconfigure(2, weight=1)
+        root.grid_rowconfigure(3, weight=1)
+        root.grid_rowconfigure(6, weight=1)
 
         ctk.CTkLabel(
             root,
@@ -5393,19 +5410,42 @@ class AudioToVideoApp(ctk.CTk):
         ctk.CTkLabel(
             root,
             text=(
-                "Desde aqui puedes eliminar modelos individuales o desinstalar Ollama completo "
-                "para liberar espacio en disco."
+                "Desde aqui puedes instalar modelos nuevos, eliminar modelos individuales "
+                "o desinstalar Ollama completo para liberar espacio en disco."
             ),
             text_color=C_TEXT_DIM,
             anchor="w",
             justify="left",
             wraplength=700,
             font=ctk.CTkFont(size=self._fs(11)),
-        ).grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        ).grid(row=1, column=0, sticky="ew", pady=(0, 14))
 
-        box = ctk.CTkScrollableFrame(root, fg_color=C_CARD)
-        box.grid(row=2, column=0, sticky="nsew")
-        box.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            root,
+            text="Modelos instalados",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(12), weight="bold"),
+        ).grid(row=2, column=0, sticky="ew", pady=(0, 6))
+
+        box_installed = ctk.CTkScrollableFrame(root, fg_color=C_CARD, height=170)
+        box_installed.grid(row=3, column=0, sticky="nsew", pady=(0, 14))
+        box_installed.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            root,
+            text="Modelos disponibles para instalar",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(12), weight="bold"),
+        ).grid(row=4, column=0, sticky="ew", pady=(0, 6))
+
+        available_tools = ctk.CTkFrame(root, fg_color="transparent")
+        available_tools.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+
+        box_available = ctk.CTkScrollableFrame(root, fg_color=C_CARD, height=170)
+        box_available.grid(row=6, column=0, sticky="nsew", pady=(0, 0))
+        box_available.grid_columnconfigure(0, weight=1)
 
         summary_var = tk.StringVar(value="Cargando modelos instalados...")
         ctk.CTkLabel(
@@ -5414,42 +5454,159 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_ACCENT_LAB,
             anchor="w",
             justify="left",
+            wraplength=700,
             font=ctk.CTkFont(size=self._fs(11), weight="bold"),
-        ).grid(row=3, column=0, sticky="ew", pady=(10, 8))
+        ).grid(row=7, column=0, sticky="ew", pady=(14, 10))
+
+        progress_var = tk.StringVar(value="Listo.")
+        ctk.CTkLabel(
+            root,
+            textvariable=progress_var,
+            text_color=C_TEXT_DIM,
+            anchor="w",
+            justify="left",
+            font=ctk.CTkFont(size=self._fs(10)),
+        ).grid(row=8, column=0, sticky="ew", pady=(0, 6))
+
+        progress_bar = ctk.CTkProgressBar(
+            root,
+            fg_color=C_INPUT,
+            progress_color=C_ACCENT_LAB,
+            mode="determinate",
+        )
+        progress_bar.set(0)
+        progress_bar.grid(row=9, column=0, sticky="ew", pady=(0, 12))
 
         btns = ctk.CTkFrame(root, fg_color="transparent")
-        btns.grid(row=4, column=0, sticky="ew")
+        btns.grid(row=10, column=0, sticky="ew", pady=(2, 0))
 
         model_vars: dict[str, tk.BooleanVar] = {}
         model_sizes: dict[str, float] = {}
+        available_vars: dict[str, tk.BooleanVar] = {}
+        available_sizes: dict[str, float] = {}
+        catalog_models = [
+            "llama3.1:8b",
+            "llama3.2:3b",
+            "llama3.2:1b",
+            "qwen2.5:7b",
+            "qwen2.5:14b",
+        ]
+
+        def _tier_color(tier: str) -> str:
+            t = (tier or "").strip().lower()
+            if t == "ligero":
+                return "#16A34A"
+            if t == "medio":
+                return "#0EA5E9"
+            if t == "pesado":
+                return "#F59E0B"
+            return C_TEXT_DIM
 
         def _update_summary() -> None:
-            selected = [name for name, var in model_vars.items() if var.get()]
-            selected_gb = round(sum(model_sizes.get(name, 0.0) for name in selected), 2)
+            selected_delete = [name for name, var in model_vars.items() if var.get()]
+            selected_install = [name for name, var in available_vars.items() if var.get()]
+            selected_delete_gb = round(sum(model_sizes.get(name, 0.0) for name in selected_delete), 2)
+            selected_install_gb = round(sum(available_sizes.get(name, 0.0) for name in selected_install), 2)
             total_gb = round(sum(model_sizes.values()), 2)
             summary_var.set(
-                f"Modelos instalados: {len(model_vars)} | Seleccionados: {len(selected)} | "
-                f"Peso seleccionado: {selected_gb:.2f} GB | Total aprox: {total_gb:.2f} GB"
+                f"Instalados: {len(model_vars)} | Disponibles: {len(available_vars)} | Total instalado aprox: {total_gb:.2f} GB\n"
+                f"Eliminar: {len(selected_delete)} ({selected_delete_gb:.2f} GB) | Instalar: {len(selected_install)} (~{selected_install_gb:.2f} GB)"
             )
+
+        def _set_modal_progress(message: str, pct: float | None = None) -> None:
+            progress_var.set(message)
+            if pct is None:
+                progress_bar.configure(mode="indeterminate")
+                progress_bar.start()
+            else:
+                progress_bar.stop()
+                progress_bar.configure(mode="determinate")
+                progress_bar.set(max(0.0, min(float(pct), 100.0)) / 100.0)
 
         def _set_buttons(enabled: bool) -> None:
             state = "normal" if enabled else "disabled"
+            btn_install.configure(state=state)
             btn_delete.configure(state=state)
             btn_uninstall.configure(state=state)
             btn_refresh.configure(state=state)
             btn_close.configure(state=state)
+            btn_select_all_available.configure(state=state)
+            btn_clear_available.configure(state=state)
+
+        def _open_ollama_models_folder() -> None:
+            candidates = [
+                Path.home() / ".ollama" / "models",
+                Path(os.environ.get("LOCALAPPDATA", "")) / "Ollama" / "models",
+                Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "models",
+            ]
+            target = None
+            for p in candidates:
+                if p and p.is_dir():
+                    target = p
+                    break
+            if target is None:
+                target = candidates[0]
+                try:
+                    target.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass
+
+            try:
+                os.startfile(str(target))
+            except Exception as exc:
+                messagebox.showerror("Prompt Lab", f"No se pudo abrir carpeta de modelos.\n\n{exc}")
+
+        def _select_all_available() -> None:
+            for var in available_vars.values():
+                var.set(True)
+            _update_summary()
+
+        def _clear_available() -> None:
+            for var in available_vars.values():
+                var.set(False)
+            _update_summary()
+
+        btn_select_all_available = ctk.CTkButton(
+            available_tools,
+            text="Seleccionar todo",
+            width=130,
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_select_all_available,
+        )
+        btn_select_all_available.pack(side="left", padx=(0, 8))
+
+        btn_clear_available = ctk.CTkButton(
+            available_tools,
+            text="Limpiar seleccion",
+            width=130,
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_clear_available,
+        )
+        btn_clear_available.pack(side="left")
 
         def _load_models() -> None:
-            for child in box.winfo_children():
+            for child in box_installed.winfo_children():
+                child.destroy()
+            for child in box_available.winfo_children():
                 child.destroy()
             model_vars.clear()
             model_sizes.clear()
+            available_vars.clear()
+            available_sizes.clear()
 
             try:
                 models = list_installed_models_with_sizes(base_url)
             except Exception as exc:
                 ctk.CTkLabel(
-                    box,
+                    box_installed,
                     text=f"No se pudo consultar modelos: {exc}",
                     text_color=C_ERROR,
                     anchor="w",
@@ -5462,15 +5619,13 @@ class AudioToVideoApp(ctk.CTk):
 
             if not models:
                 ctk.CTkLabel(
-                    box,
+                    box_installed,
                     text="No hay modelos instalados en Ollama.",
                     text_color=C_TEXT_DIM,
                     anchor="w",
                     justify="left",
                     font=ctk.CTkFont(size=self._fs(11)),
                 ).grid(row=0, column=0, sticky="ew", padx=12, pady=12)
-                summary_var.set("No hay modelos instalados.")
-                return
 
             for idx, item in enumerate(models):
                 name = str(item.get("name", "")).strip()
@@ -5482,8 +5637,8 @@ class AudioToVideoApp(ctk.CTk):
                 var = tk.BooleanVar(value=False)
                 model_vars[name] = var
 
-                row = ctk.CTkFrame(box, fg_color="transparent")
-                row.grid(row=idx, column=0, sticky="ew", padx=8, pady=(4, 2))
+                row = ctk.CTkFrame(box_installed, fg_color="transparent")
+                row.grid(row=idx, column=0, sticky="ew", padx=10, pady=(8, 4))
                 row.grid_columnconfigure(0, weight=1)
 
                 ctk.CTkCheckBox(
@@ -5497,6 +5652,15 @@ class AudioToVideoApp(ctk.CTk):
                     font=ctk.CTkFont(size=self._fs(11), weight="bold"),
                 ).grid(row=0, column=0, sticky="w")
 
+                tier = self._pl_model_weight_tag(name)
+                ctk.CTkLabel(
+                    row,
+                    text=tier,
+                    text_color=_tier_color(tier),
+                    anchor="e",
+                    font=ctk.CTkFont(size=self._fs(10), weight="bold"),
+                ).grid(row=0, column=1, sticky="e", padx=(8, 8))
+
                 size_text = f"{size_gb:.2f} GB" if size_gb > 0 else "tamano no reportado"
                 ctk.CTkLabel(
                     row,
@@ -5504,15 +5668,80 @@ class AudioToVideoApp(ctk.CTk):
                     text_color=C_TEXT_DIM,
                     anchor="e",
                     font=ctk.CTkFont(size=self._fs(10)),
-                ).grid(row=0, column=1, sticky="e", padx=(8, 0))
+                ).grid(row=0, column=2, sticky="e", padx=(4, 0))
+
+                ctk.CTkButton(
+                    row,
+                    text=FA_FOLDER,
+                    width=30,
+                    height=24,
+                    fg_color="transparent",
+                    hover_color=C_HOVER,
+                    border_width=1,
+                    border_color=C_BORDER,
+                    text_color=C_TEXT,
+                    font=ctk.CTkFont(size=self._fs(11)),
+                    command=_open_ollama_models_folder,
+                ).grid(row=0, column=3, sticky="e", padx=(8, 0))
+
+            installed_names = {name.lower() for name in model_vars.keys()}
+            available = [m for m in catalog_models if m.lower() not in installed_names]
+            if not available:
+                ctk.CTkLabel(
+                    box_available,
+                    text="No hay modelos pendientes del catalogo.",
+                    text_color=C_TEXT_DIM,
+                    anchor="w",
+                    justify="left",
+                    font=ctk.CTkFont(size=self._fs(11)),
+                ).grid(row=0, column=0, sticky="ew", padx=12, pady=12)
+            else:
+                for idx, name in enumerate(available):
+                    est = float(estimate_models_size_gb([name]) or 0.0)
+                    available_sizes[name] = est
+                    var = tk.BooleanVar(value=False)
+                    available_vars[name] = var
+
+                    row = ctk.CTkFrame(box_available, fg_color="transparent")
+                    row.grid(row=idx, column=0, sticky="ew", padx=10, pady=(8, 4))
+                    row.grid_columnconfigure(0, weight=1)
+
+                    ctk.CTkCheckBox(
+                        row,
+                        text=name,
+                        variable=var,
+                        text_color=C_TEXT,
+                        command=_update_summary,
+                        fg_color=C_ACCENT_LAB,
+                        hover_color=C_ACCENT_LAB_H,
+                        font=ctk.CTkFont(size=self._fs(11), weight="bold"),
+                    ).grid(row=0, column=0, sticky="w")
+
+                    tier = self._pl_model_weight_tag(name)
+                    ctk.CTkLabel(
+                        row,
+                        text=tier,
+                        text_color=_tier_color(tier),
+                        anchor="e",
+                        font=ctk.CTkFont(size=self._fs(10), weight="bold"),
+                    ).grid(row=0, column=1, sticky="e", padx=(8, 8))
+
+                    ctk.CTkLabel(
+                        row,
+                        text=f"~{est:.2f} GB",
+                        text_color=C_TEXT_DIM,
+                        anchor="e",
+                        font=ctk.CTkFont(size=self._fs(10)),
+                    ).grid(row=0, column=2, sticky="e", padx=(4, 0))
 
             _update_summary()
+            _set_modal_progress("Listo.", 0)
 
         def _run_task(title: str, headline: str, task_fn, on_done) -> None:
-            busy = BusyDialog(self, title=title, headline=headline, detail="Preparando...")
+            _set_modal_progress(f"{headline} Preparando...", None)
 
-            def _progress(message: str, _pct: float | None = None) -> None:
-                self.after(0, busy.set_detail, headline, message)
+            def _progress(message: str, pct: float | None = None) -> None:
+                self.after(0, _set_modal_progress, message, pct)
 
             def _worker() -> None:
                 try:
@@ -5521,7 +5750,6 @@ class AudioToVideoApp(ctk.CTk):
                     ok, detail = False, str(exc)
 
                 def _done() -> None:
-                    busy.close()
                     on_done(ok, detail)
 
                 self.after(0, _done)
@@ -5592,6 +5820,41 @@ class AudioToVideoApp(ctk.CTk):
                     messagebox.showerror("Prompt Lab", f"No se pudo desinstalar Ollama.\n\n{detail}")
 
             _run_task("Prompt Lab IA", "Desinstalando Ollama...", _task, _done)
+
+        def _install_new_models() -> None:
+            selected = [name for name, var in available_vars.items() if var.get()]
+            if not selected:
+                messagebox.showinfo("Prompt Lab", "Selecciona al menos un modelo disponible para instalar.")
+                return
+
+            _set_buttons(False)
+
+            def _task(progress_cb):
+                return pull_ollama_models(selected, on_progress=progress_cb)
+
+            def _done(ok: bool, detail: str) -> None:
+                _set_buttons(True)
+                if ok:
+                    self._log(f"[Prompt Lab] Modelos instalados: {', '.join(selected)}")
+                    messagebox.showinfo("Prompt Lab", "Modelos instalados correctamente.")
+                    _set_modal_progress("Instalacion completada.", 100)
+                    _load_models()
+                    self._pl_refresh_available_models()
+                else:
+                    _set_modal_progress("Fallo en instalacion.", 0)
+                    messagebox.showerror("Prompt Lab", f"No se pudieron instalar modelos.\n\n{detail}")
+
+            _run_task("Prompt Lab IA", "Instalando modelos...", _task, _done)
+
+        btn_install = ctk.CTkButton(
+            btns,
+            text="Instalar modelos",
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color="#FFFFFF",
+            command=_install_new_models,
+        )
+        btn_install.pack(side="left", padx=(0, 8))
 
         btn_delete = ctk.CTkButton(
             btns,
@@ -6474,6 +6737,100 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_lbl_pl_status"):
             self._pl_set_status("Salida copiada al portapapeles")
 
+    def _pl_is_suno_music_context(self, active_items: list[dict[str, str]]) -> bool:
+        for item in active_items:
+            cat = str(item.get("category", "")).strip().lower()
+            sk = str(item.get("skill", "")).strip().lower()
+            if "suno prompts" in cat:
+                return True
+            if "suno" in sk and "architect" in sk and "visual" not in sk and "wallpaper" not in sk:
+                return True
+        return False
+
+    def _pl_compact_and_limit_text(self, text: str, *, max_chars: int) -> str:
+        # Normalize to a single compact line for model-specific prompt formats (e.g., Suno).
+        value = (text or "").replace("\r", "\n")
+        for token in ("**", "__", "```", "`"):
+            value = value.replace(token, "")
+        parts = [line.strip(" -•\t") for line in value.split("\n") if line.strip()]
+        compact = " ".join(parts)
+        while "  " in compact:
+            compact = compact.replace("  ", " ")
+        compact = compact.strip()
+        if len(compact) > max_chars:
+            compact = compact[:max_chars].rstrip()
+        return compact
+
+    def _pl_looks_english(self, text: str) -> bool:
+        low = (text or "").strip().lower()
+        if not low:
+            return False
+
+        normalized = "".join(ch if ch.isalpha() else " " for ch in low)
+        tokens = normalized.split()
+        if not tokens:
+            return True
+
+        spanish_markers = {
+            "de", "que", "para", "con", "como", "solo", "sin", "una", "un", "las", "los",
+            "del", "por", "este", "esta", "debe", "obligatorio", "salida", "reglas", "formato",
+            "respuesta", "generado", "musica", "en", "el", "la",
+        }
+        english_markers = {
+            "the", "and", "with", "for", "only", "without", "must", "output", "format", "prompt",
+            "track", "style", "mood", "tempo", "mix", "no", "clean", "in", "of", "to", "a", "an",
+        }
+
+        sp_count = sum(1 for t in tokens if t in spanish_markers)
+        en_count = sum(1 for t in tokens if t in english_markers)
+        has_spanish_accents = any(ch in low for ch in "áéíóúñ")
+
+        if has_spanish_accents and en_count == 0:
+            return False
+        if sp_count >= 3 and sp_count > en_count:
+            return False
+        return True
+
+    def _pl_validate_output_compliance(self, text: str, *, max_chars: int | None) -> tuple[bool, str]:
+        value = (text or "").strip()
+        if not value:
+            return (False, "empty output")
+
+        if not self._pl_looks_english(value):
+            return (False, "output is not in English")
+
+        if "```" in value or "**" in value or "__" in value:
+            return (False, "contains markdown formatting")
+
+        forbidden_fragments = (
+            "objetivo:", "formato de salida", "reglas de", "motor de interpretacion",
+            "objective:", "output format", "rules:", "analysis:", "step 1",
+        )
+        low = value.lower()
+        if any(fragment in low for fragment in forbidden_fragments):
+            return (False, "contains explanation/section labels")
+
+        if max_chars and len(value) > max_chars:
+            return (False, f"exceeds {max_chars} characters")
+
+        return (True, "ok")
+
+    def _pl_build_repair_prompt(self, draft: str, *, reason: str, max_chars: int | None) -> str:
+        cap = f"Maximum length: {max_chars} characters." if max_chars else ""
+        single_line = "Return one single line." if max_chars else "Prefer a compact single paragraph."
+        return (
+            "Rewrite the draft so it strictly complies with the required format.\n"
+            "Requirements:\n"
+            "- English only.\n"
+            "- Output only the final production-ready prompt.\n"
+            "- No headings, no explanations, no markdown.\n"
+            f"- {single_line}\n"
+            f"- {cap}\n"
+            f"Failure reason: {reason}.\n\n"
+            "DRAFT TO REWRITE:\n"
+            f"{draft.strip()}"
+        ).strip()
+
     def _on_generate_prompt_lab(self) -> None:
         if self._pl_generation_in_progress:
             messagebox.showinfo("Prompt Lab", "Ya hay una generacion en progreso.")
@@ -6489,10 +6846,12 @@ class AudioToVideoApp(ctk.CTk):
         cat = self._var_pl_category.get().strip() or "General"
         skill_name = self._var_pl_skill.get().strip() or "Skill General"
         mode = self._var_pl_model_mode.get().strip() or "Calidad alta"
+        max_chars: int | None = None
         if not self._pl_active_skills:
             self._pl_active_skills = [{"category": cat, "skill": skill_name}]
 
         parts: list[str] = []
+        active_used: list[dict[str, str]] = []
         for item in self._pl_active_skills:
             ac = str(item.get("category", "")).strip()
             an = str(item.get("skill", "")).strip()
@@ -6501,10 +6860,29 @@ class AudioToVideoApp(ctk.CTk):
             sk = self._prompt_lab.get_skill(ws, ac, an)
             if sk and sk.instructions.strip():
                 parts.append(f"[{ac}/{an}]\n{sk.instructions.strip()}")
+                active_used.append({"category": ac, "skill": an})
         instructions = "\n\n".join(parts).strip()
         if not instructions:
             skill = self._prompt_lab.get_skill(ws, cat, skill_name)
             instructions = skill.instructions if skill else ""
+
+        # Runtime guardrails to reduce drift and force usable output formatting.
+        instructions = (
+            (instructions.strip() + "\n\n" if instructions.strip() else "")
+            + "REGLAS DE EJECUCION OBLIGATORIAS:\n"
+              "- Debes obedecer estrictamente las skills activas.\n"
+              "- Devuelve solo la salida final, sin explicaciones, sin analisis, sin pasos.\n"
+              "- No uses markdown ni encabezados.\n"
+              "- Idioma de salida obligatorio: English only."
+        )
+
+        if self._pl_is_suno_music_context(active_used):
+            max_chars = 1000
+            instructions += (
+                "\n- CONTEXTO SUNO: genera un prompt musical compacto en una sola linea."
+                "\n- Longitud maxima: 1000 caracteres (obligatorio)."
+                "\n- No listas, no secciones, no etiquetas como 'Reglas' o 'Motor de interpretacion'."
+            )
 
         config = PromptBackendConfig(
             base_url=self._var_pl_backend_url.get().strip(),
@@ -6526,20 +6904,59 @@ class AudioToVideoApp(ctk.CTk):
                     mode=mode,
                     config=config,
                 )
-                self.after(0, self._pl_on_backend_response, response, mode)
+                repaired = False
+                ok, reason = self._pl_validate_output_compliance(response, max_chars=max_chars)
+                if not ok:
+                    repaired = True
+                    repair_prompt = self._pl_build_repair_prompt(response, reason=reason, max_chars=max_chars)
+                    repair_instructions = (
+                        instructions
+                        + "\n\nSTRICT REPAIR MODE:\n"
+                          "- Rewrite and fix compliance only.\n"
+                          "- Keep meaning, improve compactness, obey all constraints."
+                    )
+                    response = self._prompt_backend.generate(
+                        prompt=repair_prompt,
+                        skill_instructions=repair_instructions,
+                        mode=mode,
+                        config=config,
+                    )
+
+                self.after(0, self._pl_on_backend_response, response, mode, max_chars, repaired)
             except Exception as exc:
                 self.after(0, self._pl_on_backend_error, exc)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _pl_on_backend_response(self, response: str, mode: str) -> None:
+    def _pl_on_backend_response(
+        self,
+        response: str,
+        mode: str,
+        max_chars: int | None = None,
+        repaired: bool = False,
+    ) -> None:
         self._pl_generation_in_progress = False
         self._btn_generate.configure(state="normal")
+        output = response.strip()
+        if max_chars and max_chars > 0:
+            output = self._pl_compact_and_limit_text(output, max_chars=max_chars)
+        ok, reason = self._pl_validate_output_compliance(output, max_chars=max_chars)
+        if not ok and max_chars and max_chars > 0:
+            # Last-resort normalization for capped formats.
+            output = self._pl_compact_and_limit_text(output, max_chars=max_chars)
         if hasattr(self, "_txt_pl_output"):
             self._txt_pl_output.delete("1.0", "end")
-            self._txt_pl_output.insert("1.0", response.strip())
+            self._txt_pl_output.insert("1.0", output)
         if hasattr(self, "_lbl_pl_status"):
-            self._pl_set_status(f"Generado con backend local ({mode})")
+            if max_chars and max_chars > 0:
+                status = f"Generado ({len(output)}/{max_chars} chars)"
+            else:
+                status = f"Generado con backend local ({mode})"
+            if repaired:
+                status = f"{status} [repair]"
+            self._pl_set_status(status)
+        if not ok:
+            self._log(f"[Prompt Lab] Advertencia de cumplimiento: {reason}")
         self._log(f"[Prompt Lab] Respuesta generada via backend local ({mode})")
 
     def _pl_on_backend_error(self, exc: Exception) -> None:

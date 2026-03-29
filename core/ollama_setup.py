@@ -34,9 +34,13 @@ MODEL_SIZE_ESTIMATES_GB = {
     "llama3:8b": 4.7,
     "mistral:7b": 4.1,
     "qwen2.5:7b": 4.4,
+    "qwen2.5:14b": 8.3,
 }
 
 ProgressCallback = Callable[[str, Optional[float]], None]
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
 
 @dataclass
@@ -59,6 +63,17 @@ def _report_progress(
 
 def _normalize_base_url(base_url: str) -> str:
     return (base_url or "").strip().rstrip("/")
+
+
+def _sanitize_cli_progress_text(text: str) -> str:
+    value = (text or "")
+    value = value.replace("\r", " ").replace("\n", " ")
+    value = _ANSI_ESCAPE_RE.sub("", value)
+    value = _CONTROL_CHARS_RE.sub("", value)
+    value = value.replace("[K", " ").replace("\x1b[K", " ")
+    while "  " in value:
+        value = value.replace("  ", " ")
+    return value.strip(" |\t")
 
 
 def _request_json(url: str, timeout_seconds: int = 8) -> dict:
@@ -405,7 +420,7 @@ def pull_models(
                     pass
                 return False, "Descarga de modelos cancelada por usuario."
 
-            text = line.strip()
+            text = _sanitize_cli_progress_text(line)
             if not text:
                 continue
 
