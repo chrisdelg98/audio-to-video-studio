@@ -6767,6 +6767,13 @@ class AudioToVideoApp(ctk.CTk):
             "enabled": True,
             "max_chars": 1000,
             "min_fill_ratio": 0.75,
+            "creative_flexibility": {
+                "enabled": True,
+                "allow_sound_design_wording_variation": True,
+                "allow_stylistic_interpretation_within_genre": True,
+                "avoid_repeated_phrasing_across_outputs": True,
+                "maintain_technical_accuracy_with_expressive_variation": True,
+            },
             "quality_scoring": {
                 "enabled": True,
                 "threshold": 74,
@@ -6798,7 +6805,7 @@ class AudioToVideoApp(ctk.CTk):
             for key in ("enabled", "max_chars", "min_fill_ratio"):
                 if key in raw:
                     merged[key] = raw[key]
-            for block in ("quality_scoring", "enrichment_pass"):
+            for block in ("creative_flexibility", "quality_scoring", "enrichment_pass"):
                 base = dict(defaults.get(block, {}))
                 incoming = raw.get(block, {})
                 if isinstance(incoming, dict):
@@ -6807,6 +6814,25 @@ class AudioToVideoApp(ctk.CTk):
             return merged
         except Exception:
             return defaults
+
+    def _pl_build_suno_creative_flexibility_layer(self, policy: dict[str, Any] | None) -> str:
+        cfg = policy.get("creative_flexibility", {}) if isinstance(policy, dict) else {}
+        if not isinstance(cfg, dict) or not bool(cfg.get("enabled", True)):
+            return ""
+
+        lines: list[str] = []
+        if bool(cfg.get("allow_sound_design_wording_variation", True)):
+            lines.append("Allow variation in sound-design wording.")
+        if bool(cfg.get("allow_stylistic_interpretation_within_genre", True)):
+            lines.append("Allow stylistic interpretation within genre boundaries.")
+        if bool(cfg.get("avoid_repeated_phrasing_across_outputs", True)):
+            lines.append("Do not repeat identical phrasing across outputs.")
+        if bool(cfg.get("maintain_technical_accuracy_with_expressive_variation", True)):
+            lines.append("Maintain technical accuracy while allowing expressive variation.")
+
+        if not lines:
+            return ""
+        return "\n".join(f"- {line}" for line in lines)
 
     def _pl_score_suno_output(self, output: str, source_prompt: str, policy: dict[str, Any]) -> dict[str, Any]:
         text = (output or "").strip().lower()
@@ -7197,6 +7223,10 @@ class AudioToVideoApp(ctk.CTk):
             + "HARD CONSTRAINTS LAYER:\n"
             + hard_constraints
         )
+        if profile == "suno_music":
+            flex_layer = self._pl_build_suno_creative_flexibility_layer(suno_policy)
+            if flex_layer:
+                instructions += "\n\nCREATIVE FLEXIBILITY LAYER (SUNO ONLY):\n" + flex_layer
 
         config = PromptBackendConfig(
             base_url=self._var_pl_backend_url.get().strip(),

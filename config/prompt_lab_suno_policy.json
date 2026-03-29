@@ -2,6 +2,13 @@
   "enabled": true,
   "max_chars": 1000,
   "min_fill_ratio": 0.68,
+  "creative_flexibility": {
+    "enabled": true,
+    "allow_sound_design_wording_variation": true,
+    "allow_stylistic_interpretation_within_genre": true,
+    "avoid_repeated_phrasing_across_outputs": true,
+    "maintain_technical_accuracy_with_expressive_variation": true
+  },
   "quality_scoring": {
     "enabled": true,
     "threshold": 70,
