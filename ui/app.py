@@ -1633,6 +1633,12 @@ class AudioToVideoApp(ctk.CTk):
         self._pl_generation_in_progress = False
         self._pl_prompt_template_current = ""
         self._pl_last_inserted_template = ""
+        raw_insert_mode_by_category = self.settings.get("pl_template_insert_mode_by_category", {})
+        self._pl_template_insert_mode_by_category: dict[str, str] = (
+            dict(raw_insert_mode_by_category)
+            if isinstance(raw_insert_mode_by_category, dict)
+            else {}
+        )
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
         self._startup_dependency_dialog: StartupDependencyDialog | None = None
@@ -4739,10 +4745,18 @@ class AudioToVideoApp(ctk.CTk):
         skill_name = self._var_pl_skill.get().strip()
         skill = self._prompt_lab.get_skill(ws, cat, skill_name)
         if skill:
-            self._lbl_pl_status.configure(text="Listo")
+            self._pl_set_status("Listo")
         else:
-            self._lbl_pl_status.configure(text="Skill sin instrucciones")
+            self._pl_set_status("Skill sin instrucciones")
         self._pl_refresh_prompt_helper()
+
+    def _pl_set_status(self, text: str, *, max_chars: int = 34) -> None:
+        if not hasattr(self, "_lbl_pl_status"):
+            return
+        value = (text or "").strip()
+        if len(value) > max_chars:
+            value = value[: max_chars - 1].rstrip() + "..."
+        self._lbl_pl_status.configure(text=value)
 
     def _pl_build_prompt_helper_for_skill(self, category: str, skill_name: str) -> tuple[str, str]:
         ws = self._var_pl_workspace.get().strip() if hasattr(self, "_var_pl_workspace") else "General"
@@ -4782,17 +4796,211 @@ class AudioToVideoApp(ctk.CTk):
         if has_label:
             self._lbl_pl_prompt_helper.configure(text="Guia disponible: usa 'Insertar plantilla'")
 
+    def _pl_template_category_key(self) -> str:
+        ws = self._var_pl_workspace.get().strip() if hasattr(self, "_var_pl_workspace") else "General"
+        cat = self._var_pl_category.get().strip() if hasattr(self, "_var_pl_category") else "General"
+        return f"{ws}::{cat}"
+
+    def _pl_collect_active_template_candidates(self) -> list[dict[str, str]]:
+        ws = self._var_pl_workspace.get().strip() if hasattr(self, "_var_pl_workspace") else "General"
+        out: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for item in self._pl_active_skills:
+            cat = str(item.get("category", "")).strip()
+            sk = str(item.get("skill", "")).strip()
+            if not cat or not sk:
+                continue
+            key = (cat, sk)
+            if key in seen:
+                continue
+            seen.add(key)
+            skill = self._prompt_lab.get_skill(ws, cat, sk)
+            if not skill:
+                continue
+            template = (skill.prompt_template or "").strip()
+            if not template:
+                continue
+            out.append(
+                {
+                    "id": f"{cat}::{sk}",
+                    "category": cat,
+                    "skill": sk,
+                    "template": template,
+                }
+            )
+        return out
+
+    def _pl_build_combined_template(self, candidates: list[dict[str, str]]) -> str:
+        chunks: list[str] = []
+        for item in candidates:
+            cat = item.get("category", "").strip()
+            sk = item.get("skill", "").strip()
+            template = item.get("template", "").strip()
+            if not template:
+                continue
+            chunks.append(f"[{cat}/{sk}]\n{template}")
+        return "\n\n".join(chunks).strip()
+
+    def _pl_pick_template_candidate(self, candidates: list[dict[str, str]]) -> tuple[str | None, bool]:
+        modal = ctk.CTkToplevel(self)
+        modal.title("Insertar plantilla")
+        modal.geometry("740x500")
+        modal.resizable(True, True)
+        modal.configure(fg_color=C_BG)
+        modal.grab_set()
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            root,
+            text="Hay multiples plantillas activas. Elige una skill o combina todas.",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(12), weight="bold"),
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        choice_var = tk.StringVar(value=(candidates[0].get("id", "") if candidates else ""))
+        remember_combine_var = tk.BooleanVar(value=False)
+
+        box = ctk.CTkScrollableFrame(root, fg_color=C_CARD)
+        box.grid(row=1, column=0, sticky="nsew")
+        box.grid_columnconfigure(0, weight=1)
+
+        for idx, item in enumerate(candidates):
+            cid = item.get("id", "")
+            label = f"Usar {item.get('category', '')}:{item.get('skill', '')}"
+            ctk.CTkRadioButton(
+                box,
+                text=label,
+                variable=choice_var,
+                value=cid,
+                fg_color=C_ACCENT_LAB,
+                hover_color=C_ACCENT_LAB_H,
+                text_color=C_TEXT,
+                border_color=C_BORDER,
+                font=ctk.CTkFont(size=self._fs(11)),
+            ).grid(row=idx * 2, column=0, sticky="w", padx=10, pady=(8, 2))
+
+            preview = item.get("template", "").replace("\n", " ")[:160].strip()
+            ctk.CTkLabel(
+                box,
+                text=preview,
+                text_color=C_TEXT_DIM,
+                anchor="w",
+                justify="left",
+                wraplength=660,
+                font=ctk.CTkFont(size=self._fs(10)),
+            ).grid(row=idx * 2 + 1, column=0, sticky="ew", padx=28, pady=(0, 6))
+
+        combine_value = "__combine__"
+        ctk.CTkRadioButton(
+            box,
+            text="Combinar todas las plantillas activas",
+            variable=choice_var,
+            value=combine_value,
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color=C_TEXT,
+            border_color=C_BORDER,
+            font=ctk.CTkFont(size=self._fs(11), weight="bold"),
+        ).grid(row=max(1, len(candidates) * 2), column=0, sticky="w", padx=10, pady=(10, 4))
+
+        ctk.CTkCheckBox(
+            box,
+            text="Recordar: combinar siempre en esta categoria",
+            variable=remember_combine_var,
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color=C_TEXT,
+            border_color=C_BORDER,
+            font=ctk.CTkFont(size=self._fs(10)),
+        ).grid(row=max(2, len(candidates) * 2 + 1), column=0, sticky="w", padx=28, pady=(0, 8))
+
+        result: dict[str, str | bool | None] = {"choice": None, "remember_combine": False}
+
+        def _accept() -> None:
+            result["choice"] = choice_var.get().strip()
+            result["remember_combine"] = bool(remember_combine_var.get())
+            modal.destroy()
+
+        def _cancel() -> None:
+            result["choice"] = None
+            result["remember_combine"] = False
+            modal.destroy()
+
+        btns = ctk.CTkFrame(root, fg_color="transparent")
+        btns.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+
+        ctk.CTkButton(
+            btns,
+            text="Insertar",
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color="#FFFFFF",
+            command=_accept,
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            btns,
+            text="Cancelar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_cancel,
+        ).pack(side="left", padx=(8, 0))
+
+        modal.wait_window()
+        choice = result.get("choice")
+        remember = bool(result.get("remember_combine", False))
+        return (str(choice).strip() if isinstance(choice, str) and choice.strip() else None, remember)
+
     def _pl_insert_prompt_template(self) -> None:
         if not hasattr(self, "_txt_pl_prompt"):
             return
-        template = (self._pl_prompt_template_current or "").strip()
-        if not template:
-            self._pl_refresh_prompt_helper()
+        self._pl_refresh_prompt_helper()
+
+        candidates = self._pl_collect_active_template_candidates()
+        selected_template = ""
+
+        if not candidates:
             template = (self._pl_prompt_template_current or "").strip()
-        if not template:
-            if hasattr(self, "_lbl_pl_status"):
-                self._lbl_pl_status.configure(text="Esta skill no tiene plantilla")
-            return
+            if template:
+                selected_template = template
+            else:
+                if hasattr(self, "_lbl_pl_status"):
+                    self._pl_set_status("No hay plantillas disponibles en las skills activas")
+                return
+        elif len(candidates) == 1:
+            selected_template = str(candidates[0].get("template", "")).strip()
+        else:
+            pref_key = self._pl_template_category_key()
+            pref_mode = str(self._pl_template_insert_mode_by_category.get(pref_key, "ask")).strip().lower()
+
+            if pref_mode == "combine":
+                selected_template = self._pl_build_combined_template(candidates)
+            else:
+                choice, remember_combine = self._pl_pick_template_candidate(candidates)
+                if not choice:
+                    return
+                if choice == "__combine__":
+                    selected_template = self._pl_build_combined_template(candidates)
+                    if remember_combine:
+                        self._pl_template_insert_mode_by_category[pref_key] = "combine"
+                        self._save_settings()
+                else:
+                    picked = next((item for item in candidates if item.get("id") == choice), None)
+                    if not picked:
+                        if hasattr(self, "_lbl_pl_status"):
+                            self._pl_set_status("No se pudo identificar la plantilla elegida")
+                        return
+                    selected_template = str(picked.get("template", "")).strip()
 
         current = self._txt_pl_prompt.get("1.0", "end").strip()
         if current:
@@ -4804,10 +5012,10 @@ class AudioToVideoApp(ctk.CTk):
                 return
 
         self._txt_pl_prompt.delete("1.0", "end")
-        self._txt_pl_prompt.insert("1.0", template)
-        self._pl_last_inserted_template = template
+        self._txt_pl_prompt.insert("1.0", selected_template)
+        self._pl_last_inserted_template = selected_template
         if hasattr(self, "_lbl_pl_status"):
-            self._lbl_pl_status.configure(text="Plantilla de prompt insertada")
+            self._pl_set_status("Plantilla de prompt insertada")
 
     def _pl_export_workspace(self) -> None:
         ws = self._var_pl_workspace.get().strip()
@@ -4825,7 +5033,7 @@ class AudioToVideoApp(ctk.CTk):
             self._prompt_lab.export_workspace(ws, Path(file_path))
             self._log(f"[Prompt Lab] Workspace exportado: {file_path}")
             if hasattr(self, "_lbl_pl_status"):
-                self._lbl_pl_status.configure(text=f"Workspace exportado: {ws}")
+                self._pl_set_status(f"Workspace exportado: {ws}")
         except ValueError as exc:
             messagebox.showwarning("Prompt Lab", str(exc))
         except Exception as exc:
@@ -5592,8 +5800,7 @@ class AudioToVideoApp(ctk.CTk):
         root.pack(fill="both", expand=True, padx=16, pady=14)
         root.grid_columnconfigure(1, weight=1)
         root.grid_rowconfigure(3, weight=1)
-        root.grid_rowconfigure(4, weight=1)
-        root.grid_rowconfigure(4, weight=1)
+        root.grid_rowconfigure(5, weight=0)
 
         ctk.CTkLabel(root, text="Nombre", text_color=C_MUTED).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
         var_name = tk.StringVar(value=skill.name)
@@ -5630,13 +5837,41 @@ class AudioToVideoApp(ctk.CTk):
         txt_behavior.insert("1.0", skill.instructions)
 
         ctk.CTkLabel(root, text="Plantilla sugerida (opcional)", text_color=C_MUTED).grid(row=4, column=0, sticky="nw", padx=(0, 8), pady=(0, 8))
-        txt_template = ctk.CTkTextbox(root, height=120, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
+        template_expanded = tk.BooleanVar(value=False)
+
+        txt_template = ctk.CTkTextbox(root, height=90, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
         txt_template.configure(wrap="word")
-        txt_template.grid(row=4, column=1, sticky="nsew", pady=(0, 8))
+        txt_template.grid(row=5, column=1, sticky="ew", pady=(0, 8))
         txt_template.insert("1.0", (skill.prompt_template or ""))
 
+        def _toggle_template_visibility() -> None:
+            if template_expanded.get():
+                txt_template.grid_remove()
+                btn_toggle_template.configure(text="Mostrar")
+                template_expanded.set(False)
+            else:
+                txt_template.grid()
+                btn_toggle_template.configure(text="Ocultar")
+                template_expanded.set(True)
+
+        btn_toggle_template = ctk.CTkButton(
+            root,
+            text="Mostrar",
+            width=90,
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_toggle_template_visibility,
+        )
+        btn_toggle_template.grid(row=4, column=1, sticky="e", pady=(0, 8))
+
+        # Start collapsed to maximize instructions workspace.
+        txt_template.grid_remove()
+
         btns = ctk.CTkFrame(root, fg_color="transparent")
-        btns.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        btns.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
         def _update() -> None:
             source_category = cat
@@ -6237,7 +6472,7 @@ class AudioToVideoApp(ctk.CTk):
         self.clipboard_clear()
         self.clipboard_append(content)
         if hasattr(self, "_lbl_pl_status"):
-            self._lbl_pl_status.configure(text="Salida copiada al portapapeles")
+            self._pl_set_status("Salida copiada al portapapeles")
 
     def _on_generate_prompt_lab(self) -> None:
         if self._pl_generation_in_progress:
@@ -6281,7 +6516,7 @@ class AudioToVideoApp(ctk.CTk):
         self._pl_generation_in_progress = True
         self._btn_generate.configure(state="disabled")
         if hasattr(self, "_lbl_pl_status"):
-            self._lbl_pl_status.configure(text=f"Generando con backend local ({mode})...")
+            self._pl_set_status(f"Generando con backend local ({mode})...")
 
         def _worker() -> None:
             try:
@@ -6304,7 +6539,7 @@ class AudioToVideoApp(ctk.CTk):
             self._txt_pl_output.delete("1.0", "end")
             self._txt_pl_output.insert("1.0", response.strip())
         if hasattr(self, "_lbl_pl_status"):
-            self._lbl_pl_status.configure(text=f"Generado con backend local ({mode})")
+            self._pl_set_status(f"Generado con backend local ({mode})")
         self._log(f"[Prompt Lab] Respuesta generada via backend local ({mode})")
 
     def _pl_on_backend_error(self, exc: Exception) -> None:
@@ -6314,7 +6549,7 @@ class AudioToVideoApp(ctk.CTk):
         if isinstance(exc, PromptLabBackendError):
             msg = str(exc)
         if hasattr(self, "_lbl_pl_status"):
-            self._lbl_pl_status.configure(text="Error al generar")
+            self._pl_set_status("Error al generar")
         self._log(f"[Prompt Lab] Error backend: {msg}")
         messagebox.showerror(
             "Prompt Lab",
@@ -11091,6 +11326,7 @@ class AudioToVideoApp(ctk.CTk):
             "pl_model_quality": self._var_pl_model_quality.get() if hasattr(self, "_var_pl_model_quality") else "llama3.1:8b",
             "pl_model_fast": self._var_pl_model_fast.get() if hasattr(self, "_var_pl_model_fast") else "llama3.2:3b",
             "pl_active_skills": list(self._pl_active_skills),
+            "pl_template_insert_mode_by_category": dict(self._pl_template_insert_mode_by_category),
         })
         # Save slideshow settings if panel exists
         if hasattr(self, "_var_sl_images_folder"):
@@ -11420,6 +11656,12 @@ class AudioToVideoApp(ctk.CTk):
                     sk = str(item.get("skill", "")).strip()
                     if cat and sk:
                         self._pl_active_skills.append({"category": cat, "skill": sk})
+            loaded_insert_mode = s.get("pl_template_insert_mode_by_category", {})
+            self._pl_template_insert_mode_by_category = (
+                dict(loaded_insert_mode)
+                if isinstance(loaded_insert_mode, dict)
+                else {}
+            )
             self._pl_last_ws_for_preload = self._var_pl_workspace.get().strip() or "General"
             self._pl_last_category_for_preload = self._var_pl_category.get().strip() or "General"
             if hasattr(self, "_txt_pl_prompt"):
