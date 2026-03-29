@@ -176,6 +176,7 @@ Técnicamente correctos
 Adaptables entre formatos
 Optimizados para generación real de contenido"""
 
+
 _DEFAULT_DATA: dict[str, Any] = {
     "version": 1,
     "workspaces": [
@@ -190,6 +191,7 @@ _DEFAULT_DATA: dict[str, Any] = {
                         {
                             "name": "Skill General",
                             "description": "",
+                            "prompt_template": "",
                             "instructions": DEFAULT_SKILL_GENERAL_INSTRUCTIONS,
                             "updated_at": "",
                         }
@@ -206,6 +208,7 @@ class PromptSkill:
     name: str
     instructions: str
     description: str = ""
+    prompt_template: str = ""
 
 
 @dataclass
@@ -273,6 +276,7 @@ class PromptLabManager:
                         name=nm,
                         instructions=str(skill.get("instructions", "")).strip(),
                         description=str(skill.get("description", "")).strip(),
+                        prompt_template=str(skill.get("prompt_template", "")).strip(),
                     )
                 )
         return out
@@ -324,6 +328,7 @@ class PromptLabManager:
                     name=str(skill.get("name", "")).strip(),
                     instructions=str(skill.get("instructions", "")).strip(),
                     description=str(skill.get("description", "")).strip(),
+                    prompt_template=str(skill.get("prompt_template", "")).strip(),
                 )
         return None
 
@@ -510,6 +515,7 @@ class PromptLabManager:
         skill_name: str,
         instructions: str,
         description: str = "",
+        prompt_template: str | None = None,
     ) -> None:
         self.ensure_category(workspace_name, category_name)
         cat = self._find_category(workspace_name, category_name)
@@ -525,6 +531,8 @@ class PromptLabManager:
             if str(skill.get("name", "")).strip() == nm:
                 skill["instructions"] = instructions.strip()
                 skill["description"] = description.strip()
+                if prompt_template is not None:
+                    skill["prompt_template"] = prompt_template.strip()
                 skill["updated_at"] = now
                 revisions = skill.setdefault("revisions", [])
                 if not isinstance(revisions, list):
@@ -553,6 +561,7 @@ class PromptLabManager:
                 "name": nm,
                 "instructions": instructions.strip(),
                 "description": description.strip(),
+                "prompt_template": (prompt_template or "").strip(),
                 "updated_at": now,
                 "revisions": [first_revision],
             }
@@ -568,6 +577,7 @@ class PromptLabManager:
         target_skill_name: str,
         instructions: str,
         description: str = "",
+        prompt_template: str | None = None,
     ) -> None:
         ws = self._find_workspace(workspace_name)
         if not ws:
@@ -618,6 +628,7 @@ class PromptLabManager:
                 skill_name=dst_name,
                 instructions=instructions,
                 description=description,
+                prompt_template=prompt_template,
             )
             return
 
@@ -651,6 +662,11 @@ class PromptLabManager:
             "name": dst_name,
             "instructions": instructions.strip(),
             "description": description.strip(),
+            "prompt_template": (
+                prompt_template.strip()
+                if prompt_template is not None
+                else str(source_skill.get("prompt_template", "")).strip()
+            ),
             "updated_at": now,
             "revisions": revisions,
         }
@@ -687,6 +703,7 @@ class PromptLabManager:
                         {
                             "name": f"{clean} Base",
                             "description": f"Skill principal propuesta para {clean}.",
+                            "prompt_template": "",
                             "instructions": "",
                         }
                     ],
@@ -745,6 +762,7 @@ class PromptLabManager:
                 skill_name = str(item.get("name", "")).strip()
                 instructions = str(item.get("instructions", "")).strip()
                 description = str(item.get("description", "")).strip()
+                prompt_template = str(item.get("prompt_template", "")).strip()
                 preload_flag = bool(item.get("preload", False))
                 if not skill_name or not instructions:
                     skipped += 1
@@ -761,6 +779,7 @@ class PromptLabManager:
                     skill_name=skill_name,
                     instructions=instructions,
                     description=description,
+                    prompt_template=prompt_template,
                 )
                 if existing:
                     updated += 1
@@ -843,6 +862,7 @@ class PromptLabManager:
                                     continue
                                 sk_instructions = str(skill.get("instructions", "")).strip()
                                 sk_description = str(skill.get("description", "")).strip()
+                                sk_prompt_template = str(skill.get("prompt_template", "")).strip()
                                 sk_updated_at = str(skill.get("updated_at", "")).strip()
                                 revisions_raw = skill.get("revisions", [])
                                 revisions: list[dict[str, Any]] = []
@@ -874,6 +894,7 @@ class PromptLabManager:
                                         "name": sk_name,
                                         "instructions": sk_instructions,
                                         "description": sk_description,
+                                        "prompt_template": sk_prompt_template,
                                         "updated_at": sk_updated_at,
                                         "revisions": revisions,
                                     }

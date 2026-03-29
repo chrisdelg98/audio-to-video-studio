@@ -1628,9 +1628,11 @@ class AudioToVideoApp(ctk.CTk):
                 sk = str(item.get("skill", "")).strip()
                 if cat and sk:
                     self._pl_active_skills.append({"category": cat, "skill": sk})
-            self._pl_last_ws_for_preload = self._var_pl_workspace.get().strip() or "General"
-            self._pl_last_category_for_preload = self._var_pl_category.get().strip() or "General"
+        self._pl_last_ws_for_preload = self._var_pl_workspace.get().strip() or "General"
+        self._pl_last_category_for_preload = self._var_pl_category.get().strip() or "General"
         self._pl_generation_in_progress = False
+        self._pl_prompt_template_current = ""
+        self._pl_last_inserted_template = ""
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
         self._startup_dependency_dialog: StartupDependencyDialog | None = None
@@ -4730,12 +4732,82 @@ class AudioToVideoApp(ctk.CTk):
 
     def _pl_on_skill_selected(self) -> None:
         if not hasattr(self, "_lbl_pl_status"):
+            self._pl_refresh_prompt_helper()
             return
         ws = self._var_pl_workspace.get().strip()
         cat = self._var_pl_category.get().strip()
         skill_name = self._var_pl_skill.get().strip()
         skill = self._prompt_lab.get_skill(ws, cat, skill_name)
-        
+        if skill:
+            self._lbl_pl_status.configure(text="Listo")
+        else:
+            self._lbl_pl_status.configure(text="Skill sin instrucciones")
+        self._pl_refresh_prompt_helper()
+
+    def _pl_build_prompt_helper_for_skill(self, category: str, skill_name: str) -> tuple[str, str]:
+        ws = self._var_pl_workspace.get().strip() if hasattr(self, "_var_pl_workspace") else "General"
+        skill = self._prompt_lab.get_skill(ws, category, skill_name)
+        if skill and skill.prompt_template.strip():
+            return (
+                "Plantilla personalizada de la skill lista para insertar.",
+                skill.prompt_template.strip(),
+            )
+
+        return (
+            "Esta skill no tiene plantilla. Editala y agrega una plantilla sugerida.",
+            "",
+        )
+
+    def _pl_refresh_prompt_helper(self) -> None:
+        has_label = hasattr(self, "_lbl_pl_prompt_helper")
+        cat = self._var_pl_category.get().strip() if hasattr(self, "_var_pl_category") else "General"
+        sk = self._var_pl_skill.get().strip() if hasattr(self, "_var_pl_skill") else "Skill General"
+        previous_template = (self._pl_prompt_template_current or "").strip()
+        helper, template = self._pl_build_prompt_helper_for_skill(cat, sk)
+        self._pl_prompt_template_current = template
+
+        # Clear stale auto-inserted template when switching to a different skill/category template.
+        if hasattr(self, "_txt_pl_prompt"):
+            current_prompt = self._txt_pl_prompt.get("1.0", "end").strip()
+            last_inserted = (self._pl_last_inserted_template or "").strip()
+            if (
+                current_prompt
+                and last_inserted
+                and current_prompt == last_inserted
+                and template.strip() != previous_template
+            ):
+                self._txt_pl_prompt.delete("1.0", "end")
+                self._pl_last_inserted_template = ""
+
+        if has_label:
+            self._lbl_pl_prompt_helper.configure(text="Guia disponible: usa 'Insertar plantilla'")
+
+    def _pl_insert_prompt_template(self) -> None:
+        if not hasattr(self, "_txt_pl_prompt"):
+            return
+        template = (self._pl_prompt_template_current or "").strip()
+        if not template:
+            self._pl_refresh_prompt_helper()
+            template = (self._pl_prompt_template_current or "").strip()
+        if not template:
+            if hasattr(self, "_lbl_pl_status"):
+                self._lbl_pl_status.configure(text="Esta skill no tiene plantilla")
+            return
+
+        current = self._txt_pl_prompt.get("1.0", "end").strip()
+        if current:
+            replace = messagebox.askyesno(
+                "Prompt Lab",
+                "Ya hay texto en el prompt. Quieres reemplazarlo por la plantilla?",
+            )
+            if not replace:
+                return
+
+        self._txt_pl_prompt.delete("1.0", "end")
+        self._txt_pl_prompt.insert("1.0", template)
+        self._pl_last_inserted_template = template
+        if hasattr(self, "_lbl_pl_status"):
+            self._lbl_pl_status.configure(text="Plantilla de prompt insertada")
 
     def _pl_export_workspace(self) -> None:
         ws = self._var_pl_workspace.get().strip()
@@ -5520,6 +5592,8 @@ class AudioToVideoApp(ctk.CTk):
         root.pack(fill="both", expand=True, padx=16, pady=14)
         root.grid_columnconfigure(1, weight=1)
         root.grid_rowconfigure(3, weight=1)
+        root.grid_rowconfigure(4, weight=1)
+        root.grid_rowconfigure(4, weight=1)
 
         ctk.CTkLabel(root, text="Nombre", text_color=C_MUTED).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
         var_name = tk.StringVar(value=skill.name)
@@ -5555,8 +5629,14 @@ class AudioToVideoApp(ctk.CTk):
         txt_behavior.grid(row=3, column=1, sticky="nsew", pady=(0, 8))
         txt_behavior.insert("1.0", skill.instructions)
 
+        ctk.CTkLabel(root, text="Plantilla sugerida (opcional)", text_color=C_MUTED).grid(row=4, column=0, sticky="nw", padx=(0, 8), pady=(0, 8))
+        txt_template = ctk.CTkTextbox(root, height=120, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
+        txt_template.configure(wrap="word")
+        txt_template.grid(row=4, column=1, sticky="nsew", pady=(0, 8))
+        txt_template.insert("1.0", (skill.prompt_template or ""))
+
         btns = ctk.CTkFrame(root, fg_color="transparent")
-        btns.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        btns.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
         def _update() -> None:
             source_category = cat
@@ -5568,6 +5648,7 @@ class AudioToVideoApp(ctk.CTk):
                 return
             desc = var_note.get().strip()
             behavior = txt_behavior.get("1.0", "end").strip()
+            prompt_template = txt_template.get("1.0", "end").strip()
             try:
                 self._prompt_lab.edit_skill(
                     workspace_name=ws,
@@ -5577,6 +5658,7 @@ class AudioToVideoApp(ctk.CTk):
                     target_skill_name=new_name,
                     instructions=behavior,
                     description=desc,
+                    prompt_template=prompt_template,
                 )
 
                 for item in self._pl_active_skills:
@@ -6057,13 +6139,27 @@ class AudioToVideoApp(ctk.CTk):
         txt_skill.configure(wrap="word")
         txt_skill.grid(row=3, column=1, sticky="nsew", pady=(0, 8))
 
+        ctk.CTkLabel(root, text="Plantilla sugerida (opcional)", text_color=C_MUTED).grid(
+            row=4, column=0, sticky="nw", padx=(0, 8), pady=(0, 8)
+        )
+        txt_template = ctk.CTkTextbox(
+            root,
+            height=120,
+            fg_color=C_INPUT,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+        )
+        txt_template.configure(wrap="word")
+        txt_template.grid(row=4, column=1, sticky="nsew", pady=(0, 8))
+
         btns = ctk.CTkFrame(root, fg_color="transparent")
-        btns.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        btns.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
 
         def _create() -> None:
             skill_name = ent_name.get().strip()
             category = selected_category.get().strip() or "General"
             instructions = txt_skill.get("1.0", "end").strip()
+            prompt_template = txt_template.get("1.0", "end").strip()
             if not skill_name:
                 messagebox.showwarning("Prompt Lab", "El nombre de la skill no puede estar vacio.")
                 return
@@ -6077,6 +6173,7 @@ class AudioToVideoApp(ctk.CTk):
                     skill_name,
                     instructions,
                     description="",
+                    prompt_template=prompt_template,
                 )
                 self._var_pl_category.set(category)
                 self._var_pl_skill.set(skill_name)
@@ -8076,6 +8173,7 @@ class AudioToVideoApp(ctk.CTk):
         footer.grid(row=3, column=0, sticky="ew")
         footer.grid_propagate(False)
         footer.grid_columnconfigure(2, weight=1)
+        self._footer_frame = footer
 
         _pad = 10
         _sec_kw: dict = dict(
@@ -8737,6 +8835,11 @@ class AudioToVideoApp(ctk.CTk):
         self._current_mode = mode
         self._configure_preview_for_mode(mode)
         self._update_mode_buttons()
+        if hasattr(self, "_footer_frame"):
+            if mode == "Prompt Lab":
+                self._footer_frame.grid_remove()
+            else:
+                self._footer_frame.grid()
         # Flush pending geometry events so the preview frame has its correct size
         # before loading images (avoids canvas being 0px wide after Shorts?ATV)
         self.update_idletasks()

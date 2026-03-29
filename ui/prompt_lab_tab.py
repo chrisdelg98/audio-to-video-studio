@@ -349,6 +349,17 @@ def build_prompt_lab_panel(
         font=ctk.CTkFont(size=app._fs(12), weight="bold"),
     ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 6))
 
+    app._lbl_pl_prompt_helper = ctk.CTkLabel(
+        card_prompt,
+        text="Guia disponible: usa 'Insertar plantilla'",
+        text_color=colors["C_TEXT_DIM"],
+        anchor="e",
+        justify="left",
+        wraplength=320,
+        font=ctk.CTkFont(size=app._fs(10)),
+    )
+    app._lbl_pl_prompt_helper.grid(row=0, column=0, sticky="e", padx=(14, 14), pady=(12, 6))
+
     app._txt_pl_prompt = ctk.CTkTextbox(
         card_prompt,
         height=150,
@@ -374,6 +385,17 @@ def build_prompt_lab_panel(
 
     ctk.CTkButton(
         mid,
+        text="Insertar plantilla",
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_insert_prompt_template,
+    ).pack(side="left", padx=(8, 0))
+
+    ctk.CTkButton(
+        mid,
         text="Copiar salida",
         fg_color="transparent",
         hover_color=colors["C_HOVER"],
@@ -387,6 +409,8 @@ def build_prompt_lab_panel(
         mid,
         text="Listo",
         text_color=colors["C_TEXT_DIM"],
+        width=220,
+        anchor="e",
         font=ctk.CTkFont(size=app._fs(10)),
     )
     app._lbl_pl_status.pack(side="right")
