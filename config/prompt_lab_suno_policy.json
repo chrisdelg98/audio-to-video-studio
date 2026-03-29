@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "max_chars": 1000,
+  "min_fill_ratio": 0.75,
+  "quality_scoring": {
+    "enabled": true,
+    "threshold": 74,
+    "weights": {
+      "sound_design_richness": 25,
+      "genre_accuracy": 20,
+      "structure_clarity": 20,
+      "mix_master_presence": 20,
+      "creativity_controlled": 15
+    }
+  },
+  "enrichment_pass": {
+    "enabled": true,
+    "force_single_line": true,
+    "preserve_user_intent": true
+  }
+}

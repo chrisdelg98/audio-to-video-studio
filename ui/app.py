@@ -6747,6 +6747,246 @@ class AudioToVideoApp(ctk.CTk):
                 return True
         return False
 
+    def _pl_detect_generation_profile(self, active_items: list[dict[str, str]]) -> str:
+        joined = " ".join(
+            f"{str(item.get('category', '')).strip().lower()} {str(item.get('skill', '')).strip().lower()}"
+            for item in active_items
+        )
+        if "suno" in joined and "wallpaper" in joined:
+            return "audio_to_visual"
+        if "cancion" in joined and "cover" in joined:
+            return "cover_art"
+        if "wallpaper" in joined and "suno" not in joined:
+            return "dynamic_wallpaper"
+        if self._pl_is_suno_music_context(active_items):
+            return "suno_music"
+        return "generic"
+
+    def _pl_default_suno_policy(self) -> dict[str, Any]:
+        return {
+            "enabled": True,
+            "max_chars": 1000,
+            "min_fill_ratio": 0.75,
+            "quality_scoring": {
+                "enabled": True,
+                "threshold": 74,
+                "weights": {
+                    "sound_design_richness": 25,
+                    "genre_accuracy": 20,
+                    "structure_clarity": 20,
+                    "mix_master_presence": 20,
+                    "creativity_controlled": 15,
+                },
+            },
+            "enrichment_pass": {
+                "enabled": True,
+                "force_single_line": True,
+                "preserve_user_intent": True,
+            },
+        }
+
+    def _pl_load_suno_policy(self) -> dict[str, Any]:
+        defaults = self._pl_default_suno_policy()
+        policy_path = _BUNDLE_DIR / "config" / "prompt_lab_suno_policy.json"
+        try:
+            if not policy_path.is_file():
+                return defaults
+            raw = json.loads(policy_path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                return defaults
+            merged = dict(defaults)
+            for key in ("enabled", "max_chars", "min_fill_ratio"):
+                if key in raw:
+                    merged[key] = raw[key]
+            for block in ("quality_scoring", "enrichment_pass"):
+                base = dict(defaults.get(block, {}))
+                incoming = raw.get(block, {})
+                if isinstance(incoming, dict):
+                    base.update(incoming)
+                merged[block] = base
+            return merged
+        except Exception:
+            return defaults
+
+    def _pl_score_suno_output(self, output: str, source_prompt: str, policy: dict[str, Any]) -> dict[str, Any]:
+        text = (output or "").strip().lower()
+        prompt_text = (source_prompt or "").strip().lower()
+
+        weights = policy.get("quality_scoring", {}).get("weights", {}) if isinstance(policy, dict) else {}
+        w_sd = int(weights.get("sound_design_richness", 25))
+        w_genre = int(weights.get("genre_accuracy", 20))
+        w_structure = int(weights.get("structure_clarity", 20))
+        w_mix = int(weights.get("mix_master_presence", 20))
+        w_creativity = int(weights.get("creativity_controlled", 15))
+
+        def _ratio_hits(needles: list[str], target: str) -> float:
+            if not needles:
+                return 0.0
+            hits = sum(1 for n in needles if n in target)
+            # Prevent long vocabularies from artificially depressing score.
+            target_hits = max(1, min(len(needles), 12))
+            return min(1.0, hits / float(target_hits))
+
+        sound_terms = [
+            "pad", "drone", "rhodes", "synth", "analog synth", "digital synth", "arp", "arpeggio",
+            "bass", "sub bass", "kick", "percussion", "texture", "layer", "atmosphere", "soundscape",
+            "piano", "grand piano", "felt piano", "keys", "pluck", "lead", "strings", "orchestral",
+            "cinematic", "wide stereo", "sidechain", "transient", "low end", "top end",
+        ]
+        structure_terms = [
+            "intro", "opening", "build", "buildup", "drop", "break", "breakdown", "bridge", "hook",
+            "outro", "ending", "evolution", "progression", "loop", "structure", "arrangement", "section",
+        ]
+        mix_terms = [
+            "clean mids", "no harsh highs", "no muddiness", "balanced low end", "controlled reverb", "clarity",
+            "separation", "stereo width", "headroom", "dynamic range", "punchy kick", "tight bass",
+            "clear transients", "warm saturation", "controlled highs", "clean mix", "master-ready",
+        ]
+        creativity_terms = [
+            "cinematic", "immersive", "organic", "subtle", "controlled", "minimal", "evolving", "atmospheric",
+            "modern", "emotional", "melodic", "hypnotic", "textural", "deep", "dreamy", "futuristic",
+        ]
+
+        genre_candidates = [
+            "ambient", "chill", "chillout", "lofi", "lo-fi", "downtempo", "trip hop", "electronica", "electronic",
+            "house", "deep house", "melodic house", "techno", "progressive", "trance", "psytrance", "dubstep",
+            "drum and bass", "dnb", "future bass", "synthwave", "retrowave", "city pop", "pop", "indie pop",
+            "instrumental", "piano", "neo-classical", "orchestral", "cinematic", "film score", "soundtrack",
+            "jazz", "nu jazz", "cyberpunk",
+        ]
+        expected_genres = [g for g in genre_candidates if g in prompt_text]
+        if not expected_genres:
+            expected_genres = [g for g in genre_candidates if g in text]
+
+        sd_score = round(_ratio_hits(sound_terms, text) * 100)
+        structure_score = round(_ratio_hits(structure_terms, text) * 100)
+        mix_score = round(_ratio_hits(mix_terms, text) * 100)
+        creativity_score = round(_ratio_hits(creativity_terms, text) * 100)
+
+        if expected_genres:
+            genre_hits = sum(1 for g in expected_genres if g in text)
+            genre_score = round((genre_hits / float(len(expected_genres))) * 100)
+        else:
+            genre_score = 70
+
+        weighted = (
+            (sd_score * w_sd)
+            + (genre_score * w_genre)
+            + (structure_score * w_structure)
+            + (mix_score * w_mix)
+            + (creativity_score * w_creativity)
+        )
+        total_weight = max(1, (w_sd + w_genre + w_structure + w_mix + w_creativity))
+        score = int(round(weighted / total_weight))
+
+        deficits: list[str] = []
+        if sd_score < 60:
+            deficits.append("add richer sound-design layers")
+        if genre_score < 70:
+            deficits.append("improve genre accuracy")
+        if structure_score < 60:
+            deficits.append("reinforce track structure")
+        if mix_score < 60:
+            deficits.append("expand mix/master constraints")
+        if creativity_score < 55:
+            deficits.append("increase controlled creativity")
+
+        return {
+            "score": score,
+            "breakdown": {
+                "sound_design_richness": sd_score,
+                "genre_accuracy": genre_score,
+                "structure_clarity": structure_score,
+                "mix_master_presence": mix_score,
+                "creativity_controlled": creativity_score,
+            },
+            "deficits": deficits,
+        }
+
+    def _pl_build_suno_enrichment_prompt(
+        self,
+        *,
+        draft: str,
+        source_prompt: str,
+        deficits: list[str],
+        max_chars: int,
+        min_chars_target: int | None = None,
+    ) -> str:
+        deficit_lines = "\n".join(f"- {d}" for d in deficits) if deficits else "- enrich overall quality"
+        length_hint = ""
+        if min_chars_target and min_chars_target > 0:
+            length_hint = f"- Aim for at least {min_chars_target} characters while staying under {max_chars}\\n"
+        return (
+            "Improve the draft prompt quality while preserving the original user intent.\n"
+            "Suno-specific requirements:\n"
+            "- English only\n"
+            "- One compact production-ready line\n"
+            f"- Maximum {max_chars} characters\n"
+            f"{length_hint}"
+            "- No explanations, no headings, no markdown\n"
+            "- Keep strong style/mood/structure/mix clarity\n"
+            "Targeted enrich actions:\n"
+            f"{deficit_lines}\n\n"
+            "Original user prompt:\n"
+            f"{source_prompt.strip()}\n\n"
+            "Draft to enrich:\n"
+            f"{draft.strip()}"
+        ).strip()
+
+    def _pl_build_hard_constraints_layer(
+        self,
+        *,
+        profile: str,
+        max_chars: int | None,
+        min_chars_target: int | None = None,
+    ) -> str:
+        base_rules = [
+            "English only.",
+            "Output only the final production-ready prompt.",
+            "No explanations, no analysis, no headings, no markdown.",
+        ]
+
+        if max_chars and max_chars > 0:
+            base_rules.append(f"Maximum length: {max_chars} characters.")
+
+        profile_rules: list[str] = []
+        if profile == "suno_music":
+            profile_rules.extend(
+                [
+                    "Return one compact line.",
+                    "Keep explicit music-production intent: style, mood, structure, mix constraints.",
+                    "Do not output templates or sections.",
+                ]
+            )
+            if min_chars_target and max_chars and min_chars_target < max_chars:
+                profile_rules.append(
+                    f"Prefer rich detail density: target around {min_chars_target}-{max_chars} characters unless the user asks for brevity."
+                )
+        elif profile == "cover_art":
+            profile_rules.extend(
+                [
+                    "Describe a square album cover concept with clean visual direction.",
+                    "Keep it compact and production-ready for image generation.",
+                ]
+            )
+        elif profile == "dynamic_wallpaper":
+            profile_rules.extend(
+                [
+                    "Keep clear wallpaper intent with cinematic environment and subtle motion cues.",
+                    "Prefer concise visual language.",
+                ]
+            )
+        elif profile == "audio_to_visual":
+            profile_rules.extend(
+                [
+                    "Translate musical intent into visual direction without explanations.",
+                    "Keep clear aspect-ratio-aware visual composition hints.",
+                ]
+            )
+
+        all_rules = base_rules + profile_rules
+        return "\n".join(f"- {rule}" for rule in all_rules)
+
     def _pl_compact_and_limit_text(self, text: str, *, max_chars: int) -> str:
         # Normalize to a single compact line for model-specific prompt formats (e.g., Suno).
         value = (text or "").replace("\r", "\n")
@@ -6760,6 +7000,10 @@ class AudioToVideoApp(ctk.CTk):
         if len(compact) > max_chars:
             compact = compact[:max_chars].rstrip()
         return compact
+
+    def _pl_contains_any(self, text: str, needles: list[str]) -> bool:
+        low = (text or "").lower()
+        return any(n.lower() in low for n in needles)
 
     def _pl_looks_english(self, text: str) -> bool:
         low = (text or "").strip().lower()
@@ -6791,42 +7035,99 @@ class AudioToVideoApp(ctk.CTk):
             return False
         return True
 
-    def _pl_validate_output_compliance(self, text: str, *, max_chars: int | None) -> tuple[bool, str]:
+    def _pl_validate_output_compliance(
+        self,
+        text: str,
+        *,
+        max_chars: int | None,
+        profile: str = "generic",
+    ) -> tuple[bool, list[str]]:
         value = (text or "").strip()
         if not value:
-            return (False, "empty output")
+            return (False, ["empty output"])
+
+        failures: list[str] = []
 
         if not self._pl_looks_english(value):
-            return (False, "output is not in English")
+            failures.append("output is not in English")
 
         if "```" in value or "**" in value or "__" in value:
-            return (False, "contains markdown formatting")
+            failures.append("contains markdown formatting")
 
         forbidden_fragments = (
             "objetivo:", "formato de salida", "reglas de", "motor de interpretacion",
-            "objective:", "output format", "rules:", "analysis:", "step 1",
+            "objective:", "output format", "rules:", "analysis:", "step 1", "explanation:",
         )
         low = value.lower()
         if any(fragment in low for fragment in forbidden_fragments):
-            return (False, "contains explanation/section labels")
+            failures.append("contains explanation/section labels")
 
         if max_chars and len(value) > max_chars:
-            return (False, f"exceeds {max_chars} characters")
+            failures.append(f"exceeds {max_chars} characters")
 
-        return (True, "ok")
+        if profile == "suno_music":
+            group_hits = 0
+            if self._pl_contains_any(value, ["ambient", "trance", "lofi", "synthwave", "jazz", "cyberpunk", "cinematic", "electronic"]):
+                group_hits += 1
+            if self._pl_contains_any(value, ["mood", "calm", "dark", "warm", "dreamy", "emotional", "energetic", "relaxing"]):
+                group_hits += 1
+            if self._pl_contains_any(value, ["tempo", "bpm", "structure", "intro", "outro", "progression", "evolution", "loop"]):
+                group_hits += 1
+            if self._pl_contains_any(value, ["clean mids", "no harsh highs", "no muddiness", "balanced low end", "controlled reverb", "clarity", "separation"]):
+                group_hits += 1
+            if group_hits < 3:
+                failures.append("missing core Suno semantics (style/mood/structure/mix)")
+            if "\n" in value:
+                failures.append("suno output should be one compact line")
 
-    def _pl_build_repair_prompt(self, draft: str, *, reason: str, max_chars: int | None) -> str:
+        if profile == "cover_art" and not self._pl_contains_any(value, ["square", "album cover", "cover art"]):
+            failures.append("cover-art output missing square/cover intent")
+
+        if profile in ("dynamic_wallpaper", "audio_to_visual") and not self._pl_contains_any(value, ["16:9", "9:16", "1:1", "wallpaper", "cinematic"]):
+            failures.append("visual output missing ratio/wallpaper/cinematic intent")
+
+        if failures:
+            return (False, failures)
+        return (True, [])
+
+    def _pl_build_repair_prompt(
+        self,
+        draft: str,
+        *,
+        failures: list[str],
+        max_chars: int | None,
+        profile: str,
+        source_prompt: str,
+    ) -> str:
         cap = f"Maximum length: {max_chars} characters." if max_chars else ""
         single_line = "Return one single line." if max_chars else "Prefer a compact single paragraph."
+        failure_lines = "\n".join(f"- {item}" for item in failures) if failures else "- unknown formatting issue"
+
+        profile_hint = ""
+        if profile == "suno_music":
+            profile_hint = (
+                "Profile hint (Suno): include concise style + mood + structure + mix constraints in one production-ready line."
+            )
+        elif profile == "cover_art":
+            profile_hint = "Profile hint (Cover Art): keep clear square album-cover intent and concise visual language."
+        elif profile == "dynamic_wallpaper":
+            profile_hint = "Profile hint (Wallpaper): keep cinematic wallpaper intent with subtle motion cues."
+        elif profile == "audio_to_visual":
+            profile_hint = "Profile hint (Audio-to-Visual): translate sound intent into concise visual prompt with ratio-aware hints."
+
         return (
-            "Rewrite the draft so it strictly complies with the required format.\n"
+            "Rewrite the draft so it strictly complies with the required format and intent.\n"
             "Requirements:\n"
             "- English only.\n"
             "- Output only the final production-ready prompt.\n"
             "- No headings, no explanations, no markdown.\n"
             f"- {single_line}\n"
             f"- {cap}\n"
-            f"Failure reason: {reason}.\n\n"
+            f"- {profile_hint}\n"
+            "Fix exactly these failures:\n"
+            f"{failure_lines}\n\n"
+            "Original user intent:\n"
+            f"{source_prompt.strip()}\n\n"
             "DRAFT TO REWRITE:\n"
             f"{draft.strip()}"
         ).strip()
@@ -6847,6 +7148,7 @@ class AudioToVideoApp(ctk.CTk):
         skill_name = self._var_pl_skill.get().strip() or "Skill General"
         mode = self._var_pl_model_mode.get().strip() or "Calidad alta"
         max_chars: int | None = None
+        min_chars_target: int | None = None
         if not self._pl_active_skills:
             self._pl_active_skills = [{"category": cat, "skill": skill_name}]
 
@@ -6866,23 +7168,35 @@ class AudioToVideoApp(ctk.CTk):
             skill = self._prompt_lab.get_skill(ws, cat, skill_name)
             instructions = skill.instructions if skill else ""
 
-        # Runtime guardrails to reduce drift and force usable output formatting.
-        instructions = (
-            (instructions.strip() + "\n\n" if instructions.strip() else "")
-            + "REGLAS DE EJECUCION OBLIGATORIAS:\n"
-              "- Debes obedecer estrictamente las skills activas.\n"
-              "- Devuelve solo la salida final, sin explicaciones, sin analisis, sin pasos.\n"
-              "- No uses markdown ni encabezados.\n"
-              "- Idioma de salida obligatorio: English only."
-        )
+        profile = self._pl_detect_generation_profile(active_used)
+        suno_policy = self._pl_load_suno_policy() if profile == "suno_music" else None
 
         if self._pl_is_suno_music_context(active_used):
-            max_chars = 1000
-            instructions += (
-                "\n- CONTEXTO SUNO: genera un prompt musical compacto en una sola linea."
-                "\n- Longitud maxima: 1000 caracteres (obligatorio)."
-                "\n- No listas, no secciones, no etiquetas como 'Reglas' o 'Motor de interpretacion'."
-            )
+            if isinstance(suno_policy, dict):
+                try:
+                    max_chars = int(suno_policy.get("max_chars", 1000) or 1000)
+                except Exception:
+                    max_chars = 1000
+                try:
+                    fill_ratio = float(suno_policy.get("min_fill_ratio", 0.75) or 0.75)
+                except Exception:
+                    fill_ratio = 0.75
+                fill_ratio = max(0.5, min(0.95, fill_ratio))
+                min_chars_target = int(max_chars * fill_ratio) if max_chars else None
+            else:
+                max_chars = 1000
+                min_chars_target = 750
+
+        hard_constraints = self._pl_build_hard_constraints_layer(
+            profile=profile,
+            max_chars=max_chars,
+            min_chars_target=min_chars_target,
+        )
+        instructions = (
+            (instructions.strip() + "\n\n" if instructions.strip() else "")
+            + "HARD CONSTRAINTS LAYER:\n"
+            + hard_constraints
+        )
 
         config = PromptBackendConfig(
             base_url=self._var_pl_backend_url.get().strip(),
@@ -6904,16 +7218,79 @@ class AudioToVideoApp(ctk.CTk):
                     mode=mode,
                     config=config,
                 )
+
+                # Suno-only quality scoring and targeted enrichment pass.
+                if profile == "suno_music" and isinstance(suno_policy, dict) and bool(suno_policy.get("enabled", True)):
+                    scoring_cfg = suno_policy.get("quality_scoring", {})
+                    enrich_cfg = suno_policy.get("enrichment_pass", {})
+                    score_value = 100
+                    score_trigger = False
+                    deficits: list[str] = []
+
+                    if isinstance(scoring_cfg, dict) and bool(scoring_cfg.get("enabled", True)):
+                        score_info = self._pl_score_suno_output(response, prompt, suno_policy)
+                        score_value = int(score_info.get("score", 0) or 0)
+                        try:
+                            threshold = int(scoring_cfg.get("threshold", 74) or 74)
+                        except Exception:
+                            threshold = 74
+                        deficits = list(score_info.get("deficits", []))
+                        score_trigger = score_value < threshold
+                        self.after(0, self._log, f"[Prompt Lab][Suno] Score: {score_value}/100")
+
+                    density_trigger = False
+                    current_len = len((response or "").strip())
+                    if min_chars_target and current_len < min_chars_target:
+                        density_trigger = True
+                        deficits.append(
+                            f"increase technical and arrangement detail to reach at least {min_chars_target} characters without filler"
+                        )
+                        self.after(
+                            0,
+                            self._log,
+                            f"[Prompt Lab][Suno] Density below target ({current_len}/{min_chars_target}). Running enrichment.",
+                        )
+
+                    if (score_trigger or density_trigger) and isinstance(enrich_cfg, dict) and bool(enrich_cfg.get("enabled", True)):
+                        enrich_prompt = self._pl_build_suno_enrichment_prompt(
+                            draft=response,
+                            source_prompt=prompt,
+                            deficits=deficits,
+                            max_chars=max_chars or 1000,
+                            min_chars_target=min_chars_target,
+                        )
+                        enrich_instructions = (
+                            instructions
+                            + "\n\nSUNO ENRICHMENT PASS:\n"
+                              "- Improve quality dimensions requested by deficits.\n"
+                              "- Expand detail density when output is too short.\n"
+                              "- Preserve user intent.\n"
+                              "- Keep strict output constraints."
+                        )
+                        response = self._prompt_backend.generate(
+                            prompt=enrich_prompt,
+                            skill_instructions=enrich_instructions,
+                            mode=mode,
+                            config=config,
+                        )
+
                 repaired = False
-                ok, reason = self._pl_validate_output_compliance(response, max_chars=max_chars)
+                ok, failures = self._pl_validate_output_compliance(response, max_chars=max_chars, profile=profile)
                 if not ok:
                     repaired = True
-                    repair_prompt = self._pl_build_repair_prompt(response, reason=reason, max_chars=max_chars)
+                    repair_prompt = self._pl_build_repair_prompt(
+                        response,
+                        failures=failures,
+                        max_chars=max_chars,
+                        profile=profile,
+                        source_prompt=prompt,
+                    )
                     repair_instructions = (
                         instructions
-                        + "\n\nSTRICT REPAIR MODE:\n"
-                          "- Rewrite and fix compliance only.\n"
-                          "- Keep meaning, improve compactness, obey all constraints."
+                        + "\n\nINTELLIGENT AUTO-REPAIR MODE:\n"
+                          "- Fix only the listed failures while preserving user intent.\n"
+                          "- Keep output compact and production-ready.\n"
+                          "- Obey hard constraints layer above."
                     )
                     response = self._prompt_backend.generate(
                         prompt=repair_prompt,
@@ -6922,7 +7299,7 @@ class AudioToVideoApp(ctk.CTk):
                         config=config,
                     )
 
-                self.after(0, self._pl_on_backend_response, response, mode, max_chars, repaired)
+                self.after(0, self._pl_on_backend_response, response, mode, max_chars, repaired, profile)
             except Exception as exc:
                 self.after(0, self._pl_on_backend_error, exc)
 
@@ -6934,13 +7311,14 @@ class AudioToVideoApp(ctk.CTk):
         mode: str,
         max_chars: int | None = None,
         repaired: bool = False,
+        profile: str = "generic",
     ) -> None:
         self._pl_generation_in_progress = False
         self._btn_generate.configure(state="normal")
         output = response.strip()
         if max_chars and max_chars > 0:
             output = self._pl_compact_and_limit_text(output, max_chars=max_chars)
-        ok, reason = self._pl_validate_output_compliance(output, max_chars=max_chars)
+        ok, failures = self._pl_validate_output_compliance(output, max_chars=max_chars, profile=profile)
         if not ok and max_chars and max_chars > 0:
             # Last-resort normalization for capped formats.
             output = self._pl_compact_and_limit_text(output, max_chars=max_chars)
@@ -6956,7 +7334,7 @@ class AudioToVideoApp(ctk.CTk):
                 status = f"{status} [repair]"
             self._pl_set_status(status)
         if not ok:
-            self._log(f"[Prompt Lab] Advertencia de cumplimiento: {reason}")
+            self._log(f"[Prompt Lab] Advertencia de cumplimiento: {', '.join(failures)}")
         self._log(f"[Prompt Lab] Respuesta generada via backend local ({mode})")
 
     def _pl_on_backend_error(self, exc: Exception) -> None:
