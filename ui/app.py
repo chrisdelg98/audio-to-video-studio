@@ -1614,6 +1614,10 @@ class AudioToVideoApp(ctk.CTk):
         self._var_pl_backend_url = tk.StringVar(value=self.settings.get("pl_backend_url", "http://127.0.0.1:11434"))
         self._var_pl_model_quality = tk.StringVar(value=self.settings.get("pl_model_quality", "llama3.1:8b"))
         self._var_pl_model_fast = tk.StringVar(value=self.settings.get("pl_model_fast", "llama3.2:3b"))
+        self._var_pl_model_quality_display = tk.StringVar(value=self._var_pl_model_quality.get())
+        self._var_pl_model_fast_display = tk.StringVar(value=self._var_pl_model_fast.get())
+        self._pl_quality_display_to_raw: dict[str, str] = {}
+        self._pl_fast_display_to_raw: dict[str, str] = {}
         raw_active_skills = self.settings.get("pl_active_skills", [])
         self._pl_active_skills: list[dict[str, str]] = []
         if isinstance(raw_active_skills, list):
@@ -1624,6 +1628,8 @@ class AudioToVideoApp(ctk.CTk):
                 sk = str(item.get("skill", "")).strip()
                 if cat and sk:
                     self._pl_active_skills.append({"category": cat, "skill": sk})
+            self._pl_last_ws_for_preload = self._var_pl_workspace.get().strip() or "General"
+            self._pl_last_category_for_preload = self._var_pl_category.get().strip() or "General"
         self._pl_generation_in_progress = False
         self._presets_dialog: PresetsDialog | None = None
         self._preset_tiles_frame: ctk.CTkFrame | None = None
@@ -4388,11 +4394,152 @@ class AudioToVideoApp(ctk.CTk):
             },
         )
         self._pl_refresh_workspace_menu(select=self._var_pl_workspace.get())
+        self._pl_refresh_available_models()
         self._pl_on_skill_selected()
         saved_prompt = self.settings.get("pl_prompt_text", "")
         if hasattr(self, "_txt_pl_prompt") and saved_prompt:
             self._txt_pl_prompt.delete("1.0", "end")
             self._txt_pl_prompt.insert("1.0", saved_prompt)
+
+    def _pl_refresh_available_models(self) -> None:
+        """Refresca los selectores de modelos usando los modelos instalados en Ollama."""
+        quality_current = self._var_pl_model_quality.get().strip() if hasattr(self, "_var_pl_model_quality") else ""
+        fast_current = self._var_pl_model_fast.get().strip() if hasattr(self, "_var_pl_model_fast") else ""
+
+        defaults = [
+            quality_current,
+            fast_current,
+            str(self.settings.get("pl_model_quality", "")).strip(),
+            str(self.settings.get("pl_model_fast", "")).strip(),
+            "llama3.1:8b",
+            "llama3.2:3b",
+        ]
+        fallback_values: list[str] = []
+        for value in defaults:
+            if value and value not in fallback_values:
+                fallback_values.append(value)
+
+        base_url = "http://127.0.0.1:11434"
+        if hasattr(self, "_var_pl_backend_url"):
+            base_url = self._var_pl_backend_url.get().strip() or base_url
+        else:
+            base_url = str(self.settings.get("pl_backend_url", base_url) or base_url).strip()
+
+        values: list[str] = []
+        try:
+            installed = list_installed_models_with_sizes(base_url)
+            values = [str(item.get("name", "")).strip() for item in installed if str(item.get("name", "")).strip()]
+        except Exception:
+            values = []
+
+        if not values:
+            values = fallback_values
+
+        if not values:
+            values = ["llama3.1:8b", "llama3.2:3b"]
+
+        # Mantener los actuales si existen; si no, escoger opciones razonables.
+        if quality_current not in values:
+            self._var_pl_model_quality.set(values[0])
+            quality_current = values[0]
+        if fast_current not in values:
+            self._var_pl_model_fast.set(values[1] if len(values) > 1 else values[0])
+            fast_current = self._var_pl_model_fast.get().strip()
+
+        quality_display_values: list[str] = []
+        fast_display_values: list[str] = []
+        self._pl_quality_display_to_raw = {}
+        self._pl_fast_display_to_raw = {}
+        for raw in values:
+            display = f"{raw} ({self._pl_model_weight_tag(raw)})"
+            quality_display_values.append(display)
+            fast_display_values.append(display)
+            self._pl_quality_display_to_raw[display] = raw
+            self._pl_fast_display_to_raw[display] = raw
+
+        selected_quality_display = next(
+            (d for d, r in self._pl_quality_display_to_raw.items() if r == quality_current),
+            quality_display_values[0],
+        )
+        selected_fast_display = next(
+            (d for d, r in self._pl_fast_display_to_raw.items() if r == fast_current),
+            fast_display_values[1] if len(fast_display_values) > 1 else fast_display_values[0],
+        )
+
+        self._var_pl_model_quality_display.set(selected_quality_display)
+        self._var_pl_model_fast_display.set(selected_fast_display)
+
+        if hasattr(self, "_pl_quality_model_menu"):
+            self._pl_quality_model_menu.configure(values=quality_display_values)
+        if hasattr(self, "_pl_fast_model_menu"):
+            self._pl_fast_model_menu.configure(values=fast_display_values)
+
+        self._pl_update_model_hints()
+
+    def _pl_model_weight_tag(self, model_name: str) -> str:
+        name = (model_name or "").strip().lower()
+        if not name:
+            return "Sin clasificar"
+        if ":1b" in name:
+            return "Ligero"
+        if ":2b" in name or ":3b" in name or ":4b" in name:
+            return "Medio"
+        if ":7b" in name or ":8b" in name or ":13b" in name:
+            return "Pesado"
+        return "Medio"
+
+    def _pl_on_quality_model_selected(self, selected_display: str) -> None:
+        raw = self._pl_quality_display_to_raw.get(selected_display, "")
+        if not raw:
+            raw = selected_display.split(" (", 1)[0].strip()
+        if raw:
+            self._var_pl_model_quality.set(raw)
+        self._pl_update_model_hints()
+
+    def _pl_on_fast_model_selected(self, selected_display: str) -> None:
+        raw = self._pl_fast_display_to_raw.get(selected_display, "")
+        if not raw:
+            raw = selected_display.split(" (", 1)[0].strip()
+        if raw:
+            self._var_pl_model_fast.set(raw)
+        self._pl_update_model_hints()
+
+    def _pl_describe_model_tier(self, model_name: str) -> tuple[str, str]:
+        name = (model_name or "").strip().lower()
+        if not name:
+            return ("SIN MODELO", "Selecciona un modelo para ver su perfil.")
+
+        if ":1b" in name:
+            return ("LIGERO", "Menor consumo de RAM, mas rapido, menor detalle.")
+        if ":2b" in name or ":3b" in name or ":4b" in name:
+            return ("BALANCEADO", "Buen equilibrio entre velocidad, RAM y calidad.")
+        if ":7b" in name or ":8b" in name or ":13b" in name:
+            return ("ALTA CALIDAD", "Mejor redaccion/consistencia, pero mas pesado.")
+        return ("ESTANDAR", "Perfil intermedio. Si va lento, usa un modelo 1b o 3b.")
+
+    def _pl_update_model_hints(self) -> None:
+        if not hasattr(self, "_lbl_pl_model_hint"):
+            return
+
+        mode = self._var_pl_model_mode.get().strip() if hasattr(self, "_var_pl_model_mode") else "Calidad alta"
+        quality = self._var_pl_model_quality.get().strip() if hasattr(self, "_var_pl_model_quality") else ""
+        fast = self._var_pl_model_fast.get().strip() if hasattr(self, "_var_pl_model_fast") else ""
+
+        quality_tier, quality_desc = self._pl_describe_model_tier(quality)
+        fast_tier, fast_desc = self._pl_describe_model_tier(fast)
+
+        active_line = (
+            "Modo actual: CALIDAD ALTA (usa Modelo calidad)."
+            if mode == "Calidad alta"
+            else "Modo actual: RESPUESTA RAPIDA (usa Modelo rapido)."
+        )
+
+        text = (
+            f"Modelo calidad: [{quality_tier}] {quality} - {quality_desc}\n"
+            f"Modelo rapido: [{fast_tier}] {fast} - {fast_desc}\n"
+            f"{active_line} Recomendado para equipos modestos: 1b o 3b en modo rapido."
+        )
+        self._lbl_pl_model_hint.configure(text=text)
 
     def _pl_refresh_workspace_menu(self, select: str = "") -> None:
         if not hasattr(self, "_pl_workspace_menu"):
@@ -4414,33 +4561,71 @@ class AudioToVideoApp(ctk.CTk):
             current = categories[0]
             self._var_pl_category.set(current)
 
-        # Keep only compatible active skills (General + current category).
-        allowed = {"General", current}
-        filtered: list[dict[str, str]] = []
-        for item in self._pl_active_skills:
-            cat = str(item.get("category", "")).strip()
-            sk = str(item.get("skill", "")).strip()
-            if not cat or not sk:
-                continue
-            if cat not in allowed:
-                continue
-            if sk not in self._prompt_lab.skills(ws, cat):
-                continue
-            filtered.append({"category": cat, "skill": sk})
-        self._pl_active_skills = filtered
-
         self._pl_on_category_selected()
+
+    def _pl_build_preloaded_active_skills(self, ws: str, cat: str) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+
+        def _append(category_name: str, skill_name: str) -> None:
+            entry = {"category": category_name, "skill": skill_name}
+            if entry not in out:
+                out.append(entry)
+
+        # Always preload at least one General skill.
+        general_skills = self._prompt_lab.skills(ws, "General")
+        general_preload = self._prompt_lab.category_preload_skills(ws, "General")
+        if not general_preload and general_skills:
+            general_preload = [general_skills[0]]
+        for sk in general_preload:
+            if sk in general_skills:
+                _append("General", sk)
+
+        # Preload selected category skills.
+        cat_skills = self._prompt_lab.skills(ws, cat)
+        cat_preload = self._prompt_lab.category_preload_skills(ws, cat)
+        if not cat_preload and cat_skills:
+            cat_preload = [cat_skills[0]]
+        for sk in cat_preload:
+            if sk in cat_skills:
+                _append(cat, sk)
+
+        return out
 
     def _pl_on_category_selected(self) -> None:
         ws = self._var_pl_workspace.get().strip() or "General"
         cat = self._var_pl_category.get().strip() or "General"
         skills = self._prompt_lab.skills(ws, cat) or ["Skill General"]
 
+        changed_scope = (ws != self._pl_last_ws_for_preload) or (cat != self._pl_last_category_for_preload)
+        self._pl_last_ws_for_preload = ws
+        self._pl_last_category_for_preload = cat
+
+        # Keep only valid skills from General + selected category.
+        allowed = {"General", cat}
+        filtered: list[dict[str, str]] = []
+        for item in self._pl_active_skills:
+            ac = str(item.get("category", "")).strip()
+            an = str(item.get("skill", "")).strip()
+            if not ac or not an or ac not in allowed:
+                continue
+            if an not in self._prompt_lab.skills(ws, ac):
+                continue
+            entry = {"category": ac, "skill": an}
+            if entry not in filtered:
+                filtered.append(entry)
+
+        if changed_scope:
+            filtered = self._pl_build_preloaded_active_skills(ws, cat)
+
+        self._pl_active_skills = filtered
+
         current = self._var_pl_skill.get().strip()
         if current not in skills:
             current = skills[0]
             self._var_pl_skill.set(current)
 
+        if not self._pl_active_skills:
+            self._pl_active_skills = self._pl_build_preloaded_active_skills(ws, cat)
         if not self._pl_active_skills:
             self._pl_active_skills = [{"category": cat, "skill": current}]
 
@@ -4550,11 +4735,7 @@ class AudioToVideoApp(ctk.CTk):
         cat = self._var_pl_category.get().strip()
         skill_name = self._var_pl_skill.get().strip()
         skill = self._prompt_lab.get_skill(ws, cat, skill_name)
-        if skill:
-            self._lbl_pl_status.configure(text=f"Skill activa: {skill.name}")
-            self._pl_refresh_applied_skills_label()
-        else:
-            self._lbl_pl_status.configure(text="Skill sin instrucciones")
+        
 
     def _pl_export_workspace(self) -> None:
         ws = self._var_pl_workspace.get().strip()
@@ -4597,6 +4778,213 @@ class AudioToVideoApp(ctk.CTk):
             messagebox.showwarning("Prompt Lab", str(exc))
         except Exception as exc:
             messagebox.showerror("Prompt Lab", f"Error importando workspace: {exc}")
+
+    def _pl_create_catalog_template(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+        try:
+            path = self._prompt_lab.write_initial_catalog_template(ws)
+        except ValueError as exc:
+            messagebox.showwarning("Prompt Lab", str(exc))
+            return
+        except Exception as exc:
+            messagebox.showerror("Prompt Lab", f"No se pudo crear la plantilla: {exc}")
+            return
+
+        self._log(f"[Prompt Lab] Plantilla de catalogo creada: {path}")
+        messagebox.showinfo(
+            "Prompt Lab",
+            "Se creo la plantilla de catalogo inicial.\n\n"
+            f"Archivo: {path}\n\n"
+            "Completa las instrucciones y luego usa 'Instalar catalogo'.",
+        )
+
+    def _pl_install_catalog(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+        default_catalog = self._prompt_lab.catalog_file()
+        file_path = filedialog.askopenfilename(
+            title="Instalar catalogo inicial de skills",
+            initialdir=str(default_catalog.parent),
+            initialfile=default_catalog.name,
+            filetypes=[("JSON", "*.json"), ("Todos", "*.*")],
+        )
+        if not file_path:
+            return
+
+        try:
+            result = self._prompt_lab.install_catalog(
+                ws,
+                Path(file_path),
+                overwrite_existing=False,
+            )
+            self._pl_refresh_workspace_menu(select=ws)
+            self._log(
+                "[Prompt Lab] Catalogo instalado "
+                f"(creadas={result['created']}, actualizadas={result['updated']}, omitidas={result['skipped']})."
+            )
+            messagebox.showinfo(
+                "Prompt Lab",
+                "Catalogo aplicado correctamente.\n\n"
+                f"Creadas: {result['created']}\n"
+                f"Actualizadas: {result['updated']}\n"
+                f"Omitidas: {result['skipped']}\n\n"
+                "Nota: no se modificaron skills existentes con el mismo nombre.",
+            )
+        except ValueError as exc:
+            messagebox.showwarning("Prompt Lab", str(exc))
+        except Exception as exc:
+            messagebox.showerror("Prompt Lab", f"Error instalando catalogo: {exc}")
+
+    def _pl_open_preload_config_modal(self) -> None:
+        ws = self._var_pl_workspace.get().strip() or "General"
+        categories = self._prompt_lab.categories(ws) or ["General"]
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Configurar precarga de skills")
+        modal.geometry("700x540")
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(
+            root,
+            text="Precarga por categoria",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        top = ctk.CTkFrame(root, fg_color="transparent")
+        top.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        top.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(top, text="Categoria", text_color=C_MUTED).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        selected_cat = tk.StringVar(value=self._var_pl_category.get().strip() or categories[0])
+        cat_menu = ctk.CTkOptionMenu(
+            top,
+            variable=selected_cat,
+            values=categories,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_LAB,
+            button_hover_color=C_ACCENT_LAB_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_hover_color=C_HOVER,
+            dropdown_text_color=C_TEXT,
+        )
+        cat_menu.grid(row=0, column=1, sticky="ew")
+
+        box = ctk.CTkScrollableFrame(root, fg_color=C_CARD)
+        box.grid(row=2, column=0, sticky="nsew")
+        box.grid_columnconfigure(0, weight=1)
+
+        summary_var = tk.StringVar(value="")
+        ctk.CTkLabel(
+            root,
+            textvariable=summary_var,
+            text_color=C_TEXT_DIM,
+            anchor="w",
+            justify="left",
+            font=ctk.CTkFont(size=self._fs(10)),
+        ).grid(row=3, column=0, sticky="ew", pady=(8, 0))
+
+        vars_map: dict[str, tk.BooleanVar] = {}
+
+        def _refresh() -> None:
+            for child in box.winfo_children():
+                child.destroy()
+            vars_map.clear()
+
+            cat = selected_cat.get().strip() or "General"
+            skills = self._prompt_lab.skill_objects(ws, cat)
+            preload = set(self._prompt_lab.category_preload_skills(ws, cat))
+
+            if not skills:
+                ctk.CTkLabel(
+                    box,
+                    text="No hay skills en esta categoria.",
+                    text_color=C_TEXT_DIM,
+                    anchor="w",
+                ).grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+                summary_var.set("No hay skills para configurar.")
+                return
+
+            for idx, sk in enumerate(skills):
+                row = ctk.CTkFrame(box, fg_color="transparent")
+                row.grid(row=idx, column=0, sticky="ew", padx=10, pady=(4, 2))
+                row.grid_columnconfigure(0, weight=1)
+
+                var = tk.BooleanVar(value=(sk.name in preload))
+                vars_map[sk.name] = var
+
+                ctk.CTkCheckBox(
+                    row,
+                    text=sk.name,
+                    variable=var,
+                    fg_color=C_ACCENT_LAB,
+                    hover_color=C_ACCENT_LAB_H,
+                    text_color=C_TEXT,
+                ).grid(row=0, column=0, sticky="w")
+
+                desc = sk.description.strip() or "Sin descripcion"
+                ctk.CTkLabel(
+                    row,
+                    text=desc,
+                    text_color=C_TEXT_DIM,
+                    anchor="w",
+                    justify="left",
+                    wraplength=560,
+                    font=ctk.CTkFont(size=self._fs(10)),
+                ).grid(row=1, column=0, sticky="ew", pady=(0, 4))
+
+            summary_var.set(
+                "Marca las skills que deben cargarse automaticamente al seleccionar esta categoria. "
+                "Recomendado: 1 general + 1 de categoria."
+            )
+
+        def _save() -> None:
+            cat = selected_cat.get().strip() or "General"
+            chosen = [name for name, var in vars_map.items() if var.get()]
+            try:
+                self._prompt_lab.set_category_preload_skills(ws, cat, chosen)
+                self._log(f"[Prompt Lab] Precarga actualizada para '{cat}' ({len(chosen)} skills).")
+                # Reaplicar precarga si el usuario guarda la categoria actualmente activa.
+                if cat == (self._var_pl_category.get().strip() or "General"):
+                    self._pl_last_category_for_preload = ""
+                    self._pl_on_category_selected()
+                messagebox.showinfo("Prompt Lab", "Precarga guardada correctamente.")
+            except ValueError as exc:
+                messagebox.showwarning("Prompt Lab", str(exc))
+
+        btns = ctk.CTkFrame(root, fg_color="transparent")
+        btns.grid(row=4, column=0, sticky="ew", pady=(10, 0))
+
+        ctk.CTkButton(
+            btns,
+            text="Guardar precarga",
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color="#FFFFFF",
+            command=_save,
+        ).pack(side="left")
+        ctk.CTkButton(
+            btns,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side="right")
+
+        selected_cat.trace_add("write", lambda *_: _refresh())
+        _refresh()
 
     def _pl_open_versions_modal(self) -> None:
         ws = self._var_pl_workspace.get().strip() or "General"
@@ -5131,28 +5519,49 @@ class AudioToVideoApp(ctk.CTk):
         root = ctk.CTkFrame(modal, fg_color="transparent")
         root.pack(fill="both", expand=True, padx=16, pady=14)
         root.grid_columnconfigure(1, weight=1)
-        root.grid_rowconfigure(2, weight=1)
+        root.grid_rowconfigure(3, weight=1)
 
         ctk.CTkLabel(root, text="Nombre", text_color=C_MUTED).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
         var_name = tk.StringVar(value=skill.name)
         ent_name = ctk.CTkEntry(root, textvariable=var_name, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
         ent_name.grid(row=0, column=1, sticky="ew", pady=(0, 8))
 
-        ctk.CTkLabel(root, text="Nota opcional (1 linea)", text_color=C_MUTED).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        ctk.CTkLabel(root, text="Categoria", text_color=C_MUTED).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+        all_categories = self._prompt_lab.categories(ws) or ["General"]
+        if cat not in all_categories:
+            all_categories.append(cat)
+        selected_category = tk.StringVar(value=cat)
+        ctk.CTkOptionMenu(
+            root,
+            variable=selected_category,
+            values=all_categories,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_LAB,
+            button_hover_color=C_ACCENT_LAB_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_hover_color=C_HOVER,
+            dropdown_text_color=C_TEXT,
+        ).grid(row=1, column=1, sticky="ew", pady=(0, 8))
+
+        ctk.CTkLabel(root, text="Nota opcional (1 linea)", text_color=C_MUTED).grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
         var_note = tk.StringVar(value=(skill.description or "")[:180])
         ent_note = ctk.CTkEntry(root, textvariable=var_note, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
-        ent_note.grid(row=1, column=1, sticky="ew", pady=(0, 8))
+        ent_note.grid(row=2, column=1, sticky="ew", pady=(0, 8))
 
-        ctk.CTkLabel(root, text="Comportamiento (instrucciones)", text_color=C_MUTED).grid(row=2, column=0, sticky="nw", padx=(0, 8), pady=(0, 8))
+        ctk.CTkLabel(root, text="Comportamiento (instrucciones)", text_color=C_MUTED).grid(row=3, column=0, sticky="nw", padx=(0, 8), pady=(0, 8))
         txt_behavior = ctk.CTkTextbox(root, fg_color=C_INPUT, border_color=C_BORDER, text_color=C_TEXT)
         txt_behavior.configure(wrap="word")
-        txt_behavior.grid(row=2, column=1, sticky="nsew", pady=(0, 8))
+        txt_behavior.grid(row=3, column=1, sticky="nsew", pady=(0, 8))
         txt_behavior.insert("1.0", skill.instructions)
 
         btns = ctk.CTkFrame(root, fg_color="transparent")
-        btns.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        btns.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
         def _update() -> None:
+            source_category = cat
+            source_name = current_name
+            target_category = selected_category.get().strip() or source_category
             new_name = var_name.get().strip()
             if not new_name:
                 messagebox.showwarning("Prompt Lab", "El nombre de skill no puede estar vacio.")
@@ -5160,13 +5569,28 @@ class AudioToVideoApp(ctk.CTk):
             desc = var_note.get().strip()
             behavior = txt_behavior.get("1.0", "end").strip()
             try:
-                self._prompt_lab.upsert_skill(ws, cat, new_name, behavior, description=desc)
+                self._prompt_lab.edit_skill(
+                    workspace_name=ws,
+                    source_category_name=source_category,
+                    source_skill_name=source_name,
+                    target_category_name=target_category,
+                    target_skill_name=new_name,
+                    instructions=behavior,
+                    description=desc,
+                )
+
+                for item in self._pl_active_skills:
+                    if item.get("category") == source_category and item.get("skill") == source_name:
+                        item["category"] = target_category
+                        item["skill"] = new_name
+
+                self._var_pl_category.set(target_category)
                 self._var_pl_skill.set(new_name)
                 self._pl_on_category_selected()
                 if hasattr(self, "_txt_pl_instructions"):
                     self._txt_pl_instructions.delete("1.0", "end")
                     self._txt_pl_instructions.insert("1.0", behavior)
-                self._log(f"[Prompt Lab] Skill actualizada: {new_name}")
+                self._log(f"[Prompt Lab] Skill actualizada: {new_name} ({target_category})")
                 messagebox.showinfo("Prompt Lab", "Skill actualizada correctamente.")
             except ValueError as exc:
                 messagebox.showwarning("Prompt Lab", str(exc))
@@ -5385,6 +5809,34 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_TEXT,
             command=_refresh,
         ).pack(side="left")
+        ctk.CTkButton(
+            btns,
+            text="Configurar precarga",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=self._pl_open_preload_config_modal,
+        ).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(
+            btns,
+            text="Crear plantilla catalogo",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=self._pl_create_catalog_template,
+        ).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(
+            btns,
+            text="Instalar catalogo",
+            fg_color=C_ACCENT_LAB,
+            hover_color=C_ACCENT_LAB_H,
+            text_color="#FFFFFF",
+            command=self._pl_install_catalog,
+        ).pack(side="left", padx=(8, 0))
         ctk.CTkButton(
             btns,
             text="Cerrar",
@@ -8400,6 +8852,7 @@ class AudioToVideoApp(ctk.CTk):
         else:  # Prompt Lab
             if hasattr(self, "_pl_scroll_frame"):
                 self._pl_scroll_frame.grid()
+            self._pl_refresh_available_models()
             self._thumb_strip.grid_remove()
             if hasattr(self, "_thumb_strip_vert"):
                 self._thumb_strip_vert.grid_remove()
@@ -10864,10 +11317,13 @@ class AudioToVideoApp(ctk.CTk):
                     sk = str(item.get("skill", "")).strip()
                     if cat and sk:
                         self._pl_active_skills.append({"category": cat, "skill": sk})
+            self._pl_last_ws_for_preload = self._var_pl_workspace.get().strip() or "General"
+            self._pl_last_category_for_preload = self._var_pl_category.get().strip() or "General"
             if hasattr(self, "_txt_pl_prompt"):
                 self._txt_pl_prompt.delete("1.0", "end")
                 self._txt_pl_prompt.insert("1.0", s.get("pl_prompt_text", ""))
             self._pl_refresh_workspace_menu(select=self._var_pl_workspace.get())
+            self._pl_refresh_available_models()
 
         # Ensure slider knobs visually reflect loaded variable values.
         self.after_idle(self._sync_slider_visuals)

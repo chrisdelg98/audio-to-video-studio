@@ -15,10 +15,14 @@ def build_prompt_lab_panel(
     colors: dict[str, str],
     icons: dict[str, str],
 ) -> ctk.CTkFrame:
-    panel = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+    panel = ctk.CTkFrame(parent, fg_color="transparent")
     panel.grid(row=0, column=0, sticky="nsew", padx=0)
     panel.grid_columnconfigure(0, weight=3)
     panel.grid_columnconfigure(1, weight=4)
+    panel.grid_rowconfigure(0, weight=0)
+    panel.grid_rowconfigure(1, weight=0)
+    panel.grid_rowconfigure(2, weight=0)
+    panel.grid_rowconfigure(3, weight=1)
     panel.grid_remove()
 
     card_workspace = ctk.CTkFrame(
@@ -240,63 +244,80 @@ def build_prompt_lab_panel(
         dropdown_fg_color=colors["C_CARD"],
         dropdown_hover_color=colors["C_HOVER"],
         dropdown_text_color=colors["C_TEXT"],
+        command=lambda _: app._pl_update_model_hints(),
     )
     app._pl_model_menu.grid(row=0, column=1, sticky="ew", padx=(0, 14), pady=12)
-
-    ctk.CTkLabel(
-        card_model,
-        text="Backend URL",
-        text_color=colors["C_MUTED"],
-        font=ctk.CTkFont(size=app._fs(11)),
-    ).grid(row=1, column=0, sticky="w", padx=(14, 8), pady=(0, 8))
-
-    app._ent_pl_backend_url = ctk.CTkEntry(
-        card_model,
-        textvariable=app._var_pl_backend_url,
-        fg_color=colors["C_INPUT"],
-        border_color=colors["C_BORDER"],
-        text_color=colors["C_TEXT"],
-        height=30,
-    )
-    app._ent_pl_backend_url.grid(row=1, column=1, sticky="ew", padx=(0, 14), pady=(0, 8))
 
     ctk.CTkLabel(
         card_model,
         text="Modelo calidad",
         text_color=colors["C_MUTED"],
         font=ctk.CTkFont(size=app._fs(11)),
-    ).grid(row=2, column=0, sticky="w", padx=(14, 8), pady=(0, 8))
+    ).grid(row=1, column=0, sticky="w", padx=(14, 8), pady=(0, 8))
 
-    app._ent_pl_model_quality = ctk.CTkEntry(
+    app._pl_quality_model_menu = ctk.CTkOptionMenu(
         card_model,
-        textvariable=app._var_pl_model_quality,
+        values=[app._var_pl_model_quality_display.get() or "llama3.1:8b (Pesado)"],
         fg_color=colors["C_INPUT"],
-        border_color=colors["C_BORDER"],
+        button_color=accent,
+        button_hover_color=accent,
         text_color=colors["C_TEXT"],
-        height=30,
+        dropdown_fg_color=colors["C_CARD"],
+        dropdown_hover_color=colors["C_HOVER"],
+        dropdown_text_color=colors["C_TEXT"],
+        variable=app._var_pl_model_quality_display,
+        command=app._pl_on_quality_model_selected,
     )
-    app._ent_pl_model_quality.grid(row=2, column=1, sticky="ew", padx=(0, 14), pady=(0, 8))
+    app._pl_quality_model_menu.grid(row=1, column=1, sticky="ew", padx=(0, 14), pady=(0, 8))
 
     ctk.CTkLabel(
         card_model,
         text="Modelo rapido",
         text_color=colors["C_MUTED"],
         font=ctk.CTkFont(size=app._fs(11)),
-    ).grid(row=3, column=0, sticky="w", padx=(14, 8), pady=(0, 12))
+    ).grid(row=2, column=0, sticky="w", padx=(14, 8), pady=(0, 8))
 
-    app._ent_pl_model_fast = ctk.CTkEntry(
+    app._pl_fast_model_menu = ctk.CTkOptionMenu(
         card_model,
-        textvariable=app._var_pl_model_fast,
+        values=[app._var_pl_model_fast_display.get() or "llama3.2:3b (Medio)"],
         fg_color=colors["C_INPUT"],
-        border_color=colors["C_BORDER"],
+        button_color=accent,
+        button_hover_color=accent,
         text_color=colors["C_TEXT"],
-        height=30,
+        dropdown_fg_color=colors["C_CARD"],
+        dropdown_hover_color=colors["C_HOVER"],
+        dropdown_text_color=colors["C_TEXT"],
+        variable=app._var_pl_model_fast_display,
+        command=app._pl_on_fast_model_selected,
     )
-    app._ent_pl_model_fast.grid(row=3, column=1, sticky="ew", padx=(0, 14), pady=(0, 12))
+    app._pl_fast_model_menu.grid(row=2, column=1, sticky="ew", padx=(0, 14), pady=(0, 8))
+
+    app._lbl_pl_model_hint = ctk.CTkLabel(
+        card_model,
+        text="",
+        text_color=colors["C_TEXT_DIM"],
+        anchor="w",
+        justify="left",
+        wraplength=650,
+        font=ctk.CTkFont(size=app._fs(10)),
+    )
+    app._lbl_pl_model_hint.grid(row=3, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 8))
 
     model_btns = ctk.CTkFrame(card_model, fg_color="transparent")
     model_btns.grid(row=4, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 12))
     model_btns.grid_columnconfigure(0, weight=1)
+    model_btns.grid_columnconfigure(1, weight=1)
+
+    ctk.CTkButton(
+        model_btns,
+        text="Actualizar modelos disponibles",
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_refresh_available_models,
+    ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
 
     ctk.CTkButton(
         model_btns,
@@ -307,7 +328,7 @@ def build_prompt_lab_panel(
         border_color=colors["C_BORDER"],
         text_color=colors["C_TEXT"],
         command=app._pl_open_model_manager_modal,
-    ).grid(row=0, column=0, sticky="ew")
+    ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
     card_prompt = ctk.CTkFrame(
         panel,
@@ -379,7 +400,7 @@ def build_prompt_lab_panel(
 
     app._txt_pl_output = ctk.CTkTextbox(
         card_prompt,
-        height=340,
+        height=450,
         fg_color=colors["C_INPUT"],
         border_width=1,
         border_color=colors["C_BORDER"],
