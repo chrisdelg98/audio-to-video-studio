@@ -11,7 +11,7 @@
   },
   "quality_scoring": {
     "enabled": true,
-    "threshold": 70,
+    "threshold": 65,
     "weights": {
       "sound_design_richness": 25,
       "genre_accuracy": 20,

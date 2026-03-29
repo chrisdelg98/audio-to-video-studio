@@ -341,6 +341,7 @@ def build_prompt_lab_panel(
     card_prompt.grid_columnconfigure(0, weight=1)
     card_prompt.grid_rowconfigure(1, weight=1)
     card_prompt.grid_rowconfigure(4, weight=2)
+    card_prompt.grid_rowconfigure(5, weight=0)
 
     ctk.CTkLabel(
         card_prompt,
@@ -432,5 +433,53 @@ def build_prompt_lab_panel(
         font=ctk.CTkFont(size=app._fs(11)),
     )
     app._txt_pl_output.grid(row=4, column=0, sticky="nsew", padx=14, pady=(0, 14))
+
+    feedback_bar = ctk.CTkFrame(card_prompt, fg_color="transparent")
+    feedback_bar.grid(row=5, column=0, sticky="ew", padx=14, pady=(0, 14))
+
+    ctk.CTkButton(
+        feedback_bar,
+        text="Like",
+        width=88,
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_vote_like,
+    ).pack(side="left")
+
+    ctk.CTkButton(
+        feedback_bar,
+        text="Dislike",
+        width=88,
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_vote_dislike,
+    ).pack(side="left", padx=(8, 0))
+
+    ctk.CTkButton(
+        feedback_bar,
+        text="Gestionar feedback",
+        width=140,
+        fg_color="transparent",
+        hover_color=colors["C_HOVER"],
+        border_width=1,
+        border_color=colors["C_BORDER"],
+        text_color=colors["C_TEXT"],
+        command=app._pl_open_feedback_manager_modal,
+    ).pack(side="left", padx=(8, 0))
+
+    app._lbl_pl_feedback_status = ctk.CTkLabel(
+        feedback_bar,
+        text="Valora la salida para ajustar futuras generaciones",
+        text_color=colors["C_TEXT_DIM"],
+        anchor="e",
+        font=ctk.CTkFont(size=app._fs(10)),
+    )
+    app._lbl_pl_feedback_status.pack(side="right")
 
     return panel

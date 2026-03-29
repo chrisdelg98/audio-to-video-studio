@@ -1649,6 +1649,8 @@ class AudioToVideoApp(ctk.CTk):
         self._pl_generation_in_progress = False
         self._pl_prompt_template_current = ""
         self._pl_last_inserted_template = ""
+        self._pl_feedback_path = _BUNDLE_DIR / "config" / "prompt_lab_feedback.json"
+        self._pl_last_generation_payload: dict[str, Any] = {}
         raw_insert_mode_by_category = self.settings.get("pl_template_insert_mode_by_category", {})
         self._pl_template_insert_mode_by_category: dict[str, str] = (
             dict(raw_insert_mode_by_category)
@@ -6737,6 +6739,541 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_lbl_pl_status"):
             self._pl_set_status("Salida copiada al portapapeles")
 
+    def _pl_feedback_key(self, category: str, skill: str) -> str:
+        cat = (category or "General").strip() or "General"
+        sk = (skill or "Skill General").strip() or "Skill General"
+        return f"{cat}::{sk}"
+
+    def _pl_load_feedback_store(self) -> dict[str, Any]:
+        path = self._pl_feedback_path
+        default_store = {"version": 1, "entries": {}}
+        try:
+            if not path.is_file():
+                return default_store
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                return default_store
+            entries = raw.get("entries", {})
+            if not isinstance(entries, dict):
+                entries = {}
+            return {"version": 1, "entries": entries}
+        except Exception:
+            return default_store
+
+    def _pl_save_feedback_store(self, store: dict[str, Any]) -> None:
+        path = self._pl_feedback_path
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps(store, ensure_ascii=False, indent=2)
+            path.write_text(payload, encoding="utf-8")
+        except Exception as exc:
+            self._log(f"[Prompt Lab] No se pudo guardar feedback: {exc}")
+
+    def _pl_extract_feedback_tags(self, text: str) -> list[str]:
+        low = (text or "").lower()
+        mapping = [
+            ("cinematic", ["cinematic", "film score", "orchestral", "soundtrack"]),
+            ("electronic", ["electronic", "electronica", "synth", "arpeggio", "trance", "techno"]),
+            ("instrumental", ["instrumental", "piano", "strings", "no vocals"]),
+            ("structured", ["intro", "build", "breakdown", "drop", "outro", "arrangement"]),
+            ("mix-clean", ["clean mids", "no harsh highs", "balanced low end", "clarity", "separation"]),
+            ("wide-stereo", ["stereo", "width", "depth"]),
+            ("energetic", ["energetic", "driving", "punchy", "uplifting"]),
+            ("atmospheric", ["atmospheric", "immersive", "dreamy", "ambient"]),
+        ]
+        tags: list[str] = []
+        for tag, needles in mapping:
+            if any(n in low for n in needles):
+                tags.append(tag)
+        return tags[:6]
+
+    def _pl_trim_feedback_text(self, text: str, *, max_chars: int = 180) -> str:
+        value = " ".join((text or "").replace("\r", "\n").split())
+        if len(value) <= max_chars:
+            return value
+        return value[: max_chars - 3].rstrip() + "..."
+
+    def _pl_vote_output(self, vote: str) -> None:
+        if vote not in ("like", "dislike"):
+            return
+
+        payload = dict(self._pl_last_generation_payload) if isinstance(self._pl_last_generation_payload, dict) else {}
+        output = str(payload.get("output", "") or "").strip()
+        if not output and hasattr(self, "_txt_pl_output"):
+            output = self._txt_pl_output.get("1.0", "end").strip()
+        if not output:
+            messagebox.showwarning("Prompt Lab", "No hay salida para valorar todavia.")
+            return
+
+        source_prompt = str(payload.get("prompt", "") or "").strip()
+        if not source_prompt and hasattr(self, "_txt_pl_prompt"):
+            source_prompt = self._txt_pl_prompt.get("1.0", "end").strip()
+
+        active_items = payload.get("active_items", [])
+        if not isinstance(active_items, list) or not active_items:
+            active_items = [{
+                "category": self._var_pl_category.get().strip() or "General",
+                "skill": self._var_pl_skill.get().strip() or "Skill General",
+            }]
+
+        store = self._pl_load_feedback_store()
+        entries = store.setdefault("entries", {})
+        ts = dt.datetime.now().isoformat(timespec="seconds")
+        tags = self._pl_extract_feedback_tags(output)
+
+        for item in active_items:
+            category = str(item.get("category", "") or "").strip() or "General"
+            skill = str(item.get("skill", "") or "").strip() or "Skill General"
+            key = self._pl_feedback_key(category, skill)
+            bucket = entries.setdefault(key, {"likes": [], "dislikes": []})
+            likes = bucket.setdefault("likes", [])
+            dislikes = bucket.setdefault("dislikes", [])
+            if not isinstance(likes, list):
+                likes = []
+                bucket["likes"] = likes
+            if not isinstance(dislikes, list):
+                dislikes = []
+                bucket["dislikes"] = dislikes
+
+            record = {
+                "ts": ts,
+                "category": category,
+                "skill": skill,
+                "prompt": self._pl_trim_feedback_text(source_prompt, max_chars=180),
+                "output": self._pl_trim_feedback_text(output, max_chars=220),
+                "prompt_full": self._pl_trim_feedback_text(source_prompt, max_chars=2000),
+                "output_full": self._pl_trim_feedback_text(output, max_chars=6000),
+                "tags": tags,
+            }
+            target = likes if vote == "like" else dislikes
+            target.append(record)
+            if len(target) > 10:
+                del target[:-10]
+
+        self._pl_save_feedback_store(store)
+        if hasattr(self, "_lbl_pl_feedback_status"):
+            self._lbl_pl_feedback_status.configure(
+                text=("Guardado: Like" if vote == "like" else "Guardado: Dislike")
+            )
+        self._log(f"[Prompt Lab] Feedback registrado ({vote}).")
+
+    def _pl_vote_like(self) -> None:
+        self._pl_vote_output("like")
+
+    def _pl_vote_dislike(self) -> None:
+        self._pl_vote_output("dislike")
+
+    def _pl_open_feedback_manager_modal(self) -> None:
+        store = self._pl_load_feedback_store()
+        entries = store.setdefault("entries", {}) if isinstance(store, dict) else {}
+        if not isinstance(entries, dict):
+            entries = {}
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Gestionar feedback")
+        modal.geometry("980x620")
+        modal.resizable(True, True)
+        modal.grab_set()
+        modal.configure(fg_color=C_BG)
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(
+            root,
+            text="Feedback de Prompt Lab",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        filters = ctk.CTkFrame(root, fg_color="transparent")
+        filters.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        filters.grid_columnconfigure(1, weight=1)
+        filters.grid_columnconfigure(3, weight=1)
+        filters.grid_columnconfigure(5, weight=1)
+        filters.grid_columnconfigure(7, weight=2)
+
+        vote_filter_var = tk.StringVar(value="Todos")
+        cat_filter_var = tk.StringVar(value="Todas")
+        skill_filter_var = tk.StringVar(value="Todas")
+        search_var = tk.StringVar(value="")
+
+        def _all_rows() -> list[dict[str, Any]]:
+            rows: list[dict[str, Any]] = []
+            for key, bucket in entries.items():
+                if not isinstance(key, str) or not isinstance(bucket, dict):
+                    continue
+                key_cat, _, key_skill = key.partition("::")
+                for vote_name, list_key in (("Like", "likes"), ("Dislike", "dislikes")):
+                    recs = bucket.get(list_key, [])
+                    if not isinstance(recs, list):
+                        continue
+                    for idx, rec in enumerate(recs):
+                        if not isinstance(rec, dict):
+                            continue
+                        category = str(rec.get("category", "") or "").strip() or key_cat or "General"
+                        skill = str(rec.get("skill", "") or "").strip() or key_skill or "Skill General"
+                        rows.append(
+                            {
+                                "key": key,
+                                "idx": idx,
+                                "list_key": list_key,
+                                "vote": vote_name,
+                                "ts": str(rec.get("ts", "") or ""),
+                                "category": category,
+                                "skill": skill,
+                                "prompt": str(rec.get("prompt", "") or ""),
+                                "output": str(rec.get("output", "") or ""),
+                                "prompt_full": str(rec.get("prompt_full", rec.get("prompt", "")) or ""),
+                                "output_full": str(rec.get("output_full", rec.get("output", "")) or ""),
+                                "tags": list(rec.get("tags", [])) if isinstance(rec.get("tags", []), list) else [],
+                            }
+                        )
+            rows.sort(key=lambda item: item.get("ts", ""), reverse=True)
+            return rows
+
+        def _filter_rows() -> list[dict[str, Any]]:
+            rows = _all_rows()
+            vote_filter = vote_filter_var.get().strip()
+            cat_filter = cat_filter_var.get().strip()
+            skill_filter = skill_filter_var.get().strip()
+            query = search_var.get().strip().lower()
+
+            out: list[dict[str, Any]] = []
+            for row in rows:
+                if vote_filter != "Todos" and row.get("vote") != vote_filter:
+                    continue
+                if cat_filter != "Todas" and row.get("category") != cat_filter:
+                    continue
+                if skill_filter != "Todas" and row.get("skill") != skill_filter:
+                    continue
+                if query:
+                    haystack = " ".join(
+                        [
+                            str(row.get("category", "")),
+                            str(row.get("skill", "")),
+                            str(row.get("prompt", "")),
+                            str(row.get("output", "")),
+                            " ".join(row.get("tags", [])),
+                        ]
+                    ).lower()
+                    if query not in haystack:
+                        continue
+                out.append(row)
+            return out
+
+        categories = sorted({row.get("category", "General") for row in _all_rows()})
+        skills = sorted({row.get("skill", "Skill General") for row in _all_rows()})
+
+        ctk.CTkLabel(filters, text="Tipo", text_color=C_MUTED).grid(row=0, column=0, sticky="w", padx=(0, 6))
+        vote_menu = ctk.CTkOptionMenu(
+            filters,
+            variable=vote_filter_var,
+            values=["Todos", "Like", "Dislike"],
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_LAB,
+            button_hover_color=C_ACCENT_LAB_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_hover_color=C_HOVER,
+            dropdown_text_color=C_TEXT,
+        )
+        vote_menu.grid(row=0, column=1, sticky="ew", padx=(0, 10))
+
+        ctk.CTkLabel(filters, text="Categoria", text_color=C_MUTED).grid(row=0, column=2, sticky="w", padx=(0, 6))
+        cat_menu = ctk.CTkOptionMenu(
+            filters,
+            variable=cat_filter_var,
+            values=["Todas"] + categories,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_LAB,
+            button_hover_color=C_ACCENT_LAB_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_hover_color=C_HOVER,
+            dropdown_text_color=C_TEXT,
+        )
+        cat_menu.grid(row=0, column=3, sticky="ew", padx=(0, 10))
+
+        ctk.CTkLabel(filters, text="Skill", text_color=C_MUTED).grid(row=0, column=4, sticky="w", padx=(0, 6))
+        skill_menu = ctk.CTkOptionMenu(
+            filters,
+            variable=skill_filter_var,
+            values=["Todas"] + skills,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_LAB,
+            button_hover_color=C_ACCENT_LAB_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_hover_color=C_HOVER,
+            dropdown_text_color=C_TEXT,
+        )
+        skill_menu.grid(row=0, column=5, sticky="ew", padx=(0, 10))
+
+        ctk.CTkLabel(filters, text="Buscar", text_color=C_MUTED).grid(row=0, column=6, sticky="w", padx=(0, 6))
+        search_entry = ctk.CTkEntry(
+            filters,
+            textvariable=search_var,
+            fg_color=C_INPUT,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            placeholder_text="Texto libre en prompt/salida/tags...",
+        )
+        search_entry.grid(row=0, column=7, sticky="ew")
+
+        box = ctk.CTkScrollableFrame(root, fg_color=C_CARD)
+        box.grid(row=2, column=0, sticky="nsew")
+        box.grid_columnconfigure(0, weight=1)
+
+        summary_var = tk.StringVar(value="")
+        ctk.CTkLabel(
+            root,
+            textvariable=summary_var,
+            text_color=C_TEXT_DIM,
+            anchor="w",
+            justify="left",
+            font=ctk.CTkFont(size=self._fs(10)),
+        ).grid(row=3, column=0, sticky="ew", pady=(8, 0))
+
+        def _open_full(row: dict[str, Any]) -> None:
+            dlg = ctk.CTkToplevel(modal)
+            dlg.title("Detalle de feedback")
+            dlg.geometry("820x520")
+            dlg.resizable(True, True)
+            dlg.configure(fg_color=C_BG)
+            dlg.grab_set()
+            _center_window_on_screen(dlg)
+
+            inner = ctk.CTkFrame(dlg, fg_color="transparent")
+            inner.pack(fill="both", expand=True, padx=16, pady=14)
+            inner.grid_columnconfigure(0, weight=1)
+            inner.grid_rowconfigure(1, weight=1)
+
+            meta = (
+                f"{row.get('vote')} | {row.get('category')}/{row.get('skill')} | {row.get('ts')}\n"
+                f"Tags: {', '.join(row.get('tags', [])) if row.get('tags') else '-'}"
+            )
+            ctk.CTkLabel(
+                inner,
+                text=meta,
+                text_color=C_TEXT,
+                anchor="w",
+                justify="left",
+                font=ctk.CTkFont(size=self._fs(11), weight="bold"),
+            ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+            txt = ctk.CTkTextbox(
+                inner,
+                fg_color=C_INPUT,
+                border_color=C_BORDER,
+                text_color=C_TEXT,
+                font=ctk.CTkFont(size=self._fs(11)),
+            )
+            txt.grid(row=1, column=0, sticky="nsew")
+            txt.insert(
+                "1.0",
+                f"PROMPT:\n{row.get('prompt_full', row.get('prompt', ''))}\n\n"
+                f"SALIDA:\n{row.get('output_full', row.get('output', ''))}",
+            )
+
+            ctk.CTkButton(
+                inner,
+                text="Cerrar",
+                fg_color="transparent",
+                hover_color=C_HOVER,
+                border_width=1,
+                border_color=C_BORDER,
+                text_color=C_TEXT,
+                command=dlg.destroy,
+            ).grid(row=2, column=0, sticky="e", pady=(10, 0))
+
+        def _delete_row(row: dict[str, Any]) -> None:
+            confirmed = messagebox.askyesno(
+                "Prompt Lab",
+                "Eliminar este registro de feedback?",
+                parent=modal,
+            )
+            try:
+                modal.lift()
+                modal.focus_force()
+            except Exception:
+                pass
+            if not confirmed:
+                return
+            key = str(row.get("key", ""))
+            list_key = str(row.get("list_key", ""))
+            idx = int(row.get("idx", -1))
+            bucket = entries.get(key, {})
+            if not isinstance(bucket, dict):
+                return
+            arr = bucket.get(list_key, [])
+            if not isinstance(arr, list):
+                return
+            if idx < 0 or idx >= len(arr):
+                return
+            arr.pop(idx)
+            if len(bucket.get("likes", [])) == 0 and len(bucket.get("dislikes", [])) == 0:
+                entries.pop(key, None)
+            self._pl_save_feedback_store(store)
+            self._log("[Prompt Lab] Registro de feedback eliminado.")
+            _refresh()
+
+        def _refresh() -> None:
+            for child in box.winfo_children():
+                child.destroy()
+
+            rows = _filter_rows()
+            summary_var.set(f"Mostrando {len(rows)} registros")
+            if not rows:
+                ctk.CTkLabel(
+                    box,
+                    text="No hay registros para los filtros actuales.",
+                    text_color=C_TEXT_DIM,
+                    anchor="w",
+                ).grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+                return
+
+            for idx, row in enumerate(rows):
+                item = ctk.CTkFrame(box, fg_color=C_INPUT, corner_radius=8, border_width=1, border_color=C_BORDER)
+                item.grid(row=idx, column=0, sticky="ew", padx=8, pady=(6, 0))
+                item.grid_columnconfigure(0, weight=1)
+
+                title = f"{row.get('vote')} | {row.get('category')}/{row.get('skill')} | {row.get('ts')}"
+                ctk.CTkLabel(
+                    item,
+                    text=title,
+                    text_color=(C_SUCCESS if row.get("vote") == "Like" else C_WARN),
+                    anchor="w",
+                    font=ctk.CTkFont(size=self._fs(10), weight="bold"),
+                ).grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 2))
+
+                excerpt_src = str(row.get("output", "") or "")
+                if not excerpt_src:
+                    excerpt_src = str(row.get("output_full", "") or "")
+                excerpt = self._pl_trim_feedback_text(excerpt_src, max_chars=170)
+                ctk.CTkLabel(
+                    item,
+                    text=excerpt,
+                    text_color=C_TEXT_DIM,
+                    anchor="w",
+                    justify="left",
+                    wraplength=620,
+                    font=ctk.CTkFont(size=self._fs(10)),
+                ).grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+
+                actions = ctk.CTkFrame(item, fg_color="transparent")
+                actions.grid(row=0, column=1, rowspan=2, sticky="ne", padx=(8, 10), pady=(8, 8))
+                ctk.CTkButton(
+                    actions,
+                    text="Ver completo",
+                    width=110,
+                    fg_color="transparent",
+                    hover_color=C_HOVER,
+                    border_width=1,
+                    border_color=C_BORDER,
+                    text_color=C_TEXT,
+                    command=lambda r=row: _open_full(r),
+                ).pack(side="top")
+                ctk.CTkButton(
+                    actions,
+                    text="Eliminar",
+                    width=110,
+                    fg_color="transparent",
+                    hover_color=C_HOVER,
+                    border_width=1,
+                    border_color=C_BTN_DANGER,
+                    text_color=C_TEXT,
+                    command=lambda r=row: _delete_row(r),
+                ).pack(side="top", pady=(6, 0))
+
+        btns = ctk.CTkFrame(root, fg_color="transparent")
+        btns.grid(row=4, column=0, sticky="ew", pady=(10, 0))
+
+        ctk.CTkButton(
+            btns,
+            text="Actualizar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_refresh,
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            btns,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side="right")
+
+        vote_menu.configure(command=lambda _v: _refresh())
+        cat_menu.configure(command=lambda _v: _refresh())
+        skill_menu.configure(command=lambda _v: _refresh())
+        search_var.trace_add("write", lambda *_: _refresh())
+        _refresh()
+
+    def _pl_build_feedback_learning_layer(self, active_items: list[dict[str, str]]) -> str:
+        store = self._pl_load_feedback_store()
+        entries = store.get("entries", {}) if isinstance(store, dict) else {}
+        if not isinstance(entries, dict):
+            return ""
+
+        liked_lines: list[str] = []
+        disliked_lines: list[str] = []
+        seen_keys: set[str] = set()
+
+        for item in active_items:
+            category = str(item.get("category", "") or "").strip() or "General"
+            skill = str(item.get("skill", "") or "").strip() or "Skill General"
+            key = self._pl_feedback_key(category, skill)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            bucket = entries.get(key, {})
+            if not isinstance(bucket, dict):
+                continue
+            likes = bucket.get("likes", [])
+            dislikes = bucket.get("dislikes", [])
+            if isinstance(likes, list):
+                for rec in likes[-2:]:
+                    if not isinstance(rec, dict):
+                        continue
+                    txt = self._pl_trim_feedback_text(str(rec.get("output", "") or ""), max_chars=150)
+                    tags = rec.get("tags", [])
+                    tag_text = ", ".join(tags[:3]) if isinstance(tags, list) else ""
+                    if txt:
+                        suffix = f" ({tag_text})" if tag_text else ""
+                        liked_lines.append(f"[{category}/{skill}] {txt}{suffix}")
+            if isinstance(dislikes, list):
+                for rec in dislikes[-2:]:
+                    if not isinstance(rec, dict):
+                        continue
+                    txt = self._pl_trim_feedback_text(str(rec.get("output", "") or ""), max_chars=150)
+                    tags = rec.get("tags", [])
+                    tag_text = ", ".join(tags[:3]) if isinstance(tags, list) else ""
+                    if txt:
+                        suffix = f" ({tag_text})" if tag_text else ""
+                        disliked_lines.append(f"[{category}/{skill}] {txt}{suffix}")
+
+        if not liked_lines and not disliked_lines:
+            return ""
+
+        sections: list[str] = []
+        if liked_lines:
+            sections.append("Preferred patterns from recent likes:\n" + "\n".join(f"- {line}" for line in liked_lines[:4]))
+        if disliked_lines:
+            sections.append("Avoid patterns from recent dislikes:\n" + "\n".join(f"- {line}" for line in disliked_lines[:4]))
+        return "\n\n".join(sections).strip()
+
     def _pl_is_suno_music_context(self, active_items: list[dict[str, str]]) -> bool:
         for item in active_items:
             cat = str(item.get("category", "")).strip().lower()
@@ -6766,7 +7303,7 @@ class AudioToVideoApp(ctk.CTk):
         return {
             "enabled": True,
             "max_chars": 1000,
-            "min_fill_ratio": 0.75,
+            "min_fill_ratio": 0.68,
             "creative_flexibility": {
                 "enabled": True,
                 "allow_sound_design_wording_variation": True,
@@ -6776,7 +7313,7 @@ class AudioToVideoApp(ctk.CTk):
             },
             "quality_scoring": {
                 "enabled": True,
-                "threshold": 74,
+                "threshold": 68,
                 "weights": {
                     "sound_design_richness": 25,
                     "genre_accuracy": 20,
@@ -7204,14 +7741,14 @@ class AudioToVideoApp(ctk.CTk):
                 except Exception:
                     max_chars = 1000
                 try:
-                    fill_ratio = float(suno_policy.get("min_fill_ratio", 0.75) or 0.75)
+                    fill_ratio = float(suno_policy.get("min_fill_ratio", 0.68) or 0.68)
                 except Exception:
-                    fill_ratio = 0.75
+                    fill_ratio = 0.68
                 fill_ratio = max(0.5, min(0.95, fill_ratio))
                 min_chars_target = int(max_chars * fill_ratio) if max_chars else None
             else:
                 max_chars = 1000
-                min_chars_target = 750
+                min_chars_target = 680
 
         hard_constraints = self._pl_build_hard_constraints_layer(
             profile=profile,
@@ -7223,6 +7760,9 @@ class AudioToVideoApp(ctk.CTk):
             + "HARD CONSTRAINTS LAYER:\n"
             + hard_constraints
         )
+        feedback_learning = self._pl_build_feedback_learning_layer(active_used or [{"category": cat, "skill": skill_name}])
+        if feedback_learning:
+            instructions += "\n\nUSER FEEDBACK MEMORY LAYER:\n" + feedback_learning
         if profile == "suno_music":
             flex_layer = self._pl_build_suno_creative_flexibility_layer(suno_policy)
             if flex_layer:
@@ -7239,6 +7779,8 @@ class AudioToVideoApp(ctk.CTk):
         self._btn_generate.configure(state="disabled")
         if hasattr(self, "_lbl_pl_status"):
             self._pl_set_status(f"Generando con backend local ({mode})...")
+        if hasattr(self, "_lbl_pl_feedback_status"):
+            self._lbl_pl_feedback_status.configure(text="Generando...")
 
         def _worker() -> None:
             try:
@@ -7337,7 +7879,7 @@ class AudioToVideoApp(ctk.CTk):
                         config=config,
                     )
 
-                self.after(0, self._pl_on_backend_response, response, mode, max_chars, repaired, profile)
+                self.after(0, self._pl_on_backend_response, response, mode, max_chars, repaired, profile, prompt, active_used)
             except Exception as exc:
                 self.after(0, self._pl_on_backend_error, exc)
 
@@ -7350,6 +7892,8 @@ class AudioToVideoApp(ctk.CTk):
         max_chars: int | None = None,
         repaired: bool = False,
         profile: str = "generic",
+        source_prompt: str = "",
+        active_items: list[dict[str, str]] | None = None,
     ) -> None:
         self._pl_generation_in_progress = False
         self._btn_generate.configure(state="normal")
@@ -7363,6 +7907,13 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_txt_pl_output"):
             self._txt_pl_output.delete("1.0", "end")
             self._txt_pl_output.insert("1.0", output)
+        self._pl_last_generation_payload = {
+            "prompt": source_prompt.strip(),
+            "output": output,
+            "mode": mode,
+            "profile": profile,
+            "active_items": list(active_items or []),
+        }
         if hasattr(self, "_lbl_pl_status"):
             if max_chars and max_chars > 0:
                 status = f"Generado ({len(output)}/{max_chars} chars)"
@@ -7371,6 +7922,8 @@ class AudioToVideoApp(ctk.CTk):
             if repaired:
                 status = f"{status} [repair]"
             self._pl_set_status(status)
+        if hasattr(self, "_lbl_pl_feedback_status"):
+            self._lbl_pl_feedback_status.configure(text="Valora esta salida: Like o Dislike")
         if not ok:
             self._log(f"[Prompt Lab] Advertencia de cumplimiento: {', '.join(failures)}")
         self._log(f"[Prompt Lab] Respuesta generada via backend local ({mode})")
