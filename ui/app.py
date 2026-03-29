@@ -1609,7 +1609,7 @@ class AudioToVideoApp(ctk.CTk):
         self._yt_sync_total = 0
         self._var_pl_workspace = tk.StringVar(value=self.settings.get("pl_workspace", "General"))
         self._var_pl_category = tk.StringVar(value=self.settings.get("pl_category", "General"))
-        self._var_pl_skill = tk.StringVar(value=self.settings.get("pl_skill", "Asistente General"))
+        self._var_pl_skill = tk.StringVar(value=self.settings.get("pl_skill", "Skill General"))
         self._var_pl_model_mode = tk.StringVar(value=self.settings.get("pl_model_mode", "Calidad alta"))
         self._var_pl_backend_url = tk.StringVar(value=self.settings.get("pl_backend_url", "http://127.0.0.1:11434"))
         self._var_pl_model_quality = tk.StringVar(value=self.settings.get("pl_model_quality", "llama3.1:8b"))
@@ -4434,7 +4434,7 @@ class AudioToVideoApp(ctk.CTk):
     def _pl_on_category_selected(self) -> None:
         ws = self._var_pl_workspace.get().strip() or "General"
         cat = self._var_pl_category.get().strip() or "General"
-        skills = self._prompt_lab.skills(ws, cat) or ["Asistente General"]
+        skills = self._prompt_lab.skills(ws, cat) or ["Skill General"]
 
         current = self._var_pl_skill.get().strip()
         if current not in skills:
@@ -4539,7 +4539,7 @@ class AudioToVideoApp(ctk.CTk):
         self._pl_active_skills = kept
         first = self._pl_active_skills[0]
         self._var_pl_category.set(str(first.get("category", "General")))
-        self._var_pl_skill.set(str(first.get("skill", "Asistente General")))
+        self._var_pl_skill.set(str(first.get("skill", "Skill General")))
         self._pl_on_skill_selected()
         self._pl_refresh_applied_skills_label()
 
@@ -4552,14 +4552,9 @@ class AudioToVideoApp(ctk.CTk):
         skill = self._prompt_lab.get_skill(ws, cat, skill_name)
         if skill:
             self._lbl_pl_status.configure(text=f"Skill activa: {skill.name}")
-            if hasattr(self, "_txt_pl_instructions"):
-                self._txt_pl_instructions.delete("1.0", "end")
-                self._txt_pl_instructions.insert("1.0", skill.instructions)
             self._pl_refresh_applied_skills_label()
         else:
             self._lbl_pl_status.configure(text="Skill sin instrucciones")
-            if hasattr(self, "_txt_pl_instructions"):
-                self._txt_pl_instructions.delete("1.0", "end")
 
     def _pl_export_workspace(self) -> None:
         ws = self._var_pl_workspace.get().strip()
@@ -5708,7 +5703,7 @@ class AudioToVideoApp(ctk.CTk):
 
         ws = self._var_pl_workspace.get().strip() or "General"
         cat = self._var_pl_category.get().strip() or "General"
-        skill_name = self._var_pl_skill.get().strip() or "Asistente General"
+        skill_name = self._var_pl_skill.get().strip() or "Skill General"
         mode = self._var_pl_model_mode.get().strip() or "Calidad alta"
         if not self._pl_active_skills:
             self._pl_active_skills = [{"category": cat, "skill": skill_name}]
@@ -10533,7 +10528,7 @@ class AudioToVideoApp(ctk.CTk):
             # Prompt Lab
             "pl_workspace": self._var_pl_workspace.get() if hasattr(self, "_var_pl_workspace") else "General",
             "pl_category": self._var_pl_category.get() if hasattr(self, "_var_pl_category") else "General",
-            "pl_skill": self._var_pl_skill.get() if hasattr(self, "_var_pl_skill") else "Asistente General",
+            "pl_skill": self._var_pl_skill.get() if hasattr(self, "_var_pl_skill") else "Skill General",
             "pl_model_mode": self._var_pl_model_mode.get() if hasattr(self, "_var_pl_model_mode") else "Calidad alta",
             "pl_prompt_text": self._txt_pl_prompt.get("1.0", "end").strip() if hasattr(self, "_txt_pl_prompt") else "",
             "pl_backend_url": self._var_pl_backend_url.get() if hasattr(self, "_var_pl_backend_url") else "http://127.0.0.1:11434",
@@ -10854,7 +10849,7 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_var_pl_workspace"):
             self._var_pl_workspace.set(s.get("pl_workspace", "General"))
             self._var_pl_category.set(s.get("pl_category", "General"))
-            self._var_pl_skill.set(s.get("pl_skill", "Asistente General"))
+            self._var_pl_skill.set(s.get("pl_skill", "Skill General"))
             self._var_pl_model_mode.set(s.get("pl_model_mode", "Calidad alta"))
             self._var_pl_backend_url.set(s.get("pl_backend_url", "http://127.0.0.1:11434"))
             self._var_pl_model_quality.set(s.get("pl_model_quality", "llama3.1:8b"))

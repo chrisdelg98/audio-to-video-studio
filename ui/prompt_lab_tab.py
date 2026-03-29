@@ -212,35 +212,6 @@ def build_prompt_lab_panel(
     app._pl_skill_tiles.grid(row=2, column=0, columnspan=3, sticky="ew", padx=14, pady=(0, 10))
     app._pl_skill_tiles.grid_columnconfigure(0, weight=1)
 
-    card_instructions = ctk.CTkFrame(
-        panel,
-        fg_color=colors["C_CARD"],
-        corner_radius=10,
-        border_width=1,
-        border_color=colors["C_BORDER"],
-    )
-    card_instructions.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-    card_instructions.grid_columnconfigure(0, weight=1)
-
-    ctk.CTkLabel(
-        card_instructions,
-        text="Instrucciones de skill (separado del prompt)",
-        text_color=colors["C_TEXT"],
-        font=ctk.CTkFont(size=app._fs(12), weight="bold"),
-    ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 6))
-
-    app._txt_pl_instructions = ctk.CTkTextbox(
-        card_instructions,
-        height=140,
-        fg_color=colors["C_INPUT"],
-        border_width=1,
-        border_color=colors["C_BORDER"],
-        text_color=colors["C_TEXT"],
-        font=ctk.CTkFont(size=app._fs(11)),
-        wrap="word",
-    )
-    app._txt_pl_instructions.grid(row=1, column=0, sticky="ew", padx=14, pady=(0, 10))
-
     card_model = ctk.CTkFrame(
         panel,
         fg_color=colors["C_CARD"],
@@ -248,7 +219,7 @@ def build_prompt_lab_panel(
         border_width=1,
         border_color=colors["C_BORDER"],
     )
-    card_model.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+    card_model.grid(row=2, column=0, sticky="ew", pady=(0, 10))
     card_model.grid_columnconfigure(1, weight=1)
 
     ctk.CTkLabel(
@@ -345,7 +316,7 @@ def build_prompt_lab_panel(
         border_width=1,
         border_color=colors["C_BORDER"],
     )
-    card_prompt.grid(row=0, column=1, rowspan=4, sticky="nsew", padx=(12, 0), pady=(8, 10))
+    card_prompt.grid(row=0, column=1, rowspan=3, sticky="nsew", padx=(12, 0), pady=(8, 10))
     card_prompt.grid_columnconfigure(0, weight=1)
     card_prompt.grid_rowconfigure(1, weight=1)
     card_prompt.grid_rowconfigure(4, weight=2)

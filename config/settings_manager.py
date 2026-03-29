@@ -96,13 +96,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Prompt Lab
     "pl_workspace": "General",
     "pl_category": "General",
-    "pl_skill": "Asistente General",
+    "pl_skill": "Skill General",
     "pl_model_mode": "Calidad alta",
     "pl_prompt_text": "",
     "pl_backend_url": "http://127.0.0.1:11434",
     "pl_model_quality": "llama3.1:8b",
     "pl_model_fast": "llama3.2:3b",
-    "pl_active_skills": [{"category": "General", "skill": "Asistente General"}],
+    "pl_active_skills": [{"category": "General", "skill": "Skill General"}],
 }
 
 # Preset semilla — se crea si presets.json no existe
