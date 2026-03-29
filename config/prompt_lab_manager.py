@@ -14,6 +14,7 @@ _APP_DIR = get_app_dir()
 _BUNDLE_DIR = get_bundle_dir()
 CONFIG_DIR = _APP_DIR / "config"
 PROMPT_LAB_FILE = CONFIG_DIR / "prompt_lab.json"
+PROMPT_LAB_SEED_FILE = CONFIG_DIR / "prompt_lab_seed.json"
 PROMPT_LAB_CATALOG_FILE = CONFIG_DIR / "prompt_lab_catalog.json"
 DEFAULT_BUNDLED_PROMPT_LAB_FILE = _BUNDLE_DIR / "config" / "prompt_lab.json"
 
@@ -812,8 +813,13 @@ class PromptLabManager:
         }
 
     def _inject_missing_from_bundled_catalog(self) -> bool:
-        """Mergea faltantes desde el catalogo empaquetado sin sobreescribir custom del usuario."""
-        src = DEFAULT_BUNDLED_PROMPT_LAB_FILE
+        """Mergea faltantes desde catalogos semilla sin sobreescribir custom del usuario."""
+        changed = False
+        for src in (PROMPT_LAB_SEED_FILE, DEFAULT_BUNDLED_PROMPT_LAB_FILE):
+            changed = self._inject_missing_from_seed_file(src) or changed
+        return changed
+
+    def _inject_missing_from_seed_file(self, src: Path) -> bool:
         if not src.exists():
             return False
 
