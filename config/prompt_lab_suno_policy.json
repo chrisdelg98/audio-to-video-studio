@@ -1,10 +1,10 @@
 {
   "enabled": true,
   "max_chars": 1000,
-  "min_fill_ratio": 0.75,
+  "min_fill_ratio": 0.68,
   "quality_scoring": {
     "enabled": true,
-    "threshold": 74,
+    "threshold": 70,
     "weights": {
       "sound_design_richness": 25,
       "genre_accuracy": 20,

@@ -7225,15 +7225,17 @@ class AudioToVideoApp(ctk.CTk):
                     enrich_cfg = suno_policy.get("enrichment_pass", {})
                     score_value = 100
                     score_trigger = False
+                    threshold = 70
                     deficits: list[str] = []
+                    enriched_pass_ran = False
 
                     if isinstance(scoring_cfg, dict) and bool(scoring_cfg.get("enabled", True)):
                         score_info = self._pl_score_suno_output(response, prompt, suno_policy)
                         score_value = int(score_info.get("score", 0) or 0)
                         try:
-                            threshold = int(scoring_cfg.get("threshold", 74) or 74)
+                            threshold = int(scoring_cfg.get("threshold", 70) or 70)
                         except Exception:
-                            threshold = 74
+                            threshold = 70
                         deficits = list(score_info.get("deficits", []))
                         score_trigger = score_value < threshold
                         self.after(0, self._log, f"[Prompt Lab][Suno] Score: {score_value}/100")
@@ -7241,15 +7243,18 @@ class AudioToVideoApp(ctk.CTk):
                     density_trigger = False
                     current_len = len((response or "").strip())
                     if min_chars_target and current_len < min_chars_target:
-                        density_trigger = True
-                        deficits.append(
-                            f"increase technical and arrangement detail to reach at least {min_chars_target} characters without filler"
-                        )
-                        self.after(
-                            0,
-                            self._log,
-                            f"[Prompt Lab][Suno] Density below target ({current_len}/{min_chars_target}). Running enrichment.",
-                        )
+                        # Soft trigger: avoid extra model calls when quality is already strong and output is not too short.
+                        hard_floor = int((max_chars or 1000) * 0.55)
+                        if current_len < hard_floor or score_value < (threshold + 6):
+                            density_trigger = True
+                            deficits.append(
+                                f"increase technical and arrangement detail to reach at least {min_chars_target} characters without filler"
+                            )
+                            self.after(
+                                0,
+                                self._log,
+                                f"[Prompt Lab][Suno] Density below target ({current_len}/{min_chars_target}). Running enrichment.",
+                            )
 
                     if (score_trigger or density_trigger) and isinstance(enrich_cfg, dict) and bool(enrich_cfg.get("enabled", True)):
                         enrich_prompt = self._pl_build_suno_enrichment_prompt(
@@ -7273,10 +7278,13 @@ class AudioToVideoApp(ctk.CTk):
                             mode=mode,
                             config=config,
                         )
+                        enriched_pass_ran = True
+                else:
+                    enriched_pass_ran = False
 
                 repaired = False
                 ok, failures = self._pl_validate_output_compliance(response, max_chars=max_chars, profile=profile)
-                if not ok:
+                if not ok and not enriched_pass_ran:
                     repaired = True
                     repair_prompt = self._pl_build_repair_prompt(
                         response,
