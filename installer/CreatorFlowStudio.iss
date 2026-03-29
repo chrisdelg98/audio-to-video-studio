@@ -85,6 +85,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Main executable
 Source: {#SourceExe}; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ignoreversion
+; Prompt Lab catalog preconfigurado (no sobrescribir instalaciones existentes)
+Source: "..\config\prompt_lab.json"; DestDir: "{app}\config"; Flags: ignoreversion onlyifdoesntexist
 #ifdef HasBundledVCRedistX64
 Source: "{#VCRedistX64}"; DestDir: "{tmp}"; Flags: dontcopy
 #endif

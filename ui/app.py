@@ -26,6 +26,7 @@ import ctypes
 import datetime as dt
 import json
 import os
+import shutil
 import threading
 import time
 import tkinter as tk
@@ -51,7 +52,7 @@ from core.runner import JobResult, Runner, ShortsJobResult, ShortsRunner
 from core.shorts_splitter import distribute_fragments, suggest_quantity, validate_request
 from core.slideshow_runner import SlideshowRunner
 from core.naming_manager import NamingManager as _NamingManager
-from core.utils import get_audio_files, get_audio_duration, get_image_files, get_bundle_dir
+from core.utils import get_audio_files, get_audio_duration, get_image_files, get_bundle_dir, get_app_dir
 from core.ffmpeg_setup import ensure_ffmpeg
 from core.ollama_setup import (
     collect_status as collect_ollama_status,
@@ -1665,6 +1666,8 @@ class AudioToVideoApp(ctk.CTk):
         self._validation_in_progress = False
         self._log_queue: list[str] = []
         self._log_lock = threading.Lock()
+        self._font_option_bindings: list[tuple[ctk.CTkOptionMenu, tk.StringVar]] = []
+        self._font_manager_modal: ctk.CTkToplevel | None = None
 
         # Tema y escala de fuente (se inicializan antes de construir la UI)
         saved_theme = self.settings.get("theme", "Dark")
@@ -1770,6 +1773,329 @@ class AudioToVideoApp(ctk.CTk):
             self.bind_all("<Button-5>", _fast_wheel, add="+")
         else:
             self.bind_all("<MouseWheel>", _fast_wheel, add="+")
+
+    # ------------------------------------------------------------------
+    # FUENTES (overlay)
+    # ------------------------------------------------------------------
+
+    def _is_font_awesome_name(self, font_name: str) -> bool:
+        return "font awesome" in (font_name or "").strip().lower()
+
+    def _font_visibility_map(self) -> dict[str, bool]:
+        raw = self.settings.get("font_visibility", {})
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, bool] = {}
+        for name, value in raw.items():
+            if not isinstance(name, str):
+                continue
+            out[name] = bool(value)
+        return out
+
+    def _save_font_visibility_map(self, visibility: dict[str, bool]) -> None:
+        self.settings.set("font_visibility", dict(visibility))
+        try:
+            self.settings.save()
+        except RuntimeError as exc:
+            self._log(f"[Fuentes] No se pudo guardar visibilidad: {exc}")
+
+    def _available_font_entries(self) -> list[dict[str, Any]]:
+        bundled_dir = _BUNDLE_DIR / "fonts"
+        user_dir = get_app_dir() / "fonts"
+
+        bundled_names: set[str] = set()
+        if bundled_dir.is_dir():
+            for f in bundled_dir.iterdir():
+                if f.suffix.lower() in (".ttf", ".otf"):
+                    bundled_names.add(f.stem)
+
+        user_names: set[str] = set()
+        if user_dir.is_dir():
+            for f in user_dir.iterdir():
+                if f.suffix.lower() in (".ttf", ".otf"):
+                    user_names.add(f.stem)
+
+        all_names = sorted((bundled_names | user_names | {"Arial"}), key=str.casefold)
+        visibility = self._font_visibility_map()
+        rows: list[dict[str, Any]] = []
+        changed = False
+
+        for name in all_names:
+            disallowed = self._is_font_awesome_name(name)
+            source = "Usuario" if name in user_names else "Sistema"
+            visible = bool(visibility.get(name, True))
+            if disallowed and visible:
+                visible = False
+                visibility[name] = False
+                changed = True
+            rows.append(
+                {
+                    "name": name,
+                    "source": source,
+                    "is_custom": name in user_names,
+                    "can_delete": name in user_names,
+                    "disallowed": disallowed,
+                    "visible": visible,
+                }
+            )
+
+        if changed:
+            self._save_font_visibility_map(visibility)
+
+        return rows
+
+    def _get_visible_font_names(self) -> list[str]:
+        visibility = self._font_visibility_map()
+        names = [f for f in available_fonts() if not self._is_font_awesome_name(f)]
+        if "Arial" not in names:
+            names.append("Arial")
+        names = sorted(set(names), key=str.casefold)
+        visible = [name for name in names if bool(visibility.get(name, True))]
+        if not visible:
+            return ["Arial"]
+        return visible
+
+    def _register_font_option_menu(self, menu: ctk.CTkOptionMenu, variable: tk.StringVar) -> None:
+        self._font_option_bindings.append((menu, variable))
+
+    def _refresh_font_option_menus(self) -> None:
+        values = self._get_visible_font_names()
+        alive: list[tuple[ctk.CTkOptionMenu, tk.StringVar]] = []
+        for menu, variable in self._font_option_bindings:
+            try:
+                if not menu.winfo_exists():
+                    continue
+                menu.configure(values=values)
+                if variable.get() not in values:
+                    variable.set(values[0])
+                alive.append((menu, variable))
+            except Exception:
+                continue
+        self._font_option_bindings = alive
+
+    def _open_font_manager_modal(self) -> None:
+        if self._font_manager_modal is not None:
+            try:
+                if self._font_manager_modal.winfo_exists():
+                    self._font_manager_modal.lift()
+                    self._font_manager_modal.focus_force()
+                    return
+            except Exception:
+                pass
+
+        modal = ctk.CTkToplevel(self)
+        self._font_manager_modal = modal
+        modal.title("Gestionar fuentes")
+        modal.geometry("860x560")
+        modal.resizable(True, True)
+        modal.configure(fg_color=C_BG)
+        modal.grab_set()
+        _center_window_on_screen(modal)
+
+        root = ctk.CTkFrame(modal, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=16, pady=14)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            root,
+            text="Fuentes para Text Overlay",
+            text_color=C_TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(13), weight="bold"),
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        list_box = ctk.CTkScrollableFrame(root, fg_color=C_CARD)
+        list_box.grid(row=1, column=0, sticky="nsew")
+        list_box.grid_columnconfigure(0, weight=1)
+
+        summary_var = tk.StringVar(value="")
+        ctk.CTkLabel(
+            root,
+            textvariable=summary_var,
+            text_color=C_TEXT_DIM,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(10)),
+        ).grid(row=2, column=0, sticky="ew", pady=(8, 0))
+
+        def _set_visible(font_name: str, visible: bool) -> None:
+            if self._is_font_awesome_name(font_name):
+                return
+            vis = self._font_visibility_map()
+            vis[font_name] = bool(visible)
+            self._save_font_visibility_map(vis)
+            self._refresh_font_option_menus()
+
+        def _add_fonts() -> None:
+            files = filedialog.askopenfilenames(
+                parent=modal,
+                title="Seleccionar fuentes",
+                filetypes=[("Fuentes", "*.ttf *.otf"), ("Todos", "*.*")],
+            )
+            if not files:
+                return
+
+            dst_dir = get_app_dir() / "fonts"
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            copied = 0
+
+            for raw in files:
+                src = Path(raw)
+                if src.suffix.lower() not in (".ttf", ".otf"):
+                    continue
+                if self._is_font_awesome_name(src.stem):
+                    continue
+                dst = dst_dir / src.name
+                if dst.exists():
+                    overwrite = messagebox.askyesno(
+                        "Gestionar fuentes",
+                        f"La fuente '{src.name}' ya existe. Deseas sobrescribirla?",
+                        parent=modal,
+                    )
+                    if not overwrite:
+                        continue
+                try:
+                    shutil.copy2(src, dst)
+                    copied += 1
+                except Exception as exc:
+                    messagebox.showerror(
+                        "Gestionar fuentes",
+                        f"No se pudo copiar '{src.name}':\n{exc}",
+                        parent=modal,
+                    )
+
+            if copied > 0:
+                self._refresh_font_option_menus()
+                _refresh_rows()
+                self._log(f"[Fuentes] Se agregaron {copied} fuente(s).")
+
+            try:
+                modal.lift()
+                modal.focus_force()
+            except Exception:
+                pass
+
+        def _delete_custom_font(font_name: str) -> None:
+            confirm = messagebox.askyesno(
+                "Gestionar fuentes",
+                f"Eliminar la fuente personalizada '{font_name}'?",
+                parent=modal,
+            )
+            try:
+                modal.lift()
+                modal.focus_force()
+            except Exception:
+                pass
+            if not confirm:
+                return
+
+            user_dir = get_app_dir() / "fonts"
+            removed = 0
+            for ext in (".ttf", ".otf"):
+                p = user_dir / f"{font_name}{ext}"
+                if p.exists():
+                    try:
+                        p.unlink()
+                        removed += 1
+                    except Exception as exc:
+                        messagebox.showerror(
+                            "Gestionar fuentes",
+                            f"No se pudo eliminar '{p.name}':\n{exc}",
+                            parent=modal,
+                        )
+                        return
+
+            if removed > 0:
+                self._refresh_font_option_menus()
+                _refresh_rows()
+                self._log(f"[Fuentes] Fuente eliminada: {font_name}")
+
+        def _refresh_rows() -> None:
+            for child in list_box.winfo_children():
+                child.destroy()
+
+            rows = self._available_font_entries()
+            summary_var.set(f"Fuentes detectadas: {len(rows)}")
+
+            for idx, row in enumerate(rows):
+                item = ctk.CTkFrame(list_box, fg_color=C_INPUT, corner_radius=8, border_width=1, border_color=C_BORDER)
+                item.grid(row=idx, column=0, sticky="ew", padx=8, pady=(6, 0))
+                item.grid_columnconfigure(0, weight=1)
+
+                title = f"{row['name']}  [{row['source']}]"
+                ctk.CTkLabel(
+                    item,
+                    text=title,
+                    text_color=C_TEXT,
+                    anchor="w",
+                    font=ctk.CTkFont(size=self._fs(11), weight="bold"),
+                ).grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 2))
+
+                visibility_var = tk.BooleanVar(value=bool(row.get("visible", True)))
+                toggle = ctk.CTkSwitch(
+                    item,
+                    text="Visible en desplegables",
+                    variable=visibility_var,
+                    onvalue=True,
+                    offvalue=False,
+                    text_color=C_TEXT_DIM,
+                    command=lambda n=row["name"], v=visibility_var: _set_visible(n, bool(v.get())),
+                )
+                toggle.grid(row=1, column=0, sticky="w", padx=10, pady=(0, 8))
+
+                if bool(row.get("disallowed", False)):
+                    visibility_var.set(False)
+                    toggle.configure(state="disabled", text="Bloqueada (Font Awesome no usable en overlay)")
+
+                actions = ctk.CTkFrame(item, fg_color="transparent")
+                actions.grid(row=0, column=1, rowspan=2, sticky="ne", padx=(8, 10), pady=(8, 8))
+                if bool(row.get("can_delete", False)):
+                    ctk.CTkButton(
+                        actions,
+                        text="Eliminar",
+                        width=110,
+                        fg_color="transparent",
+                        hover_color=C_HOVER,
+                        border_width=1,
+                        border_color=C_BTN_DANGER,
+                        text_color=C_TEXT,
+                        command=lambda n=row["name"]: _delete_custom_font(n),
+                    ).pack(side="top")
+                else:
+                    ctk.CTkLabel(
+                        actions,
+                        text="Sistema",
+                        text_color=C_TEXT_DIM,
+                        font=ctk.CTkFont(size=self._fs(10)),
+                    ).pack(side="top", pady=(6, 0))
+
+        actions_bar = ctk.CTkFrame(root, fg_color="transparent")
+        actions_bar.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+
+        ctk.CTkButton(
+            actions_bar,
+            text="Agregar fuentes",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=_add_fonts,
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            actions_bar,
+            text="Cerrar",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            command=modal.destroy,
+        ).pack(side="right")
+
+        modal.bind("<Destroy>", lambda _e: setattr(self, "_font_manager_modal", None))
+        _refresh_rows()
 
     # --- Header -------------------------------------------------------
 
@@ -2323,11 +2649,18 @@ class AudioToVideoApp(ctk.CTk):
         font_f.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
-        _fonts = available_fonts() or ["Arial"]
+        _fonts = self._get_visible_font_names()
         self._var_text_font = tk.StringVar(value=_fonts[0])
-        ctk.CTkOptionMenu(font_f, variable=self._var_text_font, values=_fonts,
-                          width=160, height=28,
-                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        self._text_font_menu = ctk.CTkOptionMenu(
+            font_f,
+            variable=self._var_text_font,
+            values=_fonts,
+            width=160,
+            height=28,
+            font=ctk.CTkFont(size=self._fs(11)),
+        )
+        self._text_font_menu.grid(row=0, column=1, sticky="w", padx=4)
+        self._register_font_option_menu(self._text_font_menu, self._var_text_font)
         tof += 1
 
         _TEXT_COLORS = ["Blanco", "Gris claro", "Gris", "Gris oscuro", "Negro"]
@@ -2392,6 +2725,19 @@ class AudioToVideoApp(ctk.CTk):
                       button_hover_color=C_ACCENT_H,
                       command=lambda v: _fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
+        ctk.CTkButton(
+            fs_f,
+            text=FA_GEAR,
+            width=28,
+            height=28,
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(11)),
+            command=self._open_font_manager_modal,
+        ).grid(row=0, column=3, padx=(8, 0), sticky="e")
         tof += 1
 
         gi_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
@@ -2474,11 +2820,18 @@ class AudioToVideoApp(ctk.CTk):
         _dyn_font_f.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(_dyn_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
-        _dyn_fonts = available_fonts() or ["Arial"]
+        _dyn_fonts = self._get_visible_font_names()
         self._var_dyn_text_font = tk.StringVar(value=_dyn_fonts[0])
-        ctk.CTkOptionMenu(_dyn_font_f, variable=self._var_dyn_text_font, values=_dyn_fonts,
-                          width=160, height=28,
-                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        self._dyn_text_font_menu = ctk.CTkOptionMenu(
+            _dyn_font_f,
+            variable=self._var_dyn_text_font,
+            values=_dyn_fonts,
+            width=160,
+            height=28,
+            font=ctk.CTkFont(size=self._fs(11)),
+        )
+        self._dyn_text_font_menu.grid(row=0, column=1, sticky="w", padx=4)
+        self._register_font_option_menu(self._dyn_text_font_menu, self._var_dyn_text_font)
         dtof += 1
 
         _TEXT_COLORS_DYN = ["Blanco", "Gris claro", "Gris", "Gris oscuro", "Negro"]
@@ -3303,11 +3656,18 @@ class AudioToVideoApp(ctk.CTk):
         _sl_font_f.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(_sl_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
-        _sl_fonts = available_fonts() or ["Arial"]
+        _sl_fonts = self._get_visible_font_names()
         self._var_sl_text_font = tk.StringVar(value=_sl_fonts[0])
-        ctk.CTkOptionMenu(_sl_font_f, variable=self._var_sl_text_font, values=_sl_fonts,
-                          width=160, height=28,
-                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        self._sl_text_font_menu = ctk.CTkOptionMenu(
+            _sl_font_f,
+            variable=self._var_sl_text_font,
+            values=_sl_fonts,
+            width=160,
+            height=28,
+            font=ctk.CTkFont(size=self._fs(11)),
+        )
+        self._sl_text_font_menu.grid(row=0, column=1, sticky="w", padx=4)
+        self._register_font_option_menu(self._sl_text_font_menu, self._var_sl_text_font)
         sl_tof += 1
 
         _sl_col_f = ctk.CTkFrame(self._sl_text_overlay_frame, fg_color="transparent")
@@ -3450,11 +3810,18 @@ class AudioToVideoApp(ctk.CTk):
         _sl_dyn_font_f.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(_sl_dyn_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
-        _sl_dyn_fonts = available_fonts() or ["Arial"]
+        _sl_dyn_fonts = self._get_visible_font_names()
         self._var_sl_dyn_text_font = tk.StringVar(value=_sl_dyn_fonts[0])
-        ctk.CTkOptionMenu(_sl_dyn_font_f, variable=self._var_sl_dyn_text_font, values=_sl_dyn_fonts,
-                          width=160, height=28,
-                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        self._sl_dyn_text_font_menu = ctk.CTkOptionMenu(
+            _sl_dyn_font_f,
+            variable=self._var_sl_dyn_text_font,
+            values=_sl_dyn_fonts,
+            width=160,
+            height=28,
+            font=ctk.CTkFont(size=self._fs(11)),
+        )
+        self._sl_dyn_text_font_menu.grid(row=0, column=1, sticky="w", padx=4)
+        self._register_font_option_menu(self._sl_dyn_text_font_menu, self._var_sl_dyn_text_font)
         sl_dtof += 1
 
         _sl_dyn_col_f = ctk.CTkFrame(self._sl_dyn_text_overlay_frame, fg_color="transparent")
@@ -3905,12 +4272,18 @@ class AudioToVideoApp(ctk.CTk):
         _font_f.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
-        _sho_fonts = available_fonts() or ["Arial"]
+        _sho_fonts = self._get_visible_font_names()
         self._var_sho_text_font = tk.StringVar(value=_sho_fonts[0])
-        ctk.CTkOptionMenu(_font_f, variable=self._var_sho_text_font, values=_sho_fonts,
-                          width=160, height=28,
-                          font=ctk.CTkFont(size=self._fs(11))).grid(
-            row=0, column=1, sticky="w", padx=4)
+        self._sho_text_font_menu = ctk.CTkOptionMenu(
+            _font_f,
+            variable=self._var_sho_text_font,
+            values=_sho_fonts,
+            width=160,
+            height=28,
+            font=ctk.CTkFont(size=self._fs(11)),
+        )
+        self._sho_text_font_menu.grid(row=0, column=1, sticky="w", padx=4)
+        self._register_font_option_menu(self._sho_text_font_menu, self._var_sho_text_font)
         tof += 1
 
         _col_f = ctk.CTkFrame(self._sho_text_overlay_frame, fg_color="transparent")
@@ -4057,11 +4430,18 @@ class AudioToVideoApp(ctk.CTk):
         _sho_dyn_font_f.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(_sho_dyn_font_f, text="Fuente:", text_color=C_TEXT,
                      font=ctk.CTkFont(size=self._fs(11)), width=70, anchor="w").grid(row=0, column=0)
-        _sho_dyn_fonts = available_fonts() or ["Arial"]
+        _sho_dyn_fonts = self._get_visible_font_names()
         self._var_sho_dyn_text_font = tk.StringVar(value=_sho_dyn_fonts[0])
-        ctk.CTkOptionMenu(_sho_dyn_font_f, variable=self._var_sho_dyn_text_font, values=_sho_dyn_fonts,
-                          width=160, height=28,
-                          font=ctk.CTkFont(size=self._fs(11))).grid(row=0, column=1, sticky="w", padx=4)
+        self._sho_dyn_text_font_menu = ctk.CTkOptionMenu(
+            _sho_dyn_font_f,
+            variable=self._var_sho_dyn_text_font,
+            values=_sho_dyn_fonts,
+            width=160,
+            height=28,
+            font=ctk.CTkFont(size=self._fs(11)),
+        )
+        self._sho_dyn_text_font_menu.grid(row=0, column=1, sticky="w", padx=4)
+        self._register_font_option_menu(self._sho_dyn_text_font_menu, self._var_sho_dyn_text_font)
         sho_dtof += 1
 
         _sho_dyn_col_f = ctk.CTkFrame(self._sho_dyn_text_overlay_frame, fg_color="transparent")
@@ -13055,6 +13435,9 @@ class AudioToVideoApp(ctk.CTk):
                 self._txt_pl_prompt.insert("1.0", s.get("pl_prompt_text", ""))
             self._pl_refresh_workspace_menu(select=self._var_pl_workspace.get())
             self._pl_refresh_available_models()
+
+        # Aplicar visibilidad de fuentes y alinear valores de desplegables.
+        self._refresh_font_option_menus()
 
         # Ensure slider knobs visually reflect loaded variable values.
         self.after_idle(self._sync_slider_visuals)

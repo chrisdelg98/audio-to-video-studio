@@ -19,32 +19,42 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.utils import get_bundle_dir
+from core.utils import get_app_dir, get_bundle_dir
 from effects.base_effect import BaseEffect
 
-# Carpeta de fuentes (dentro del bundle o raíz del proyecto)
-_FONTS_DIR = get_bundle_dir() / "fonts"
+# Carpetas de fuentes (bundle + usuario)
+_BUNDLED_FONTS_DIR = get_bundle_dir() / "fonts"
+_USER_FONTS_DIR = get_app_dir() / "fonts"
+
+
+def _is_disallowed_font(font_name: str) -> bool:
+    return "font awesome" in (font_name or "").strip().lower()
+
+
+def _iter_font_dirs() -> list[Path]:
+    return [_USER_FONTS_DIR, _BUNDLED_FONTS_DIR]
 
 
 def available_fonts() -> list[str]:
-    """Retorna lista de nombres de fuentes .ttf/.otf disponibles en fonts/."""
-    if not _FONTS_DIR.is_dir():
-        return []
-    fonts = sorted(
-        f.stem
-        for f in _FONTS_DIR.iterdir()
-        if f.suffix.lower() in (".ttf", ".otf")
-    )
-    return fonts
+    """Retorna lista de fuentes disponibles para overlay (sin Font Awesome)."""
+    names: set[str] = {"Arial"}
+    for base in _iter_font_dirs():
+        if not base.is_dir():
+            continue
+        for f in base.iterdir():
+            if f.suffix.lower() in (".ttf", ".otf"):
+                names.add(f.stem)
+    return sorted((n for n in names if not _is_disallowed_font(n)), key=str.casefold)
 
 
 def _resolve_font(font_name: str) -> str:
     """Resuelve nombre de fuente a ruta compatible con drawtext fontfile=."""
-    for ext in (".ttf", ".otf"):
-        p = _FONTS_DIR / f"{font_name}{ext}"
-        if p.exists():
-            # FFmpeg drawtext necesita '/' y ':' escapado como '\\:'
-            return str(p).replace("\\", "/").replace(":", "\\\\:")
+    for base in _iter_font_dirs():
+        for ext in (".ttf", ".otf"):
+            p = base / f"{font_name}{ext}"
+            if p.exists():
+                # FFmpeg drawtext necesita '/' y ':' escapado como '\\:'
+                return str(p).replace("\\", "/").replace(":", "\\\\:")
     return ""
 
 

@@ -12,17 +12,19 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from core.utils import get_bundle_dir
+from core.utils import get_app_dir, get_bundle_dir
 
-_FONTS_DIR = get_bundle_dir() / "fonts"
+_BUNDLED_FONTS_DIR = get_bundle_dir() / "fonts"
+_USER_FONTS_DIR = get_app_dir() / "fonts"
 
 
 def _load_font(font_name: str, size: int) -> ImageFont.FreeTypeFont:
-    """Load a FreeType font from the bundled fonts directory."""
-    for ext in (".ttf", ".otf"):
-        p = _FONTS_DIR / f"{font_name}{ext}"
-        if p.exists():
-            return ImageFont.truetype(str(p), size)
+    """Load a FreeType font from user fonts first, then bundled fonts."""
+    for base in (_USER_FONTS_DIR, _BUNDLED_FONTS_DIR):
+        for ext in (".ttf", ".otf"):
+            p = base / f"{font_name}{ext}"
+            if p.exists():
+                return ImageFont.truetype(str(p), size)
     # Fallback: Pillow default
     try:
         return ImageFont.truetype("arial.ttf", size)

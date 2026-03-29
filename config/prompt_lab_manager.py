@@ -8,12 +8,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from core.utils import get_app_dir
+from core.utils import get_app_dir, get_bundle_dir
 
 _APP_DIR = get_app_dir()
+_BUNDLE_DIR = get_bundle_dir()
 CONFIG_DIR = _APP_DIR / "config"
 PROMPT_LAB_FILE = CONFIG_DIR / "prompt_lab.json"
 PROMPT_LAB_CATALOG_FILE = CONFIG_DIR / "prompt_lab_catalog.json"
+DEFAULT_BUNDLED_PROMPT_LAB_FILE = _BUNDLE_DIR / "config" / "prompt_lab.json"
 
 DEFAULT_SKILL_GENERAL_INSTRUCTIONS = """Rol:
 Eres un arquitecto de prompts profesional capaz de generar prompts optimizados tanto para música (Suno) como para arte visual (covers). Transformas cualquier input en resultados técnicos, coherentes y listos para producción. No explicas, no agregas contexto, solo entregas prompts finales.
@@ -227,14 +229,19 @@ class PromptLabManager:
         self.load()
 
     def load(self) -> None:
+        changed = False
         if PROMPT_LAB_FILE.exists():
             try:
                 raw = json.loads(PROMPT_LAB_FILE.read_text(encoding="utf-8"))
                 self._data = self._normalize(raw)
+                changed = self._inject_missing_from_bundled_catalog()
+                if changed:
+                    self.save()
                 return
             except Exception:
                 pass
         self._data = self._normalize(_DEFAULT_DATA)
+        self._inject_missing_from_bundled_catalog()
         self.save()
 
     def save(self) -> None:
@@ -803,6 +810,101 @@ class PromptLabManager:
             "updated": updated,
             "skipped": skipped,
         }
+
+    def _inject_missing_from_bundled_catalog(self) -> bool:
+        """Mergea faltantes desde el catalogo empaquetado sin sobreescribir custom del usuario."""
+        src = DEFAULT_BUNDLED_PROMPT_LAB_FILE
+        if not src.exists():
+            return False
+
+        try:
+            raw = json.loads(src.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+
+        bundled = self._normalize(raw)
+        changed = False
+
+        bundled_workspaces = bundled.get("workspaces", [])
+        if not isinstance(bundled_workspaces, list):
+            return False
+
+        for seed_ws in bundled_workspaces:
+            if not isinstance(seed_ws, dict):
+                continue
+            ws_name = str(seed_ws.get("name", "")).strip()
+            if not ws_name:
+                continue
+
+            target_ws = self._find_workspace(ws_name)
+            if not target_ws:
+                self._data.setdefault("workspaces", []).append(json.loads(json.dumps(seed_ws, ensure_ascii=False)))
+                changed = True
+                continue
+
+            if not str(target_ws.get("description", "")).strip() and str(seed_ws.get("description", "")).strip():
+                target_ws["description"] = str(seed_ws.get("description", "")).strip()
+                changed = True
+
+            seed_categories = seed_ws.get("categories", [])
+            if not isinstance(seed_categories, list):
+                continue
+
+            target_categories = target_ws.setdefault("categories", [])
+            if not isinstance(target_categories, list):
+                target_categories = []
+                target_ws["categories"] = target_categories
+
+            for seed_cat in seed_categories:
+                if not isinstance(seed_cat, dict):
+                    continue
+                cat_name = str(seed_cat.get("name", "")).strip()
+                if not cat_name:
+                    continue
+
+                target_cat = self._find_category(ws_name, cat_name)
+                if not target_cat:
+                    target_categories.append(json.loads(json.dumps(seed_cat, ensure_ascii=False)))
+                    changed = True
+                    continue
+
+                target_skills = target_cat.setdefault("skills", [])
+                if not isinstance(target_skills, list):
+                    target_skills = []
+                    target_cat["skills"] = target_skills
+
+                existing_skill_names = {
+                    str(sk.get("name", "")).strip()
+                    for sk in target_skills
+                    if isinstance(sk, dict)
+                }
+
+                seed_skills = seed_cat.get("skills", [])
+                if isinstance(seed_skills, list):
+                    for seed_skill in seed_skills:
+                        if not isinstance(seed_skill, dict):
+                            continue
+                        sk_name = str(seed_skill.get("name", "")).strip()
+                        if not sk_name or sk_name in existing_skill_names:
+                            continue
+                        target_skills.append(json.loads(json.dumps(seed_skill, ensure_ascii=False)))
+                        existing_skill_names.add(sk_name)
+                        changed = True
+
+                target_preload = target_cat.setdefault("preload_skills", [])
+                if not isinstance(target_preload, list):
+                    target_preload = []
+                    target_cat["preload_skills"] = target_preload
+                seed_preload = seed_cat.get("preload_skills", [])
+                if isinstance(seed_preload, list):
+                    for item in seed_preload:
+                        nm = str(item).strip()
+                        if not nm or nm not in existing_skill_names or nm in target_preload:
+                            continue
+                        target_preload.append(nm)
+                        changed = True
+
+        return changed
 
     def _find_workspace(self, name: str) -> dict[str, Any] | None:
         target = name.strip()
