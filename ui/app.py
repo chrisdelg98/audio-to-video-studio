@@ -49,6 +49,7 @@ from PIL import Image, ImageDraw, ImageFont
 from config.settings_manager import SettingsManager
 from config.theme_manager import ThemeManager as _ThemeManager
 from core.runner import JobResult, Runner, ShortsJobResult, ShortsRunner
+from core.rename_runner import RenameJobResult, RenameRunner
 from core.shorts_splitter import distribute_fragments, suggest_quantity, validate_request
 from core.slideshow_runner import SlideshowRunner
 from core.naming_manager import NamingManager as _NamingManager
@@ -139,6 +140,8 @@ C_ACCENT_SLIDE  = "#8587F8"   # Indigo — modo Slideshow
 C_ACCENT_SLIDE_H= "#6760EC"   # Indigo hover
 C_ACCENT_SHORTS = "#F97316"   # Orange — modo Shorts
 C_ACCENT_SHORTS_H="#FB923C"   # Orange hover
+C_ACCENT_RENAME = "#22C55E"   # Green — modo Rename
+C_ACCENT_RENAME_H = "#16A34A" # Green hover
 C_ACCENT_YT     = "#FF4D4F"   # Red — modo YouTube Publisher
 C_ACCENT_YT_H   = "#FF6B6D"   # Red hover
 C_ACCENT_LAB    = "#14B8A6"   # Teal — modo Prompt Lab
@@ -189,6 +192,7 @@ def _apply_theme(mode: str) -> None:
     global C_BG, C_PANEL, C_CARD, C_BORDER, C_ACCENT, C_ACCENT_H
     global C_ACCENT_SLIDE, C_ACCENT_SLIDE_H
     global C_ACCENT_SHORTS, C_ACCENT_SHORTS_H
+    global C_ACCENT_RENAME, C_ACCENT_RENAME_H
     global C_ACCENT_YT, C_ACCENT_YT_H
     global C_ACCENT_LAB, C_ACCENT_LAB_H
     global C_BTN_PRIMARY, C_BTN_PRIMARY_TEXT, C_BTN_SECONDARY, C_BTN_OK, C_BTN_DANGER
@@ -198,8 +202,9 @@ def _apply_theme(mode: str) -> None:
     C_BG = t["C_BG"]; C_PANEL = t["C_PANEL"]; C_CARD = t["C_CARD"]; C_BORDER = t["C_BORDER"]
     C_ACCENT = t["C_ACCENT"]; C_ACCENT_H = t["C_ACCENT_H"]
     C_ACCENT_SLIDE = t["C_ACCENT_SLIDE"]; C_ACCENT_SLIDE_H = t["C_ACCENT_SLIDE_H"]
-    # Shorts/YouTube accents are fixed (not exposed in ThemeManager yet)
+    # Shorts/Rename/YouTube accents are fixed (not exposed in ThemeManager yet)
     C_ACCENT_SHORTS = "#F97316"; C_ACCENT_SHORTS_H = "#FB923C"
+    C_ACCENT_RENAME = "#22C55E"; C_ACCENT_RENAME_H = "#16A34A"
     C_ACCENT_YT = "#FF4D4F"; C_ACCENT_YT_H = "#FF6B6D"
     C_ACCENT_LAB = "#14B8A6"; C_ACCENT_LAB_H = "#2DD4BF"
     C_BTN_PRIMARY = t["C_BTN_PRIMARY"]; C_BTN_PRIMARY_TEXT = t["C_BTN_PRIMARY_TEXT"]; C_BTN_SECONDARY = t["C_BTN_SECONDARY"]
@@ -1603,6 +1608,10 @@ class AudioToVideoApp(ctk.CTk):
         self._current_mode: str = "Audio ? Video"
         self._slideshow_runner: SlideshowRunner | None = None
         self._shorts_runner: ShortsRunner | None = None
+        self._rename_runner: RenameRunner | None = None
+        self._rename_pending_files: list[Path] = []
+        self._rename_completed: list[str] = []
+        self._rn_used_names: set[str] = set()
         self._sho_image_paths: list[Path] = []
         self._sho_used_names: set[str] = set()
         self._sho_last_run_names: list[str] = []
@@ -1745,10 +1754,31 @@ class AudioToVideoApp(ctk.CTk):
         _os = platform.system()
         spd = self.SCROLL_SPEED
 
+        def _is_text_input(widget: Any) -> bool:
+            """Return True when wheel event starts on text-like widgets.
+
+            In those widgets we keep native wheel behavior (text scroll/caret),
+            and avoid propagating wheel to outer scrollable containers.
+            """
+            try:
+                text_like = (
+                    tk.Text,
+                    tk.Entry,
+                    ctk.CTkTextbox,
+                    ctk.CTkEntry,
+                )
+                return isinstance(widget, text_like)
+            except Exception:
+                return False
+
         def _fast_wheel(event: "tk.Event") -> None:  # type: ignore[name-defined]
             widget = event.widget
+            if _is_text_input(widget):
+                return
             # Walk up to find the canvas that belongs to a CTkScrollableFrame
             while widget:
+                if _is_text_input(widget):
+                    return
                 try:
                     canvas = widget._parent_canvas  # type: ignore[attr-defined]
                     if _os == "Windows":
@@ -2219,6 +2249,8 @@ class AudioToVideoApp(ctk.CTk):
                          C_ACCENT_SLIDE, lambda: self._switch_mode("Slideshow"), "slide")
         _create_mode_btn(FA_SHORTS, "SHORTS", self._current_mode == "Shorts",
                          C_ACCENT_SHORTS, lambda: self._switch_mode("Shorts"), "shorts")
+        _create_mode_btn(FA_EDIT, "RENAME", self._current_mode == "Rename",
+                 C_ACCENT_RENAME, lambda: self._switch_mode("Rename"), "rename")
         _create_mode_btn(FA_YT, "YOUTUBE", self._current_mode == "YouTube Publisher",
                          C_ACCENT_YT, lambda: self._switch_mode("YouTube Publisher"), "yt")
         _create_mode_btn(FA_WAND, "PROMPT LAB", self._current_mode == "Prompt Lab",
@@ -2331,6 +2363,7 @@ class AudioToVideoApp(ctk.CTk):
         self._build_right_panel(main)
         self._build_slideshow_left_panel(main)
         self._build_shorts_left_panel(main)
+        self._build_rename_left_panel(main)
         self._build_youtube_left_panel(main)
         self._build_prompt_lab_left_panel(main)
 
@@ -3234,6 +3267,68 @@ class AudioToVideoApp(ctk.CTk):
             except Exception:
                 pass
 
+        # Panel de estado para modo Rename (sustituye preview en ese modo)
+        self._rename_status_frame = ctk.CTkFrame(
+            frame,
+            fg_color=C_CARD,
+            corner_radius=6,
+            border_width=1,
+            border_color=C_BORDER,
+        )
+        self._rename_status_frame.grid_columnconfigure(0, weight=1)
+        self._rename_status_frame.grid_columnconfigure(1, weight=1)
+        self._rename_status_frame.grid_rowconfigure(3, weight=1)
+        ctk.CTkLabel(
+            self._rename_status_frame,
+            text="Estado de renombrado",
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(12), weight="bold"),
+            anchor="w",
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(10, 6))
+
+        self._lbl_rn_queue = ctk.CTkLabel(
+            self._rename_status_frame,
+            text="Pendientes: 0 | Renombrados: 0",
+            text_color=C_MUTED,
+            font=ctk.CTkFont(size=self._fs(10)),
+            anchor="w",
+        )
+        self._lbl_rn_queue.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 6))
+
+        ctk.CTkLabel(
+            self._rename_status_frame,
+            text="Pendientes",
+            text_color=C_TEXT_DIM,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(10), weight="bold"),
+        ).grid(row=2, column=0, sticky="nw", padx=(12, 6), pady=(0, 4))
+        ctk.CTkLabel(
+            self._rename_status_frame,
+            text="Renombrados",
+            text_color=C_TEXT_DIM,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(10), weight="bold"),
+        ).grid(row=2, column=1, sticky="nw", padx=(6, 12), pady=(0, 4))
+
+        self._txt_rn_pending = ctk.CTkTextbox(
+            self._rename_status_frame,
+            fg_color=C_INPUT,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(family="Consolas", size=self._fs(10)),
+            wrap="none",
+        )
+        self._txt_rn_pending.grid(row=3, column=0, sticky="nsew", padx=(12, 6), pady=(0, 10))
+
+        self._txt_rn_done = ctk.CTkTextbox(
+            self._rename_status_frame,
+            fg_color=C_INPUT,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(family="Consolas", size=self._fs(10)),
+            wrap="none",
+        )
+        self._txt_rn_done.grid(row=3, column=1, sticky="nsew", padx=(6, 12), pady=(0, 10))
+        self._rename_status_frame.grid_remove()
+
         # Info de audios detectados (pegado justo debajo del preview)
         _audio_lbl_wrap = ctk.CTkFrame(frame, fg_color="transparent", width=1, height=26)
         _audio_lbl_wrap.grid(row=1, column=0, sticky="ew", padx=16, pady=(6, 0))
@@ -3276,6 +3371,7 @@ class AudioToVideoApp(ctk.CTk):
         self._log_text = ctk.CTkTextbox(
             frame,
             width=1,
+            height=180,
             fg_color=C_LOG,
             text_color=C_LOG_TEXT,
             font=ctk.CTkFont(family="Consolas", size=self._fs(11)),
@@ -3286,6 +3382,7 @@ class AudioToVideoApp(ctk.CTk):
             corner_radius=6,
         )
         self._log_text.grid(row=3, column=0, sticky="nsew", padx=16, pady=(0, 6))
+        frame.grid_rowconfigure(0, weight=0)
         frame.grid_rowconfigure(3, weight=1)
 
         # Progreso global
@@ -4753,6 +4850,395 @@ class AudioToVideoApp(ctk.CTk):
         self._var_sho_gpu_encoding = tk.BooleanVar(value=False)
         self._check_row(_perf_inner_sho, "Usar GPU (NVENC)", self._var_sho_gpu_encoding, 4)
 
+
+    # --- Rename left panel -------------------------------------------
+
+    def _build_rename_left_panel(self, parent: ctk.CTkFrame) -> None:
+        """Panel izquierdo del modo Rename (renombrado puro, sin recodificar)."""
+        panel, tabs = self._make_tab_panel(
+            parent,
+            [("Archivos", "archivos")],
+            accent=C_ACCENT_RENAME,
+        )
+        panel.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
+        panel.grid_remove()
+        self._rn_scroll_frame = panel
+
+        tab_archivos = tabs["archivos"]
+
+        af = ctk.CTkScrollableFrame(tab_archivos, fg_color="transparent")
+        af.pack(fill="both", expand=True, padx=16, pady=(8, 12))
+        af.grid_columnconfigure(0, weight=1)
+        _init_scrollbar(af)
+
+        card_dir = ctk.CTkFrame(af, fg_color=C_CARD, corner_radius=10, border_width=1, border_color=C_BORDER)
+        card_dir.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+        card_dir.grid_columnconfigure(0, weight=1)
+        self._section_header(
+            card_dir,
+            "Configuración de directorios",
+            collapse_on_startup=False,
+        ).grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+
+        inner = ctk.CTkFrame(card_dir, fg_color="transparent")
+        inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
+        inner.grid_columnconfigure(0, weight=1)
+
+        self._var_rn_folder = tk.StringVar()
+        self._var_rn_folder.trace_add("write", lambda *_: self._update_open_folder_btn())
+        row = self._file_row(inner, "Carpeta de archivos:", self._var_rn_folder, self._rn_browse_folder, 0)
+
+        btn_reload = ctk.CTkButton(
+            inner,
+            text="\u21bb  RECARGAR CARPETA",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=2,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            height=40,
+            font=ctk.CTkFont(size=self._fs(11)),
+            command=self._rn_refresh_detected_files,
+        )
+        btn_reload.grid(row=row, column=0, padx=12, pady=(0, 8), sticky="ew")
+        _apply_sec_hover(btn_reload)
+        row += 1
+
+        self._lbl_rn_detected_count = ctk.CTkLabel(
+            inner,
+            text="Archivos detectados: —",
+            font=ctk.CTkFont(size=self._fs(11)),
+            text_color=C_MUTED,
+            justify="left",
+            anchor="w",
+        )
+        self._lbl_rn_detected_count.grid(row=row, column=0, sticky="w", padx=14, pady=(0, 6))
+        row += 1
+
+        self._txt_rn_detected = ctk.CTkTextbox(
+            inner,
+            height=140,
+            fg_color=C_INPUT,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(family="Consolas", size=self._fs(10)),
+            wrap="none",
+        )
+        self._txt_rn_detected.grid(row=row, column=0, sticky="ew", padx=12, pady=(0, 0))
+
+        sec_name = ctk.CTkFrame(af, fg_color=C_CARD, corner_radius=10, border_width=1, border_color=C_BORDER)
+        sec_name.grid(row=1, column=0, sticky="ew", padx=0, pady=(16, 0))
+        sec_name.grid_columnconfigure(0, weight=1)
+        self._section_header(
+            sec_name,
+            "Nombre de salida",
+            collapse_on_startup=False,
+        ).grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+
+        name_inner = ctk.CTkFrame(sec_name, fg_color="transparent")
+        name_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
+        name_inner.grid_columnconfigure(0, weight=1)
+
+        mode_row = ctk.CTkFrame(name_inner, fg_color="transparent")
+        mode_row.grid(row=0, column=0, sticky="ew", padx=4, pady=4)
+        mode_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(mode_row, text="Modo:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=60, anchor="w").grid(row=0, column=0, sticky="w")
+        self._var_rn_naming_mode = tk.StringVar(value="Nombre fijo + correlativo")
+        ctk.CTkOptionMenu(
+            mode_row,
+            values=[
+                "Nombre fijo + correlativo",
+                "Lista de nombres",
+                "Solo prefijo",
+                "Prefijo + lista de nombres",
+            ],
+            variable=self._var_rn_naming_mode,
+            command=self._rn_on_naming_mode_change,
+            fg_color=C_CARD,
+            button_color=C_ACCENT_RENAME,
+            text_color=C_TEXT,
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        self._rn_fixed_frame = ctk.CTkFrame(name_inner, fg_color="transparent")
+        self._rn_fixed_frame.grid(row=1, column=0, sticky="ew", padx=4, pady=(2, 0))
+        self._rn_fixed_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(self._rn_fixed_frame, text="Nombre:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=60, anchor="w").grid(row=0, column=0, sticky="w")
+        self._var_rn_fixed_name = tk.StringVar()
+        ctk.CTkEntry(self._rn_fixed_frame, textvariable=self._var_rn_fixed_name,
+                     placeholder_text="Ej: Atmos Mix", height=28).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        ctk.CTkLabel(
+            self._rn_fixed_frame,
+            text="Se aplicara numeracion obligatoria: 01 - Nombre, 02 - Nombre...",
+            text_color=C_TEXT_DIM,
+            font=ctk.CTkFont(size=self._fs(10)),
+            anchor="w",
+        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+
+        self._rn_prefix_frame = ctk.CTkFrame(name_inner, fg_color="transparent")
+        self._rn_prefix_frame.grid(row=2, column=0, sticky="ew", padx=4, pady=(2, 0))
+        self._rn_prefix_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(self._rn_prefix_frame, text="Prefijo:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=60, anchor="w").grid(row=0, column=0, sticky="w")
+        self._var_rn_prefix = tk.StringVar()
+        ctk.CTkEntry(self._rn_prefix_frame, textvariable=self._var_rn_prefix,
+                     placeholder_text="Ej: Meditation - ", height=28).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        self._rn_list_frame = ctk.CTkFrame(name_inner, fg_color="transparent")
+        self._rn_list_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(4, 0))
+        self._rn_list_frame.grid_columnconfigure(0, weight=1)
+        rn_hdr = ctk.CTkFrame(self._rn_list_frame, fg_color="transparent")
+        rn_hdr.grid(row=0, column=0, sticky="ew", pady=(0, 2))
+        rn_hdr.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(rn_hdr, text="Nombres personalizados (uno por línea):",
+                     text_color=C_MUTED, font=ctk.CTkFont(size=self._fs(11)), anchor="w"
+                     ).grid(row=0, column=0, sticky="w")
+        self._lbl_rn_names_count = ctk.CTkLabel(
+            rn_hdr,
+            text="0 nombres",
+            text_color=C_TEXT_DIM,
+            font=ctk.CTkFont(size=self._fs(10)),
+        )
+        self._lbl_rn_names_count.grid(row=0, column=1, sticky="e", padx=(4, 0))
+        self._txt_rn_naming_list = ctk.CTkTextbox(
+            self._rn_list_frame,
+            height=110,
+            fg_color=C_INPUT,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(family="Consolas", size=self._fs(11)),
+        )
+        self._txt_rn_naming_list.grid(row=1, column=0, sticky="ew")
+        self._txt_rn_naming_list.bind("<KeyRelease>", lambda *_: self._rn_refresh_names_count())
+
+        btn_rn_names = ctk.CTkButton(
+            self._rn_list_frame,
+            text="Ver / editar lista  \u25b6",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=2,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            height=40,
+            font=ctk.CTkFont(size=self._fs(11)),
+            command=self._rn_open_names_list_dialog,
+        )
+        btn_rn_names.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        _apply_sec_hover(btn_rn_names)
+
+        self._var_rn_update_title = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            name_inner,
+            text="Actualizar metadato Title con el nuevo nombre",
+            variable=self._var_rn_update_title,
+            font=ctk.CTkFont(size=self._fs(11)),
+            text_color=C_TEXT,
+        ).grid(row=4, column=0, sticky="w", padx=8, pady=(10, 0))
+
+        self._rn_on_naming_mode_change(self._var_rn_naming_mode.get())
+
+    def _rn_browse_folder(self) -> None:
+        path = filedialog.askdirectory(title="Seleccionar carpeta para renombrar")
+        if path:
+            self._var_rn_folder.set(path)
+            self._rn_refresh_detected_files()
+            self._update_open_folder_btn()
+
+    def _rn_get_detected_files(self) -> list[Path]:
+        folder = self._var_rn_folder.get().strip() if hasattr(self, "_var_rn_folder") else ""
+        if not folder or not Path(folder).is_dir():
+            return []
+        allowed = {
+            ".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a",
+            ".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v",
+        }
+        files = [
+            p for p in sorted(Path(folder).iterdir())
+            if p.is_file() and p.suffix.lower() in allowed
+        ]
+        return files
+
+    def _rn_refresh_detected_files(self) -> None:
+        files = self._rn_get_detected_files()
+        if hasattr(self, "_lbl_rn_detected_count"):
+            self._lbl_rn_detected_count.configure(
+                text=f"Archivos detectados: {len(files)}",
+                text_color=(C_ACCENT_RENAME if files else C_MUTED),
+            )
+        if hasattr(self, "_txt_rn_detected"):
+            self._txt_rn_detected.delete("1.0", "end")
+            if files:
+                self._txt_rn_detected.insert("1.0", "\n".join(p.name for p in files))
+
+    def _rn_open_names_list_dialog(self) -> None:
+        if not hasattr(self, "_txt_rn_naming_list"):
+            return
+        _p = NamesListDialog._USED_PREFIX
+        raw = [l.strip() for l in self._txt_rn_naming_list.get("1.0", "end").splitlines() if l.strip()]
+        current = [(n[len(_p):] if n.startswith(_p) else n) for n in raw]
+        dlg = NamesListDialog(self, current, used_names=self._rn_used_names)
+        self.wait_window(dlg)
+        if dlg.result is not None:
+            self._txt_rn_naming_list.delete("1.0", "end")
+            if dlg.result:
+                self._txt_rn_naming_list.insert("1.0", "\n".join(dlg.result))
+            self._rn_refresh_names_count()
+
+    def _rn_refresh_names_count(self) -> None:
+        if not hasattr(self, "_lbl_rn_names_count"):
+            return
+        _p = NamesListDialog._USED_PREFIX
+        raw = [l.strip() for l in self._txt_rn_naming_list.get("1.0", "end").splitlines() if l.strip()]
+        clean = [(n[len(_p):] if n.startswith(_p) else n) for n in raw]
+        n = len(clean)
+        used = sum(1 for name in clean if name in self._rn_used_names)
+        label = f"{n} nombre{'s' if n != 1 else ''}"
+        if used:
+            label += f" ({used} usados)"
+        self._lbl_rn_names_count.configure(text=label)
+
+    def _rn_on_naming_mode_change(self, mode: str) -> None:
+        needs_fixed = mode == "Nombre fijo + correlativo"
+        needs_prefix = mode in ("Solo prefijo", "Prefijo + lista de nombres")
+        needs_list = mode in ("Lista de nombres", "Prefijo + lista de nombres")
+        if hasattr(self, "_rn_fixed_frame"):
+            if needs_fixed:
+                self._rn_fixed_frame.grid()
+            else:
+                self._rn_fixed_frame.grid_remove()
+        if hasattr(self, "_rn_prefix_frame"):
+            if needs_prefix:
+                self._rn_prefix_frame.grid()
+            else:
+                self._rn_prefix_frame.grid_remove()
+        if hasattr(self, "_rn_list_frame"):
+            if needs_list:
+                self._rn_list_frame.grid()
+            else:
+                self._rn_list_frame.grid_remove()
+
+    def _rn_validate_inputs(self) -> bool:
+        files = self._rn_get_detected_files()
+        if not files:
+            self._log("ERROR: Selecciona una carpeta con archivos de audio/video para renombrar.")
+            return False
+
+        mode = self._var_rn_naming_mode.get() if hasattr(self, "_var_rn_naming_mode") else "Nombre fijo + correlativo"
+        if mode == "Nombre fijo + correlativo":
+            fixed = self._var_rn_fixed_name.get().strip() if hasattr(self, "_var_rn_fixed_name") else ""
+            if not fixed:
+                self._log("ERROR: Escribe un nombre fijo para renombrar.")
+                return False
+        if mode in ("Solo prefijo", "Prefijo + lista de nombres"):
+            prefix = self._var_rn_prefix.get().strip() if hasattr(self, "_var_rn_prefix") else ""
+            if not prefix:
+                self._log("ERROR: Escribe un prefijo para este modo de renombrado.")
+                return False
+        if mode in ("Lista de nombres", "Prefijo + lista de nombres"):
+            raw = [l.strip() for l in self._txt_rn_naming_list.get("1.0", "end").splitlines() if l.strip()]
+            clean = [
+                (v[len(NamesListDialog._USED_PREFIX):] if v.startswith(NamesListDialog._USED_PREFIX) else v)
+                for v in raw
+            ]
+            if len(clean) < len(files):
+                self._log(
+                    f"ERROR: La lista tiene {len(clean)} nombre(s) y hay {len(files)} archivo(s)."
+                )
+                return False
+
+        return True
+
+    def _on_generate_rename(self) -> None:
+        if not self._rn_validate_inputs():
+            return
+
+        files = self._rn_get_detected_files()
+        mode = self._var_rn_naming_mode.get().strip()
+
+        if mode == "Nombre fijo + correlativo":
+            fixed = self._var_rn_fixed_name.get().strip()
+            nm = _NamingManager(mode="Nombre", prefix=fixed, custom_names=[], auto_number=True)
+            target_stems = nm.generate_names(files)
+        elif mode == "Solo prefijo":
+            prefix = self._var_rn_prefix.get().strip()
+            nm = _NamingManager(mode="Prefijo", prefix=prefix, custom_names=[], auto_number=False)
+            target_stems = nm.generate_names(files)
+        else:
+            raw = [l.strip() for l in self._txt_rn_naming_list.get("1.0", "end").splitlines() if l.strip()]
+            clean = [
+                (v[len(NamesListDialog._USED_PREFIX):] if v.startswith(NamesListDialog._USED_PREFIX) else v)
+                for v in raw
+            ]
+            prefix = self._var_rn_prefix.get().strip() if mode == "Prefijo + lista de nombres" else ""
+            nm_mode = "Prefijo + Lista personalizada" if mode == "Prefijo + lista de nombres" else "Lista personalizada"
+            nm = _NamingManager(mode=nm_mode, prefix=prefix, custom_names=clean[: len(files)], auto_number=False)
+            target_stems = nm.generate_names(files)
+
+        self._rename_pending_files = list(files)
+        self._rename_completed = []
+        self._rn_refresh_status_lists()
+        self._set_processing_state(True)
+        self._clear_log()
+        self._log(f"[RENAME] Iniciando renombrado de {len(files)} archivo(s)...")
+
+        self._rename_runner = RenameRunner(
+            on_log=self._queue_log,
+            on_progress=self._rn_on_progress_update,
+            on_job_done=self._rn_on_job_done,
+            on_finished=self._rn_on_finished,
+        )
+        self._rename_runner.start(
+            files=files,
+            target_stems=target_stems,
+            update_title_metadata=(
+                self._var_rn_update_title.get() if hasattr(self, "_var_rn_update_title") else False
+            ),
+        )
+
+    def _rn_on_progress_update(self, done: int, total: int, current_file: str) -> None:
+        self.after(0, self._update_progress_ui, done, total, current_file)
+
+    def _rn_on_job_done(self, result: RenameJobResult) -> None:
+        self.after(0, self._rn_on_job_done_ui, result)
+
+    def _rn_on_job_done_ui(self, result: RenameJobResult) -> None:
+        if self._rename_pending_files:
+            self._rename_pending_files = [p for p in self._rename_pending_files if p != result.source_path]
+        if result.success:
+            self._rename_completed.append(f"{result.source_path.name} -> {result.target_path.name}")
+            self._rn_used_names.add(result.target_path.stem)
+        else:
+            self._rename_completed.append(f"ERROR: {result.source_path.name} ({result.error})")
+        self._rn_refresh_status_lists()
+
+    def _rn_on_finished(self, results: list[RenameJobResult]) -> None:
+        self.after(0, self._rn_on_finished_ui, results)
+
+    def _rn_on_finished_ui(self, results: list[RenameJobResult]) -> None:
+        self._set_processing_state(False)
+        ok = sum(1 for r in results if r.success)
+        total = len(results)
+        if total == 0:
+            self._log("[RENAME] Sin cambios.")
+        elif ok == total:
+            self._log(f"[RENAME] Completado: {ok}/{total} renombrados.")
+        else:
+            self._log(f"[RENAME] Finalizado con incidencias: {ok}/{total} renombrados.")
+        self._rn_refresh_detected_files()
+        self._rn_refresh_names_count()
+
+    def _rn_refresh_status_lists(self) -> None:
+        if hasattr(self, "_txt_rn_pending"):
+            self._txt_rn_pending.delete("1.0", "end")
+            if self._rename_pending_files:
+                self._txt_rn_pending.insert("1.0", "\n".join(p.name for p in self._rename_pending_files))
+        if hasattr(self, "_txt_rn_done"):
+            self._txt_rn_done.delete("1.0", "end")
+            if self._rename_completed:
+                self._txt_rn_done.insert("1.0", "\n".join(self._rename_completed[-200:]))
+        if hasattr(self, "_lbl_rn_queue"):
+            self._lbl_rn_queue.configure(
+                text=f"Pendientes: {len(self._rename_pending_files)} | Renombrados: {len(self._rename_completed)}"
+            )
 
     # --- YouTube Publisher left panel --------------------------------
 
@@ -10751,6 +11237,10 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_sho_scroll_frame"):
             self._sho_scroll_frame.destroy()
         self._build_shorts_left_panel(self._main_panel)
+        # Rebuild rename panel too
+        if hasattr(self, "_rn_scroll_frame"):
+            self._rn_scroll_frame.destroy()
+        self._build_rename_left_panel(self._main_panel)
         # Rebuild YouTube panel too
         if hasattr(self, "_yt_scroll_frame"):
             self._yt_scroll_frame.destroy()
@@ -10767,6 +11257,10 @@ class AudioToVideoApp(ctk.CTk):
         elif self._current_mode == "Shorts":
             if hasattr(self, "_sho_scroll_frame"):
                 self._sho_scroll_frame.grid()
+            self._scroll_frame.grid_remove()
+        elif self._current_mode == "Rename":
+            if hasattr(self, "_rn_scroll_frame"):
+                self._rn_scroll_frame.grid()
             self._scroll_frame.grid_remove()
         elif self._current_mode == "YouTube Publisher":
             if hasattr(self, "_yt_scroll_frame"):
@@ -10786,13 +11280,14 @@ class AudioToVideoApp(ctk.CTk):
 
     def _update_mode_buttons(self) -> None:
         """Actualiza el color activo/inactivo de los botones de modo del header."""
-        for prefix in ("atv", "slide", "shorts", "yt", "pl"):
+        for prefix in ("atv", "slide", "shorts", "rename", "yt", "pl"):
             if not hasattr(self, f"_frame_mode_{prefix}"):
                 continue
             active = (
                 (prefix == "atv" and self._current_mode == "Audio \u2192 Video")
                 or (prefix == "slide" and self._current_mode == "Slideshow")
                 or (prefix == "shorts" and self._current_mode == "Shorts")
+                or (prefix == "rename" and self._current_mode == "Rename")
                 or (prefix == "yt" and self._current_mode == "YouTube Publisher")
                 or (prefix == "pl" and self._current_mode == "Prompt Lab")
             )
@@ -10863,15 +11358,24 @@ class AudioToVideoApp(ctk.CTk):
             self._sl_scroll_frame.grid_remove()
         if hasattr(self, "_sho_scroll_frame"):
             self._sho_scroll_frame.grid_remove()
+        if hasattr(self, "_rn_scroll_frame"):
+            self._rn_scroll_frame.grid_remove()
         if hasattr(self, "_yt_scroll_frame"):
             self._yt_scroll_frame.grid_remove()
         if hasattr(self, "_pl_scroll_frame"):
             self._pl_scroll_frame.grid_remove()
 
         if mode == "Audio \u2192 Video":
+            if hasattr(self, "_right_panel_frame"):
+                self._right_panel_frame.grid_rowconfigure(0, weight=0)
+                self._right_panel_frame.grid_rowconfigure(3, weight=1)
             self._scroll_frame.grid()
             self._btn_generate.configure(
                 text="\u25b6  GENERAR VIDEOS", command=self._on_generate)
+            if hasattr(self, "_rename_status_frame"):
+                self._rename_status_frame.grid_remove()
+            if hasattr(self, "_preview_frame"):
+                self._preview_frame.grid()
             # Siempre re-derivar la preview desde las variables ATV
             if hasattr(self, "_var_multi_image") and self._var_multi_image.get():
                 imgs_folder = self._var_images_folder.get() if hasattr(self, "_var_images_folder") else ""
@@ -10888,10 +11392,17 @@ class AudioToVideoApp(ctk.CTk):
                 self._update_audio_count(self._var_audio_folder.get())
 
         elif mode == "Slideshow":
+            if hasattr(self, "_right_panel_frame"):
+                self._right_panel_frame.grid_rowconfigure(0, weight=0)
+                self._right_panel_frame.grid_rowconfigure(3, weight=1)
             if hasattr(self, "_sl_scroll_frame"):
                 self._sl_scroll_frame.grid()
             self._btn_generate.configure(
                 text="\u25b6  GENERAR VIDEO", command=self._on_generate_slideshow)
+            if hasattr(self, "_rename_status_frame"):
+                self._rename_status_frame.grid_remove()
+            if hasattr(self, "_preview_frame"):
+                self._preview_frame.grid()
             # Siempre re-derivar la preview desde las variables Slideshow
             if hasattr(self, "_var_sl_images_folder"):
                 folder = self._var_sl_images_folder.get()
@@ -10925,10 +11436,17 @@ class AudioToVideoApp(ctk.CTk):
                 self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
 
         elif mode == "Shorts":
+            if hasattr(self, "_right_panel_frame"):
+                self._right_panel_frame.grid_rowconfigure(0, weight=0)
+                self._right_panel_frame.grid_rowconfigure(3, weight=1)
             if hasattr(self, "_sho_scroll_frame"):
                 self._sho_scroll_frame.grid()
             self._btn_generate.configure(
                 text="\u25b6  GENERAR SHORTS", command=self._on_generate_shorts)
+            if hasattr(self, "_rename_status_frame"):
+                self._rename_status_frame.grid_remove()
+            if hasattr(self, "_preview_frame"):
+                self._preview_frame.grid()
             # Siempre re-derivar la preview desde las variables Shorts
             if hasattr(self, "_var_sho_multi_image") and self._var_sho_multi_image.get():
                 folder = self._var_sho_images_folder.get() if hasattr(self, "_var_sho_images_folder") else ""
@@ -10943,9 +11461,35 @@ class AudioToVideoApp(ctk.CTk):
             self._rebuild_thumb_strip_sho()
             self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
 
+        elif mode == "Rename":
+            if hasattr(self, "_right_panel_frame"):
+                self._right_panel_frame.grid_rowconfigure(0, weight=1)
+                self._right_panel_frame.grid_rowconfigure(3, weight=0)
+            if hasattr(self, "_rn_scroll_frame"):
+                self._rn_scroll_frame.grid()
+            self._btn_generate.configure(
+                text="\u270e  RENOMBRAR ARCHIVOS", command=self._on_generate_rename)
+            self._thumb_strip.grid_remove()
+            if hasattr(self, "_thumb_strip_vert"):
+                self._thumb_strip_vert.grid_remove()
+            if hasattr(self, "_preview_frame"):
+                self._preview_frame.grid_remove()
+            if hasattr(self, "_rename_status_frame"):
+                self._rename_status_frame.grid(row=0, column=0, sticky="nsew", padx=16, pady=(8, 0))
+            self._lbl_audio_count.configure(text="Rename", text_color=C_ACCENT_RENAME)
+            self._rn_refresh_detected_files()
+            self._rn_refresh_status_lists()
+
         elif mode == "YouTube Publisher":
+            if hasattr(self, "_right_panel_frame"):
+                self._right_panel_frame.grid_rowconfigure(0, weight=0)
+                self._right_panel_frame.grid_rowconfigure(3, weight=1)
             if hasattr(self, "_yt_scroll_frame"):
                 self._yt_scroll_frame.grid()
+            if hasattr(self, "_rename_status_frame"):
+                self._rename_status_frame.grid_remove()
+            if hasattr(self, "_preview_frame"):
+                self._preview_frame.grid()
             self._thumb_strip.grid_remove()
             if hasattr(self, "_thumb_strip_vert"):
                 self._thumb_strip_vert.grid_remove()
@@ -10954,14 +11498,23 @@ class AudioToVideoApp(ctk.CTk):
             self._yt_update_queue_cache_status_label()
             self._btn_generate.configure(text="SYNC BORRADORES", command=self._on_generate_youtube)
         else:  # Prompt Lab
+            if hasattr(self, "_right_panel_frame"):
+                self._right_panel_frame.grid_rowconfigure(0, weight=0)
+                self._right_panel_frame.grid_rowconfigure(3, weight=1)
             if hasattr(self, "_pl_scroll_frame"):
                 self._pl_scroll_frame.grid()
             self._pl_refresh_available_models()
+            if hasattr(self, "_rename_status_frame"):
+                self._rename_status_frame.grid_remove()
+            if hasattr(self, "_preview_frame"):
+                self._preview_frame.grid()
             self._thumb_strip.grid_remove()
             if hasattr(self, "_thumb_strip_vert"):
                 self._thumb_strip_vert.grid_remove()
             self._lbl_audio_count.configure(text="Prompt Lab", text_color=C_ACCENT_LAB)
             self._btn_generate.configure(text=FA_WAND + "  GENERAR RESPUESTA", command=self._on_generate_prompt_lab)
+
+        self._update_open_folder_btn()
 
     def _sl_browse_images_folder(self) -> None:
         path = filedialog.askdirectory(title="Seleccionar carpeta de im\u00e1genes")
@@ -12441,6 +12994,8 @@ class AudioToVideoApp(ctk.CTk):
             self._slideshow_runner.cancel()
         if self._shorts_runner:
             self._shorts_runner.cancel()
+        if self._rename_runner:
+            self._rename_runner.cancel()
         self._btn_cancel.configure(state="disabled")
 
     def _on_preview(self) -> None:
@@ -12527,6 +13082,8 @@ class AudioToVideoApp(ctk.CTk):
             return self._var_sl_output_folder.get() if hasattr(self, "_var_sl_output_folder") else ""
         if mode == "Shorts":
             return self._var_sho_output_folder.get() if hasattr(self, "_var_sho_output_folder") else ""
+        if mode == "Rename":
+            return self._var_rn_folder.get() if hasattr(self, "_var_rn_folder") else ""
         if mode == "YouTube Publisher":
             return ""
         return self._var_output.get() if hasattr(self, "_var_output") else ""
@@ -13093,6 +13650,17 @@ class AudioToVideoApp(ctk.CTk):
             "pl_model_fast": self._var_pl_model_fast.get() if hasattr(self, "_var_pl_model_fast") else "llama3.2:3b",
             "pl_active_skills": list(self._pl_active_skills),
             "pl_template_insert_mode_by_category": dict(self._pl_template_insert_mode_by_category),
+            # Rename
+            "rn_folder": self._var_rn_folder.get() if hasattr(self, "_var_rn_folder") else "",
+            "rn_naming_mode": self._var_rn_naming_mode.get() if hasattr(self, "_var_rn_naming_mode") else "Nombre fijo + correlativo",
+            "rn_fixed_name": self._var_rn_fixed_name.get() if hasattr(self, "_var_rn_fixed_name") else "",
+            "rn_prefix": self._var_rn_prefix.get() if hasattr(self, "_var_rn_prefix") else "",
+            "rn_naming_custom_list": [
+                ln.strip() for ln in self._txt_rn_naming_list.get("1.0", "end").splitlines() if ln.strip()
+            ] if hasattr(self, "_txt_rn_naming_list") else [],
+            "rn_update_title_metadata": (
+                self._var_rn_update_title.get() if hasattr(self, "_var_rn_update_title") else False
+            ),
         })
         # Save slideshow settings if panel exists
         if hasattr(self, "_var_sl_images_folder"):
@@ -13436,6 +14004,27 @@ class AudioToVideoApp(ctk.CTk):
             self._pl_refresh_workspace_menu(select=self._var_pl_workspace.get())
             self._pl_refresh_available_models()
 
+        # Rename settings
+        if hasattr(self, "_var_rn_folder"):
+            self._var_rn_folder.set(s.get("rn_folder", ""))
+            self._var_rn_naming_mode.set(s.get("rn_naming_mode", "Nombre fijo + correlativo"))
+            self._var_rn_fixed_name.set(s.get("rn_fixed_name", ""))
+            if hasattr(self, "_var_rn_prefix"):
+                self._var_rn_prefix.set(s.get("rn_prefix", ""))
+            if hasattr(self, "_var_rn_update_title"):
+                self._var_rn_update_title.set(bool(s.get("rn_update_title_metadata", False)))
+            custom_names = s.get("rn_naming_custom_list", [])
+            if hasattr(self, "_txt_rn_naming_list"):
+                self._txt_rn_naming_list.delete("1.0", "end")
+                if isinstance(custom_names, list) and custom_names:
+                    self._txt_rn_naming_list.insert(
+                        "1.0",
+                        "\n".join(str(v).strip() for v in custom_names if str(v).strip()),
+                    )
+            self._rn_on_naming_mode_change(self._var_rn_naming_mode.get())
+            self._rn_refresh_names_count()
+            self._rn_refresh_detected_files()
+
         # Aplicar visibilidad de fuentes y alinear valores de desplegables.
         self._refresh_font_option_menus()
 
@@ -13498,6 +14087,10 @@ class AudioToVideoApp(ctk.CTk):
                 self._btn_generate.configure(
                     state="normal", text="\u25b6  GENERAR SHORTS",
                     command=self._on_generate_shorts)
+            elif self._current_mode == "Rename":
+                self._btn_generate.configure(
+                    state="normal", text="\u270e  RENOMBRAR ARCHIVOS",
+                    command=self._on_generate_rename)
             elif self._current_mode == "Prompt Lab":
                 self._btn_generate.configure(
                     state="normal", text=FA_WAND + "  GENERAR RESPUESTA",
@@ -13519,6 +14112,7 @@ class AudioToVideoApp(ctk.CTk):
             (self._runner and self._runner.is_running())
             or (self._slideshow_runner and self._slideshow_runner.is_running())
             or (self._shorts_runner and self._shorts_runner.is_running())
+            or (self._rename_runner and self._rename_runner.is_running())
         )
         if running:
             if not messagebox.askyesno(
@@ -13532,6 +14126,8 @@ class AudioToVideoApp(ctk.CTk):
                 self._slideshow_runner.cancel()
             if self._shorts_runner:
                 self._shorts_runner.cancel()
+            if self._rename_runner:
+                self._rename_runner.cancel()
 
         self._collect_settings()
         try:

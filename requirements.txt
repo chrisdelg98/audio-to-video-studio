@@ -11,6 +11,9 @@ customtkinter>=5.2.2
 # Procesamiento de imágenes (preview y thumbnails)
 Pillow>=10.0.0
 
+# Metadata tags (Title) for Rename mode
+mutagen>=1.47.0
+
 # IANA timezone database (required by zoneinfo on Windows)
 tzdata>=2024.1
 

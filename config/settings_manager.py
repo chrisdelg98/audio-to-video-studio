@@ -103,6 +103,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "pl_model_quality": "llama3.1:8b",
     "pl_model_fast": "llama3.2:3b",
     "pl_active_skills": [{"category": "General", "skill": "Skill General"}],
+    # Rename mode
+    "rn_folder": "",
+    "rn_naming_mode": "Nombre fijo + correlativo",
+    "rn_fixed_name": "",
+    "rn_prefix": "",
+    "rn_naming_custom_list": [],
+    "rn_update_title_metadata": False,
 }
 
 # Preset semilla — se crea si presets.json no existe
@@ -150,6 +157,8 @@ _PRESET_EXCLUDED_KEYS = {
     "sho_multi_image",
     # YouTube sources (project-specific)
     "yt_source_folders",
+    # Rename source folder is project-specific
+    "rn_folder",
 }
 
 

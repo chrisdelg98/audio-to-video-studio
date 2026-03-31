@@ -66,6 +66,11 @@
         "category": "General",
         "skill": "Skill General"
       }
-    ]
+    ],
+    "rn_naming_mode": "Nombre fijo + correlativo",
+    "rn_fixed_name": "",
+    "rn_prefix": "",
+    "rn_naming_custom_list": [],
+    "rn_update_title_metadata": false
   }
 }
