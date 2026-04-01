@@ -90,9 +90,15 @@ class RenameRunner:
             planned_targets.append(dst)
 
         tmp_paths: list[Path] = []
+        if self._cancel_event.is_set():
+            self.on_log("[RENAME] Cancelado antes de aplicar cambios.")
+            self.on_finished([])
+            return
+
+        # Phase 1: move every source to a temporary name.
+        # Important: once this phase starts, we must complete/rollback atomically
+        # to avoid leaving hidden tmp files that look like "lost" media.
         for idx, src in enumerate(files, start=1):
-            if self._cancel_event.is_set():
-                break
             tmp = src.with_name(f".__cfstmp__{idx:04d}__{src.name}")
             while tmp.exists():
                 tmp = src.with_name(f".__cfstmp__{idx:04d}__x__{src.name}")
@@ -105,17 +111,22 @@ class RenameRunner:
                 self.on_finished(results)
                 return
 
-        for idx, (src, tmp, dst) in enumerate(zip(files, tmp_paths, planned_targets), start=1):
-            if self._cancel_event.is_set():
-                break
+        if self._cancel_event.is_set():
+            self.on_log("[RENAME] Cancelado: revirtiendo cambios temporales...")
+            self._rollback_tmp(files=files, tmp_paths=tmp_paths)
+            self.on_finished(results)
+            return
 
+        # Phase 2: commit all final names. Do not abort in the middle of this
+        # phase, otherwise some files could remain only under temporary names.
+        for idx, (src, tmp, dst) in enumerate(zip(files, tmp_paths, planned_targets), start=1):
             job = RenameJobResult(index=idx, source_path=src, target_path=dst)
             self.on_progress(idx - 1, total, src.name)
             try:
                 tmp.rename(dst)
                 job.success = True
                 self.on_log(f"[RENAME] {src.name} -> {dst.name}")
-                if update_title_metadata:
+                if update_title_metadata and dst.suffix.lower() == ".mp3":
                     meta_ok, meta_error = self._write_title_metadata(dst, dst.stem)
                     if meta_ok:
                         self.on_log(f"[RENAME][META] Title actualizado: {dst.name}")
@@ -146,26 +157,24 @@ class RenameRunner:
 
     @staticmethod
     def _write_title_metadata(path: Path, title: str) -> tuple[bool, str]:
-        """Best-effort Title tag update using mutagen (no recoding involved)."""
+        """Update Title metadata only for MP3 files."""
         try:
-            from mutagen import File as MutagenFile  # type: ignore
+            from mutagen.id3 import ID3, ID3NoHeaderError, TIT2  # type: ignore
         except Exception:
             return False, "mutagen no esta disponible en el entorno."
 
+        suffix = path.suffix.lower()
+        if suffix != ".mp3":
+            return False, "solo MP3 soporta actualizacion de Title en Rename."
+
         try:
-            media = MutagenFile(str(path), easy=True)
-            if media is None:
-                return False, "formato sin soporte de metadata writable."
-
-            if getattr(media, "tags", None) is None and hasattr(media, "add_tags"):
-                try:
-                    media.add_tags()
-                except Exception:
-                    # Some formats initialize tags lazily on save.
-                    pass
-
-            media["title"] = [title]
-            media.save()
+            try:
+                tags = ID3(str(path))
+            except ID3NoHeaderError:
+                tags = ID3()
+            tags.delall("TIT2")
+            tags.add(TIT2(encoding=3, text=[title]))
+            tags.save(str(path))
             return True, ""
         except Exception as exc:
             return False, str(exc)

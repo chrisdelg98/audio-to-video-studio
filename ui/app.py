@@ -5028,7 +5028,7 @@ class AudioToVideoApp(ctk.CTk):
         self._var_rn_update_title = tk.BooleanVar(value=False)
         ctk.CTkCheckBox(
             name_inner,
-            text="Actualizar metadato Title con el nuevo nombre",
+            text="Actualizar metadato Title con el nuevo nombre (solo MP3)",
             variable=self._var_rn_update_title,
             font=ctk.CTkFont(size=self._fs(11)),
             text_color=C_TEXT,
@@ -5129,8 +5129,8 @@ class AudioToVideoApp(ctk.CTk):
                 self._log("ERROR: Escribe un nombre fijo para renombrar.")
                 return False
         if mode in ("Solo prefijo", "Prefijo + lista de nombres"):
-            prefix = self._var_rn_prefix.get().strip() if hasattr(self, "_var_rn_prefix") else ""
-            if not prefix:
+            prefix = self._var_rn_prefix.get() if hasattr(self, "_var_rn_prefix") else ""
+            if not prefix.strip():
                 self._log("ERROR: Escribe un prefijo para este modo de renombrado.")
                 return False
         if mode in ("Lista de nombres", "Prefijo + lista de nombres"):
@@ -5159,7 +5159,7 @@ class AudioToVideoApp(ctk.CTk):
             nm = _NamingManager(mode="Nombre", prefix=fixed, custom_names=[], auto_number=True)
             target_stems = nm.generate_names(files)
         elif mode == "Solo prefijo":
-            prefix = self._var_rn_prefix.get().strip()
+            prefix = self._var_rn_prefix.get()
             nm = _NamingManager(mode="Prefijo", prefix=prefix, custom_names=[], auto_number=False)
             target_stems = nm.generate_names(files)
         else:
@@ -5168,7 +5168,7 @@ class AudioToVideoApp(ctk.CTk):
                 (v[len(NamesListDialog._USED_PREFIX):] if v.startswith(NamesListDialog._USED_PREFIX) else v)
                 for v in raw
             ]
-            prefix = self._var_rn_prefix.get().strip() if mode == "Prefijo + lista de nombres" else ""
+            prefix = self._var_rn_prefix.get() if mode == "Prefijo + lista de nombres" else ""
             nm_mode = "Prefijo + Lista personalizada" if mode == "Prefijo + lista de nombres" else "Lista personalizada"
             nm = _NamingManager(mode=nm_mode, prefix=prefix, custom_names=clean[: len(files)], auto_number=False)
             target_stems = nm.generate_names(files)
