@@ -61,6 +61,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "multi_image": False,
     "images_folder": "",
     # Slideshow mode
+    "sl_image_mode": "single",
+    "sl_single_image": "",
     "sl_images_folder": "",
     "sl_audio_enabled": False,
     "sl_audio_file": "",

@@ -18,7 +18,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from effects.text_overlay_effect import TextOverlayEffect
+from effects.text_overlay_effect import TextOverlayEffect, _COLOR_MAP, _resolve_font
 from core.utils import get_audio_duration
 
 # ── Constantes ──────────────────────────────────────────────────────
@@ -99,6 +99,9 @@ class SlideshowBuilder:
         """
         transition = self.settings.get("sl_transition", "Ninguna")
         duration = float(self.settings.get("sl_duration", 5.0))
+
+        if len(image_paths) == 1:
+            return self._build_single_image(image_paths[0], audio_path, output_path, duration)
 
         # Expand image list so the slideshow covers the full audio duration
         image_paths = self._loop_images_to_audio(image_paths, duration, audio_path)
@@ -228,23 +231,27 @@ class SlideshowBuilder:
 
         # Dinámico
         if self.settings.get("sl_enable_dyn_text_overlay", False):
-            dyn_text = self._resolve_sl_dyn_text()
-            dyn_settings = {
-                "enable_text_overlay":   True,
-                "text_content":          dyn_text,
-                "text_position":         self.settings.get("sl_dyn_text_position", "Bottom"),
-                "text_margin":           self.settings.get("sl_dyn_text_margin", 40),
-                "text_font_size":        self.settings.get("sl_dyn_text_font_size", 36),
-                "text_font":             self.settings.get("sl_dyn_text_font", "Arial"),
-                "text_color":            self.settings.get("sl_dyn_text_color", "Blanco"),
-                "text_glitch_intensity": self.settings.get("sl_dyn_text_glitch_intensity", 3),
-                "text_glitch_speed":     self.settings.get("sl_dyn_text_glitch_speed", 4.0),
-            }
-            eff = TextOverlayEffect(dyn_settings)
-            raw = eff.build_filter("[x]", "[y]", dummy_duration)
-            inner = raw[len("[x]"):-len("[y]")]
-            if inner != "copy":
-                filters.append(inner)
+            timed = self._sl_timed_dyn_text_filters()
+            if timed:
+                filters.extend(timed)
+            else:
+                dyn_text = self._resolve_sl_dyn_text()
+                dyn_settings = {
+                    "enable_text_overlay":   True,
+                    "text_content":          dyn_text,
+                    "text_position":         self.settings.get("sl_dyn_text_position", "Bottom"),
+                    "text_margin":           self.settings.get("sl_dyn_text_margin", 40),
+                    "text_font_size":        self.settings.get("sl_dyn_text_font_size", 36),
+                    "text_font":             self.settings.get("sl_dyn_text_font", "Arial"),
+                    "text_color":            self.settings.get("sl_dyn_text_color", "Blanco"),
+                    "text_glitch_intensity": self.settings.get("sl_dyn_text_glitch_intensity", 3),
+                    "text_glitch_speed":     self.settings.get("sl_dyn_text_glitch_speed", 4.0),
+                }
+                eff = TextOverlayEffect(dyn_settings)
+                raw = eff.build_filter("[x]", "[y]", dummy_duration)
+                inner = raw[len("[x]"):-len("[y]")]
+                if inner != "copy":
+                    filters.append(inner)
 
         return filters
 
@@ -257,8 +264,109 @@ class SlideshowBuilder:
             # Para Slideshow usamos el nombre de salida configurado
             return self.settings.get("sl_output_name", "slideshow")
         else:  # Prefijo + Nombre de canción
-            # Slideshow no tiene prefijo de naming; usamos el nombre de salida
-            return self.settings.get("sl_output_name", "slideshow")
+            prefix = str(self.settings.get("sl_dyn_text_content", "") or "").strip()
+            base = self.settings.get("sl_output_name", "slideshow")
+            return f"{prefix} {base}".strip()
+
+    def _sl_timed_dyn_text_filters(self) -> list[str]:
+        """Build per-song timed drawtext filters for slideshow folder-audio mode.
+
+        The runner provides precomputed song windows in `sl_dyn_track_segments`.
+        Text windows do not overlap and are aligned to merged-audio boundaries.
+        """
+        segments = self.settings.get("sl_dyn_track_segments", [])
+        if not isinstance(segments, list) or not segments:
+            return []
+
+        fs = int(self.settings.get("sl_dyn_text_font_size", 36))
+        pos = str(self.settings.get("sl_dyn_text_position", "Bottom"))
+        margin = int(self.settings.get("sl_dyn_text_margin", 40))
+        color_key = str(self.settings.get("sl_dyn_text_color", "Blanco"))
+        font_name = str(self.settings.get("sl_dyn_text_font", "Arial"))
+        color_hex = _COLOR_MAP.get(color_key, "FFFFFF")
+        font_path = _resolve_font(font_name)
+        font_opt = f":fontfile={font_path}" if font_path else ""
+
+        if pos == "Top":
+            y_expr = f"round({margin}*(h/1080))"
+        elif pos == "Middle":
+            y_expr = "(h-text_h)/2"
+        else:
+            y_expr = f"h-text_h-round({margin}*(h/1080))"
+
+        filters: list[str] = []
+        for seg in segments:
+            try:
+                text_raw = str(seg.get("text", "") or "").strip()
+                start_t = float(seg.get("start", 0.0))
+                end_t = float(seg.get("end", 0.0))
+                fade_t = max(0.0, float(seg.get("fade", 0.0)))
+            except Exception:
+                continue
+
+            if not text_raw or end_t <= start_t:
+                continue
+
+            safe_text = (
+                text_raw
+                .replace("\\", "\\\\")
+                .replace("'", "’")
+                .replace(":", "\\:")
+                .replace("%", "\\%")
+            )
+
+            if fade_t > 0.0 and (end_t - start_t) > (fade_t * 2.0):
+                fi = start_t + fade_t
+                fo = end_t - fade_t
+                alpha_expr = (
+                    f"if(lt(t,{start_t:.3f}),0,"
+                    f"if(lt(t,{fi:.3f}),(t-{start_t:.3f})/{fade_t:.3f},"
+                    f"if(lt(t,{fo:.3f}),1,"
+                    f"if(lt(t,{end_t:.3f}),({end_t:.3f}-t)/{fade_t:.3f},0))))"
+                )
+            else:
+                alpha_expr = "1"
+
+            filters.append(
+                f"drawtext=text='{safe_text}'{font_opt}:"
+                f"fontcolor=0x{color_hex}:fontsize={fs}:"
+                f"x=(w-text_w)/2:y={y_expr}:"
+                f"shadowcolor=black@0.7:shadowx=2:shadowy=2:"
+                f"alpha='{alpha_expr}':"
+                f"enable='between(t,{start_t:.3f},{end_t:.3f})'"
+            )
+
+        return filters
+
+    def _build_single_image(
+        self,
+        image_path: Path,
+        audio_path: Path | None,
+        output_path: Path,
+        duration: float,
+    ) -> tuple[list[str], None]:
+        """Fast path when slideshow uses a single background image."""
+        cmd: list[str] = ["ffmpeg", "-y"]
+        cmd += self._global_thread_args()
+        cmd += ["-loop", "1", "-i", str(image_path)]
+        if audio_path:
+            cmd += ["-thread_queue_size", "512", "-i", str(audio_path)]
+
+        vf = f"{self._scale_crop()},fps={DEFAULT_FPS}"
+        fx = self._per_frame_effect_chain()
+        if fx:
+            vf += "," + ",".join(fx)
+        text_filters = self._text_overlay_filters()
+        if text_filters:
+            vf += "," + ",".join(text_filters)
+        cmd += ["-vf", vf]
+        if not audio_path:
+            cmd += ["-t", f"{duration:.3f}"]
+
+        cmd += self._codec_args()
+        cmd += self._audio_args(audio_path)
+        cmd += ["-movflags", "+faststart", str(output_path)]
+        return cmd, None
 
     # ── Estrategia: concat demuxer (sin transición) ──────────────────
 

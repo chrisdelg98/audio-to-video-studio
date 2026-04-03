@@ -139,10 +139,11 @@ class SlideshowRunner:
         audio_path: Path | None,
         output_path: Path,
     ) -> None:
-        builder = SlideshowBuilder(self.settings)
+        builder_settings = dict(self.settings)
         merge_temp: Path | None = None
         temp_file: Path | None = None
         loop_cycle_file: Path | None = None
+        folder_audio_files: list[Path] = []
 
         try:
             # ── Pre-step: merge audio folder if requested ─────────────────
@@ -155,6 +156,7 @@ class SlideshowRunner:
                 folder = Path(self.settings["sl_audio_folder"])
                 audio_files = get_audio_files(folder)
                 if audio_files:
+                    folder_audio_files = list(audio_files)
                     merge_temp = output_path.parent / f"_merge_tmp_{output_path.stem}.wav"
                     crossfade_s = float(self.settings.get("sl_crossfade", 2.0))
                     self.on_log(
@@ -172,6 +174,19 @@ class SlideshowRunner:
                 else:
                     self.on_log("⚠ La carpeta de audios está vacía — se generará sin audio.")
 
+            if (
+                folder_audio_files
+                and builder_settings.get("sl_enable_dyn_text_overlay", False)
+                and builder_settings.get("sl_dyn_text_mode", "Texto fijo") in ("Nombre de canción", "Prefijo + Nombre de canción")
+            ):
+                crossfade_s = float(builder_settings.get("sl_crossfade", 2.0))
+                builder_settings["sl_dyn_track_segments"] = self._build_dyn_text_segments(
+                    folder_audio_files,
+                    crossfade_s,
+                )
+
+            builder = SlideshowBuilder(builder_settings)
+
             self.on_log(f"▶ Construyendo slideshow con {len(image_paths)} imágenes...")
             self.on_log(f"  → Transición: {self.settings.get('sl_transition', 'Ninguna')}")
             self.on_log(f"  → Duración por imagen: {self.settings.get('sl_duration', 5)}s")
@@ -179,6 +194,9 @@ class SlideshowRunner:
             self.on_log(f"  → Salida: {output_path.name}")
 
             use_loop_mux = self._should_use_loop_mux(image_paths, audio_path)
+            if builder_settings.get("sl_dyn_track_segments"):
+                use_loop_mux = False
+                self.on_log("  → Texto dinámico por canción activo: desactivando loop mux para mantener sincronía.")
             if use_loop_mux:
                 self.on_log("  → Optimización activa: render ciclo corto + loop mux (2-pass).")
                 # Cerrar ciclo visual (última -> primera) para que el loop no tenga salto brusco.
@@ -278,3 +296,49 @@ class SlideshowRunner:
                     merge_temp.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+    def _build_dyn_text_segments(self, audio_files: list[Path], crossfade_s: float) -> list[dict[str, float | str]]:
+        """Build non-overlapping dynamic text windows aligned to merged audio songs.
+
+        The next song text starts after previous song fully ends (not at crossfade start),
+        avoiding early label switching while two songs overlap.
+        """
+        mode = str(self.settings.get("sl_dyn_text_mode", "Texto fijo"))
+        prefix = str(self.settings.get("sl_dyn_text_content", "") or "").strip()
+        xf = max(0.0, float(crossfade_s))
+        segments: list[dict[str, float | str]] = []
+
+        current_start = 0.0
+        for idx, ap in enumerate(audio_files):
+            try:
+                dur = float(get_audio_duration(ap))
+            except Exception:
+                continue
+            if dur <= 0.01:
+                continue
+
+            audio_start = current_start
+            audio_end = audio_start + dur
+
+            text = ap.stem
+            if mode == "Prefijo + Nombre de canción" and prefix:
+                text = f"{prefix} {ap.stem}".strip()
+
+            text_start = 0.0 if idx == 0 else min(audio_end, audio_start + xf)
+            text_end = audio_end
+            text_len = max(0.0, text_end - text_start)
+            fade = min(max(xf * 0.5, 0.0), 1.0, text_len / 3.0) if text_len > 0 else 0.0
+
+            if text_len > 0.02:
+                segments.append(
+                    {
+                        "text": text,
+                        "start": round(text_start, 3),
+                        "end": round(text_end, 3),
+                        "fade": round(fade, 3),
+                    }
+                )
+
+            current_start = audio_end - xf
+
+        return segments

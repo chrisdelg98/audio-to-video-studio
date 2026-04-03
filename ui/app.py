@@ -514,7 +514,7 @@ class ImageAssignmentDialog(ctk.CTkToplevel):
 class NamesListDialog(ctk.CTkToplevel):
     """Modal para editar la lista de nombres personalizados de canciones."""
 
-    _USED_PREFIX = "\u25a0 "  # ¦ + space
+    _USED_PREFIX = "■ "  # ¦ + space
 
     def __init__(self, parent: ctk.CTk, current_names: list[str],
                  used_names: set[str] | None = None) -> None:
@@ -524,7 +524,6 @@ class NamesListDialog(ctk.CTkToplevel):
         self.grab_set()
         self.result: list[str] | None = None
         self._used_names = used_names or set()
-        # Prepend \u25a0 to names that are in used set
         self._current = [
             (self._USED_PREFIX + n if n in self._used_names else n)
             for n in current_names
@@ -3449,9 +3448,58 @@ class AudioToVideoApp(ctk.CTk):
         _dir_inner.grid_columnconfigure(0, weight=1)
         ar = 0
 
+        self._var_sl_image_mode = tk.StringVar(value="single")
+        _sl_img_mode_row = ctk.CTkFrame(_dir_inner, fg_color="transparent")
+        _sl_img_mode_row.grid(row=ar, column=0, sticky="ew", padx=12, pady=(0, 2))
+        ctk.CTkRadioButton(
+            _sl_img_mode_row,
+            text="Una imagen",
+            variable=self._var_sl_image_mode,
+            value="single",
+            command=self._sl_toggle_image_mode,
+            fg_color=C_ACCENT_SLIDE,
+            hover_color=C_ACCENT_SLIDE_H,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)),
+        ).pack(side="left", padx=(0, 16))
+        ctk.CTkRadioButton(
+            _sl_img_mode_row,
+            text="Carpeta de imágenes",
+            variable=self._var_sl_image_mode,
+            value="folder",
+            command=self._sl_toggle_image_mode,
+            fg_color=C_ACCENT_SLIDE,
+            hover_color=C_ACCENT_SLIDE_H,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)),
+        ).pack(side="left")
+        ar += 1
+
+        self._sl_single_image_frame = ctk.CTkFrame(_dir_inner, fg_color="transparent")
+        self._sl_single_image_frame.grid(row=ar, column=0, sticky="ew")
+        self._sl_single_image_frame.grid_columnconfigure(0, weight=1)
+        self._var_sl_single_image = tk.StringVar()
+        self._file_row(
+            self._sl_single_image_frame,
+            "Imagen de fondo:",
+            self._var_sl_single_image,
+            self._sl_browse_single_image,
+            0,
+        )
+
+        self._sl_images_folder_frame = ctk.CTkFrame(_dir_inner, fg_color="transparent")
+        self._sl_images_folder_frame.grid(row=ar, column=0, sticky="ew")
+        self._sl_images_folder_frame.grid_columnconfigure(0, weight=1)
         self._var_sl_images_folder = tk.StringVar()
-        ar = self._file_row(_dir_inner, "Carpeta de imágenes:", self._var_sl_images_folder,
-                            self._sl_browse_images_folder, ar)
+        self._file_row(
+            self._sl_images_folder_frame,
+            "Carpeta de imágenes:",
+            self._var_sl_images_folder,
+            self._sl_browse_images_folder,
+            0,
+        )
+        ar += 1
+        self._sl_toggle_image_mode()
 
         self._var_sl_audio_enabled = tk.BooleanVar(value=False)
         ar = self._check_row(_dir_inner, "Incluir audio (opcional)", self._var_sl_audio_enabled,
@@ -3531,6 +3579,7 @@ class AudioToVideoApp(ctk.CTk):
         ar += 1
 
         self._var_sl_output_folder = tk.StringVar()
+        self._var_sl_output_folder.trace_add("write", lambda *_: self._update_open_folder_btn())
         ar = self._file_row(_dir_inner, "Carpeta de salida:", self._var_sl_output_folder,
                             self._sl_browse_output_folder, ar)
 
@@ -11422,13 +11471,21 @@ class AudioToVideoApp(ctk.CTk):
             if hasattr(self, "_preview_frame"):
                 self._preview_frame.grid()
             # Siempre re-derivar la preview desde las variables Slideshow
-            if hasattr(self, "_var_sl_images_folder"):
-                folder = self._var_sl_images_folder.get()
-                if folder and Path(folder).is_dir():
-                    imgs = get_image_files(folder)
-                    if imgs:
-                        self._load_preview(str(imgs[0]))
-            self._rebuild_thumb_strip_sl()
+            sl_mode = self._var_sl_image_mode.get() if hasattr(self, "_var_sl_image_mode") else "single"
+            if sl_mode == "single":
+                img = self._var_sl_single_image.get() if hasattr(self, "_var_sl_single_image") else ""
+                if img and Path(img).is_file():
+                    self._load_preview(img)
+                self._thumb_strip.grid_remove()
+                self._preview_frame.configure(height=270)
+            else:
+                if hasattr(self, "_var_sl_images_folder"):
+                    folder = self._var_sl_images_folder.get()
+                    if folder and Path(folder).is_dir():
+                        imgs = get_image_files(folder)
+                        if imgs:
+                            self._load_preview(str(imgs[0]))
+                self._rebuild_thumb_strip_sl()
             # Audio label para Slideshow
             if hasattr(self, "_var_sl_audio_enabled") and self._var_sl_audio_enabled.get():
                 mode = self._var_sl_audio_mode.get() if hasattr(self, "_var_sl_audio_mode") else "file"
@@ -11584,6 +11641,7 @@ class AudioToVideoApp(ctk.CTk):
         path = filedialog.askdirectory(title="Seleccionar carpeta de salida")
         if path:
             self._var_sl_output_folder.set(path)
+            self._update_open_folder_btn()
 
     def _sl_toggle_audio(self) -> None:
         if self._var_sl_audio_enabled.get():
@@ -11594,27 +11652,44 @@ class AudioToVideoApp(ctk.CTk):
     def _sl_update_count(self) -> None:
         if not hasattr(self, "_sl_lbl_count"):
             return
-        folder = self._var_sl_images_folder.get()
-        if folder and Path(folder).is_dir():
-            try:
-                n = len(get_image_files(folder))
-                self._sl_lbl_count.configure(
-                    text=f"\u25a3 Im\u00e1genes detectadas: {n} archivo(s)",
-                    text_color=C_SUCCESS if n else C_WARN,
-                )
-            except Exception:
-                pass
+        mode = self._var_sl_image_mode.get() if hasattr(self, "_var_sl_image_mode") else "single"
+        if mode == "single":
+            img = self._var_sl_single_image.get() if hasattr(self, "_var_sl_single_image") else ""
+            ok = bool(img and Path(img).is_file())
+            self._sl_lbl_count.configure(
+                text=("\u25a3 Imagen seleccionada: 1 archivo" if ok else "\u25a3 Imagen seleccionada: 0 archivos"),
+                text_color=C_SUCCESS if ok else C_WARN,
+            )
         else:
-            self._sl_lbl_count.configure(text="\u266b Im\u00e1genes: \u2014", text_color=C_MUTED)
+            folder = self._var_sl_images_folder.get()
+            if folder and Path(folder).is_dir():
+                try:
+                    n = len(get_image_files(folder))
+                    self._sl_lbl_count.configure(
+                        text=f"\u25a3 Im\u00e1genes detectadas: {n} archivo(s)",
+                        text_color=C_SUCCESS if n else C_WARN,
+                    )
+                except Exception:
+                    pass
+            else:
+                self._sl_lbl_count.configure(text="\u266b Im\u00e1genes: \u2014", text_color=C_MUTED)
 
     def _sl_reload(self) -> None:
         self._sl_update_count()
-        self._rebuild_thumb_strip_sl()
-        imgs_folder = self._var_sl_images_folder.get()
-        if imgs_folder and Path(imgs_folder).is_dir():
-            imgs = get_image_files(imgs_folder)
-            if imgs:
-                self._load_preview(str(imgs[0]))
+        mode = self._var_sl_image_mode.get() if hasattr(self, "_var_sl_image_mode") else "single"
+        if mode == "single":
+            img = self._var_sl_single_image.get() if hasattr(self, "_var_sl_single_image") else ""
+            if img and Path(img).is_file():
+                self._load_preview(img)
+            self._thumb_strip.grid_remove()
+            self._preview_frame.configure(height=270)
+        else:
+            self._rebuild_thumb_strip_sl()
+            imgs_folder = self._var_sl_images_folder.get()
+            if imgs_folder and Path(imgs_folder).is_dir():
+                imgs = get_image_files(imgs_folder)
+                if imgs:
+                    self._load_preview(str(imgs[0]))
 
     def _rebuild_thumb_strip_sho(self) -> None:
         """Repobla el filmstrip vertical con imágenes de la carpeta de Shorts (miniaturas 9:16)."""
@@ -11663,6 +11738,11 @@ class AudioToVideoApp(ctk.CTk):
         """Repobla el filmstrip con imágenes de la carpeta de slideshow."""
         if not hasattr(self, "_thumb_strip"):
             return
+        sl_mode = self._var_sl_image_mode.get() if hasattr(self, "_var_sl_image_mode") else "single"
+        if sl_mode == "single":
+            self._thumb_strip.grid_remove()
+            self._preview_frame.configure(height=270)
+            return
         for w in self._thumb_strip.winfo_children():
             w.destroy()
         self._thumb_strip_imgs.clear()
@@ -11700,13 +11780,19 @@ class AudioToVideoApp(ctk.CTk):
 
     def _validate_slideshow_inputs(self) -> bool:
         errors: list[str] = []
-        folder = self._var_sl_images_folder.get()
-        if not folder or not Path(folder).is_dir():
-            errors.append("• Selecciona una carpeta de im\u00e1genes v\u00e1lida.")
+        sl_mode = self._var_sl_image_mode.get() if hasattr(self, "_var_sl_image_mode") else "single"
+        if sl_mode == "single":
+            img = self._var_sl_single_image.get() if hasattr(self, "_var_sl_single_image") else ""
+            if not img or not Path(img).is_file():
+                errors.append("• Selecciona una imagen v\u00e1lida.")
         else:
-            imgs = get_image_files(folder)
-            if len(imgs) < 2:
-                errors.append("• Se necesitan al menos 2 im\u00e1genes para generar un slideshow.")
+            folder = self._var_sl_images_folder.get()
+            if not folder or not Path(folder).is_dir():
+                errors.append("• Selecciona una carpeta de im\u00e1genes v\u00e1lida.")
+            else:
+                imgs = get_image_files(folder)
+                if len(imgs) < 1:
+                    errors.append("• Se necesita al menos 1 im\u00e1gen para generar un slideshow.")
         out_folder = self._var_sl_output_folder.get()
         if not out_folder:
             errors.append("• Selecciona una carpeta de salida.")
@@ -11731,6 +11817,8 @@ class AudioToVideoApp(ctk.CTk):
 
     def _collect_slideshow_settings(self) -> None:
         self.settings.update({
+            "sl_image_mode": self._var_sl_image_mode.get() if hasattr(self, "_var_sl_image_mode") else "single",
+            "sl_single_image": self._var_sl_single_image.get() if hasattr(self, "_var_sl_single_image") else "",
             "sl_images_folder": self._var_sl_images_folder.get(),
             "sl_audio_enabled": self._var_sl_audio_enabled.get(),
             "sl_audio_mode": self._var_sl_audio_mode.get(),
@@ -11790,7 +11878,12 @@ class AudioToVideoApp(ctk.CTk):
         self._set_processing_state(True)
         self._clear_log()
 
-        imgs = get_image_files(self._var_sl_images_folder.get())
+        sl_mode = self._var_sl_image_mode.get() if hasattr(self, "_var_sl_image_mode") else "single"
+        if sl_mode == "single":
+            img = self._var_sl_single_image.get() if hasattr(self, "_var_sl_single_image") else ""
+            imgs = [Path(img)] if img and Path(img).is_file() else []
+        else:
+            imgs = get_image_files(self._var_sl_images_folder.get())
         audio_path: Path | None = None
         if self._var_sl_audio_enabled.get():
             if self._var_sl_audio_mode.get() == "file":
@@ -12211,6 +12304,41 @@ class AudioToVideoApp(ctk.CTk):
             if audio and Path(audio).is_dir():
                 self._update_audio_count(audio)
 
+    def _sl_browse_single_image(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Seleccionar imagen de fondo",
+            filetypes=[("Imágenes", "*.jpg *.jpeg *.png *.bmp *.webp"), ("Todos", "*.*")],
+        )
+        if path:
+            self._var_sl_single_image.set(path)
+            self._sl_update_count()
+            if Path(path).is_file():
+                self._load_preview(path)
+
+    def _sl_toggle_image_mode(self) -> None:
+        mode = self._var_sl_image_mode.get() if hasattr(self, "_var_sl_image_mode") else "single"
+        if hasattr(self, "_sl_single_image_frame"):
+            if mode == "single":
+                self._sl_single_image_frame.grid()
+            else:
+                self._sl_single_image_frame.grid_remove()
+        if hasattr(self, "_sl_images_folder_frame"):
+            if mode == "folder":
+                self._sl_images_folder_frame.grid()
+            else:
+                self._sl_images_folder_frame.grid_remove()
+        if mode == "single":
+            if hasattr(self, "_thumb_strip"):
+                self._thumb_strip.grid_remove()
+            if hasattr(self, "_preview_frame"):
+                self._preview_frame.configure(height=270)
+            img = self._var_sl_single_image.get() if hasattr(self, "_var_sl_single_image") else ""
+            if img and Path(img).is_file() and getattr(self, "_current_mode", "") == "Slideshow":
+                self._load_preview(img)
+        else:
+            self._rebuild_thumb_strip_sl()
+        self._sl_update_count()
+
     def _load_preview_from_images_folder(self) -> None:
         """Carga el preview con la primera imagen de la carpeta de imágenes."""
         folder = self._var_images_folder.get()
@@ -12380,7 +12508,7 @@ class AudioToVideoApp(ctk.CTk):
     def _on_sl_dyn_text_mode_change(self) -> None:
         mode = self._var_sl_dyn_text_mode.get() if hasattr(self, "_var_sl_dyn_text_mode") else "Texto fijo"
         if hasattr(self, "_sl_dyn_text_fixed_frame"):
-            if mode == "Texto fijo":
+            if mode in ("Texto fijo", "Prefijo + Nombre de canción"):
                 self._sl_dyn_text_fixed_frame.grid()
             else:
                 self._sl_dyn_text_fixed_frame.grid_remove()
@@ -13797,6 +13925,10 @@ class AudioToVideoApp(ctk.CTk):
 
         # Slideshow settings
         if hasattr(self, "_var_sl_images_folder"):
+            if hasattr(self, "_var_sl_image_mode"):
+                self._var_sl_image_mode.set(s.get("sl_image_mode", "single"))
+            if hasattr(self, "_var_sl_single_image"):
+                self._var_sl_single_image.set(s.get("sl_single_image", ""))
             self._var_sl_images_folder.set(s.get("sl_images_folder", ""))
             self._var_sl_audio_file.set(s.get("sl_audio_file", ""))
             if hasattr(self, "_var_sl_audio_mode"):
@@ -13835,6 +13967,8 @@ class AudioToVideoApp(ctk.CTk):
                 self._var_sl_color_shift.set(s.get("sl_enable_color_shift", False))
                 self._var_sl_color_shift_amount.set(s.get("sl_color_shift_amount", 15.0))
                 self._var_sl_color_shift_speed.set(s.get("sl_color_shift_speed", 0.5))
+            if hasattr(self, "_var_sl_image_mode"):
+                self._sl_toggle_image_mode()
             self._sl_update_count()
             # Static text overlay (Slideshow)
             if hasattr(self, "_var_sl_text_overlay"):
