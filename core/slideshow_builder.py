@@ -17,6 +17,7 @@ import random
 import tempfile
 from pathlib import Path
 from typing import Any
+from PIL import Image
 
 from effects.text_overlay_effect import TextOverlayEffect, _COLOR_MAP, _resolve_font
 from core.utils import get_audio_duration
@@ -169,7 +170,7 @@ class SlideshowBuilder:
             "-filter_complex_threads", str(threads),
         ]
 
-    def _per_frame_effect_chain(self) -> list[str]:
+    def _per_frame_effect_chain(self, *, skip_vignette: bool = False) -> list[str]:
         """Retorna filtros per-frame (breath/zoom/vignette/colorshift) como lista de strings."""
         chain: list[str] = []
         if self.settings.get("sl_enable_breath", False):
@@ -189,7 +190,7 @@ class SlideshowBuilder:
                 f"eval=frame,"
                 f"crop={sw}:{sh}:(in_w-{sw})/2:(in_h-{sh})/2"
             )
-        if self.settings.get("sl_enable_vignette", False):
+        if not skip_vignette and self.settings.get("sl_enable_vignette", False):
             vi = float(self.settings.get("sl_vignette_intensity", 0.4))
             if vi > 0:
                 angle = 1.5708 - vi * 1.0472
@@ -199,6 +200,55 @@ class SlideshowBuilder:
             cs = float(self.settings.get("sl_color_shift_speed", 0.5))
             chain.append(f"hue=h='{ca:.1f}*sin({cs}*2*PI*t)'")
         return chain
+
+    def _prebake_vignette_single_image(self, image_path: Path) -> Path | None:
+        """Genera una imagen temporal con viñeta horneada para evitar calcularla por frame."""
+        if not self.settings.get("sl_enable_vignette", False):
+            return None
+
+        try:
+            vi = float(self.settings.get("sl_vignette_intensity", 0.4))
+        except Exception:
+            vi = 0.4
+        if vi <= 0:
+            return None
+
+        try:
+            with Image.open(str(image_path)) as im:
+                base = im.convert("RGB")
+            w, h = base.size
+            if w < 2 or h < 2:
+                return None
+
+            cx = (w - 1) / 2.0
+            cy = (h - 1) / 2.0
+            max_dist = max(1.0, math.hypot(cx, cy))
+            strength = max(0.0, min(1.0, vi))
+            max_alpha = int(255.0 * min(0.88, 0.22 + strength * 0.72))
+            gamma = 1.9
+
+            mask = Image.new("L", (w, h), 0)
+            mpx = mask.load()
+            for y in range(h):
+                dy = y - cy
+                for x in range(w):
+                    d = math.hypot(x - cx, dy) / max_dist
+                    if d <= 0:
+                        alpha = 0
+                    elif d >= 1:
+                        alpha = max_alpha
+                    else:
+                        alpha = int(max_alpha * (d ** gamma))
+                    mpx[x, y] = alpha
+
+            out = base.copy()
+            out.paste((0, 0, 0), (0, 0, w, h), mask)
+
+            temp_img = Path(tempfile.mktemp(suffix="_sl_vignette.png"))
+            out.save(temp_img, format="PNG", optimize=True)
+            return temp_img
+        except Exception:
+            return None
 
     def _audio_args(self, audio_path: Path | None) -> list[str]:
         if audio_path:
@@ -344,16 +394,19 @@ class SlideshowBuilder:
         audio_path: Path | None,
         output_path: Path,
         duration: float,
-    ) -> tuple[list[str], None]:
+    ) -> tuple[list[str], Path | None]:
         """Fast path when slideshow uses a single background image."""
+        prebaked_img = self._prebake_vignette_single_image(image_path)
+        input_img = prebaked_img or image_path
+
         cmd: list[str] = ["ffmpeg", "-y"]
         cmd += self._global_thread_args()
-        cmd += ["-loop", "1", "-i", str(image_path)]
+        cmd += ["-loop", "1", "-i", str(input_img)]
         if audio_path:
             cmd += ["-thread_queue_size", "512", "-i", str(audio_path)]
 
         vf = f"{self._scale_crop()},fps={DEFAULT_FPS}"
-        fx = self._per_frame_effect_chain()
+        fx = self._per_frame_effect_chain(skip_vignette=bool(prebaked_img))
         if fx:
             vf += "," + ",".join(fx)
         text_filters = self._text_overlay_filters()
@@ -366,7 +419,7 @@ class SlideshowBuilder:
         cmd += self._codec_args()
         cmd += self._audio_args(audio_path)
         cmd += ["-movflags", "+faststart", str(output_path)]
-        return cmd, None
+        return cmd, prebaked_img
 
     # ── Estrategia: concat demuxer (sin transición) ──────────────────
 
