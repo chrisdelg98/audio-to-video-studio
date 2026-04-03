@@ -194,6 +194,7 @@ def build_youtube_publisher_panel(
 
     app._var_yt_timezone = tk.StringVar(value="America/Los_Angeles")
     app._var_yt_videos_per_day = tk.StringVar(value="3")
+    app._var_yt_schedule_frequency = tk.StringVar(value="Diario")
     app._var_yt_window_start = tk.StringVar(value="09:00")
     app._var_yt_window_end = tk.StringVar(value="21:00")
     app._var_yt_default_category = tk.StringVar(value="Music")
@@ -230,6 +231,16 @@ def build_youtube_publisher_panel(
         row=r, column=0, sticky="w", padx=(0, 10), pady=(0, 6))
     ctk.CTkOptionMenu(
         cfg, variable=app._var_yt_videos_per_day, values=["1", "2", "3", "4", "5", "6"],
+        **_opt_kw,
+    ).grid(row=r, column=1, sticky="ew", pady=(0, 6))
+    r += 1
+
+    ctk.CTkLabel(cfg, text="Frecuencia", **_lbl_kw).grid(
+        row=r, column=0, sticky="w", padx=(0, 10), pady=(0, 6))
+    ctk.CTkOptionMenu(
+        cfg,
+        variable=app._var_yt_schedule_frequency,
+        values=["Diario", "Dia por medio"],
         **_opt_kw,
     ).grid(row=r, column=1, sticky="ew", pady=(0, 6))
     r += 1

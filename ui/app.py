@@ -9751,6 +9751,21 @@ class AudioToVideoApp(ctk.CTk):
             fg_color=C_INPUT, button_color=C_ACCENT_YT, button_hover_color=C_ACCENT_YT_H,
             text_color=C_TEXT, dropdown_fg_color=C_CARD, dropdown_text_color=C_TEXT, dropdown_hover_color=C_HOVER,
         ).grid(row=2, column=1, sticky='ew', pady=(0,6))
+        freq_val = self._var_yt_schedule_frequency.get() if hasattr(self, '_var_yt_schedule_frequency') else 'Diario'
+        _var_freq = _tk3.StringVar(value=freq_val)
+        _ctk3.CTkLabel(inner, text='Frecuencia', **_lbl).grid(row=3, column=0, sticky='w', padx=(0,10), pady=(0,6))
+        _ctk3.CTkOptionMenu(
+            inner,
+            variable=_var_freq,
+            values=['Diario', 'Dia por medio'],
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_YT,
+            button_hover_color=C_ACCENT_YT_H,
+            text_color=C_TEXT,
+            dropdown_fg_color=C_CARD,
+            dropdown_text_color=C_TEXT,
+            dropdown_hover_color=C_HOVER,
+        ).grid(row=3, column=1, sticky='ew', pady=(0,6))
         today = _dt.date.today()
         _var_year = _tk3.StringVar(value=str(today.year))
         _var_month = _tk3.StringVar(value=f"{today.month:02d}")
@@ -9758,9 +9773,9 @@ class AudioToVideoApp(ctk.CTk):
         _years = [str(y) for y in range(today.year, today.year + 6)]
         _months = [f"{m:02d}" for m in range(1, 13)]
 
-        _ctk3.CTkLabel(inner, text='Fecha inicial', **_lbl).grid(row=3, column=0, sticky='w', padx=(0,10), pady=(0,6))
+        _ctk3.CTkLabel(inner, text='Fecha inicial', **_lbl).grid(row=4, column=0, sticky='w', padx=(0,10), pady=(0,6))
         _date_row = _ctk3.CTkFrame(inner, fg_color='transparent')
-        _date_row.grid(row=3, column=1, sticky='ew', pady=(0,6))
+        _date_row.grid(row=4, column=1, sticky='ew', pady=(0,6))
         _om_year = _ctk3.CTkOptionMenu(
             _date_row,
             variable=_var_year,
@@ -9838,9 +9853,9 @@ class AudioToVideoApp(ctk.CTk):
         _var_hour = _tk3.StringVar(value=f"{_default_h:02d}")
         _var_minute = _tk3.StringVar(value=f"{_default_m:02d}")
 
-        _ctk3.CTkLabel(inner, text='Hora de inicio', **_lbl).grid(row=4, column=0, sticky='w', padx=(0,10), pady=(0,6))
+        _ctk3.CTkLabel(inner, text='Hora de inicio', **_lbl).grid(row=5, column=0, sticky='w', padx=(0,10), pady=(0,6))
         _time_row = _ctk3.CTkFrame(inner, fg_color='transparent')
-        _time_row.grid(row=4, column=1, sticky='w', pady=(0,10))
+        _time_row.grid(row=5, column=1, sticky='w', pady=(0,10))
         _ctk3.CTkOptionMenu(
             _time_row,
             variable=_var_hour,
@@ -9872,7 +9887,7 @@ class AudioToVideoApp(ctk.CTk):
         ).pack(side='left')
         n_v = len(self._yt_video_rows) if hasattr(self,'_yt_video_rows') else 0
         _ctk3.CTkLabel(inner, text=f'{n_v} video(s) en cola.', text_color=C_TEXT_DIM,
-            anchor='w', font=_ctk3.CTkFont(size=self._fs(10))).grid(row=5, column=0, columnspan=2, sticky='ew')
+            anchor='w', font=_ctk3.CTkFont(size=self._fs(10))).grid(row=6, column=0, columnspan=2, sticky='ew')
         btns = _ctk3.CTkFrame(modal, fg_color='transparent')
         btns.pack(fill='x', padx=20, pady=(0,16))
         def _apply_sch():
@@ -9883,6 +9898,7 @@ class AudioToVideoApp(ctk.CTk):
 
                 start_date = _dt.date(int(_var_year.get()), int(_var_month.get()), int(_var_day.get()))
                 videos_per_day = max(1, int(_var_vpd.get()))
+                cadence = _var_freq.get().strip()
                 start_h = int(_var_hour.get())
                 start_m = int(_var_minute.get())
                 end_h, end_m = [int(x) for x in self._var_yt_window_end.get().split(":", 1)]
@@ -9909,8 +9925,10 @@ class AudioToVideoApp(ctk.CTk):
                 step = span / (videos_per_day - 1)
                 slot_minutes = [int(round(start_min + i * step)) for i in range(videos_per_day)]
 
+            day_stride = 2 if cadence == 'Dia por medio' else 1
+
             for idx, row in enumerate(self._yt_video_rows):
-                day_offset = idx // videos_per_day
+                day_offset = (idx // videos_per_day) * day_stride
                 slot_idx = idx % videos_per_day
                 mins = slot_minutes[slot_idx]
                 hh = mins // 60
@@ -9922,7 +9940,7 @@ class AudioToVideoApp(ctk.CTk):
             self._yt_render_queue_preview()
             self._log(
                 f"[YouTube] Programacion aplicada a {len(self._yt_video_rows)} video(s) "
-                f"desde {start_date.isoformat()} ({tz_val})."
+                f"desde {start_date.isoformat()} ({tz_val}) - {cadence}."
             )
             modal.destroy()
         _ctk3.CTkButton(btns, text='Aplicar', fg_color=C_ACCENT_YT, hover_color=C_ACCENT_YT_H,
@@ -13635,6 +13653,9 @@ class AudioToVideoApp(ctk.CTk):
             # YouTube Publisher (UI scaffold state)
             "yt_timezone": self._var_yt_timezone.get() if hasattr(self, "_var_yt_timezone") else "America/Los_Angeles",
             "yt_videos_per_day": int(self._var_yt_videos_per_day.get()) if hasattr(self, "_var_yt_videos_per_day") else 3,
+            "yt_schedule_frequency": (
+                self._var_yt_schedule_frequency.get() if hasattr(self, "_var_yt_schedule_frequency") else "Diario"
+            ),
             "yt_window_start": self._var_yt_window_start.get() if hasattr(self, "_var_yt_window_start") else "09:00",
             "yt_window_end": self._var_yt_window_end.get() if hasattr(self, "_var_yt_window_end") else "21:00",
             "yt_default_category": self._var_yt_default_category.get() if hasattr(self, "_var_yt_default_category") else "Music",
@@ -13966,6 +13987,8 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_var_yt_timezone"):
             self._var_yt_timezone.set(s.get("yt_timezone", "America/Los_Angeles"))
             self._var_yt_videos_per_day.set(str(s.get("yt_videos_per_day", 3)))
+            if hasattr(self, "_var_yt_schedule_frequency"):
+                self._var_yt_schedule_frequency.set(s.get("yt_schedule_frequency", "Diario"))
             self._var_yt_window_start.set(s.get("yt_window_start", "09:00"))
             self._var_yt_window_end.set(s.get("yt_window_end", "21:00"))
             self._var_yt_default_category.set(s.get("yt_default_category", "Music"))
