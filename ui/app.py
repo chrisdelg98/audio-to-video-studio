@@ -11443,8 +11443,26 @@ class AudioToVideoApp(ctk.CTk):
             if hasattr(self, "_thumb_strip_vert"):
                 self._thumb_strip_vert.grid_remove()
 
+    def _is_processing_active(self) -> bool:
+        """True si cualquier runner (o sync de YouTube) está activo."""
+        return bool(
+            (self._runner and self._runner.is_running())
+            or (self._slideshow_runner and self._slideshow_runner.is_running())
+            or (self._shorts_runner and self._shorts_runner.is_running())
+            or (self._rename_runner and self._rename_runner.is_running())
+            or getattr(self, "_yt_sync_in_progress", False)
+        )
+
     def _switch_mode(self, mode: str) -> None:
         """Alterna entre los paneles Audio?Video, Slideshow, Shorts, YouTube y Prompt Lab."""
+        if mode != getattr(self, "_current_mode", "") and self._is_processing_active():
+            messagebox.showwarning(
+                "Procesamiento en curso",
+                "No puedes cambiar de sección mientras hay un proceso en ejecución.\n"
+                "Espera a que termine o usa CANCELAR.",
+            )
+            return
+
         self._current_mode = mode
         self._configure_preview_for_mode(mode)
         self._update_mode_buttons()
@@ -14326,12 +14344,7 @@ class AudioToVideoApp(ctk.CTk):
     # ------------------------------------------------------------------
 
     def _on_close(self) -> None:
-        running = (
-            (self._runner and self._runner.is_running())
-            or (self._slideshow_runner and self._slideshow_runner.is_running())
-            or (self._shorts_runner and self._shorts_runner.is_running())
-            or (self._rename_runner and self._rename_runner.is_running())
-        )
+        running = self._is_processing_active()
         if running:
             if not messagebox.askyesno(
                 "Salir",
