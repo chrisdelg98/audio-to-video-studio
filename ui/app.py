@@ -2977,6 +2977,8 @@ class AudioToVideoApp(ctk.CTk):
         self._var_text_font_size.trace_add("write", _refresh)
         self._var_text_font.trace_add("write", _refresh)
         self._var_text_color.trace_add("write", _refresh)
+        self._var_text_glitch_intensity.trace_add("write", _refresh)
+        self._var_text_glitch_speed.trace_add("write", _refresh)
         self._var_dyn_text_overlay.trace_add("write", _refresh)
         self._var_dyn_text_content.trace_add("write", _refresh)
         self._var_dyn_text_mode.trace_add("write", _refresh)
@@ -2985,6 +2987,8 @@ class AudioToVideoApp(ctk.CTk):
         self._var_dyn_text_font_size.trace_add("write", _refresh)
         self._var_dyn_text_font.trace_add("write", _refresh)
         self._var_dyn_text_color.trace_add("write", _refresh)
+        self._var_dyn_text_glitch_intensity.trace_add("write", _refresh)
+        self._var_dyn_text_glitch_speed.trace_add("write", _refresh)
 
         # --------------------------------------------------------------
         # TAB: SALIDA
@@ -4065,6 +4069,29 @@ class AudioToVideoApp(ctk.CTk):
                       command=lambda v: _sl_dyn_gs_lbl.configure(text=_val_to_pct(float(v), 0.5, 12.0))).grid(
             row=0, column=1, sticky="ew", padx=4)
         self._sl_dyn_text_overlay_frame.grid_remove()
+
+        # Refresh de preview para cambios de texto overlay en Slideshow
+        _sl_prev = lambda *_: (self._update_preview_overlay()
+                               if getattr(self, "_current_mode", "") == "Slideshow" else None)
+        self._var_sl_text_overlay.trace_add("write", _sl_prev)
+        self._var_sl_text_content.trace_add("write", _sl_prev)
+        self._var_sl_text_position.trace_add("write", _sl_prev)
+        self._var_sl_text_margin.trace_add("write", _sl_prev)
+        self._var_sl_text_font_size.trace_add("write", _sl_prev)
+        self._var_sl_text_font.trace_add("write", _sl_prev)
+        self._var_sl_text_color.trace_add("write", _sl_prev)
+        self._var_sl_text_glitch_intensity.trace_add("write", _sl_prev)
+        self._var_sl_text_glitch_speed.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_overlay.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_content.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_mode.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_position.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_margin.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_font_size.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_font.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_color.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_glitch_intensity.trace_add("write", _sl_prev)
+        self._var_sl_dyn_text_glitch_speed.trace_add("write", _sl_prev)
         sqr += 1
 
         # --------------------------------------------------------------
@@ -4700,6 +4727,8 @@ class AudioToVideoApp(ctk.CTk):
         self._var_sho_text_margin.trace_add("write", _sho_prev)
         self._var_sho_text_font_size.trace_add("write", _sho_prev)
         self._var_sho_text_font.trace_add("write", _sho_prev)
+        self._var_sho_text_glitch_intensity.trace_add("write", _sho_prev)
+        self._var_sho_text_glitch_speed.trace_add("write", _sho_prev)
         self._var_sho_dyn_text_overlay.trace_add("write", _sho_prev)
         self._var_sho_dyn_text_content.trace_add("write", _sho_prev)
         self._var_sho_dyn_text_mode.trace_add("write", _sho_prev)
@@ -4708,6 +4737,8 @@ class AudioToVideoApp(ctk.CTk):
         self._var_sho_dyn_text_font_size.trace_add("write", _sho_prev)
         self._var_sho_dyn_text_font.trace_add("write", _sho_prev)
         self._var_sho_dyn_text_color.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_glitch_intensity.trace_add("write", _sho_prev)
+        self._var_sho_dyn_text_glitch_speed.trace_add("write", _sho_prev)
         vr += 1
 
         # --- Parámetros (fade) ---
@@ -12522,12 +12553,16 @@ class AudioToVideoApp(ctk.CTk):
             self._sl_text_overlay_frame.grid()
         else:
             self._sl_text_overlay_frame.grid_remove()
+        if getattr(self, "_current_mode", "") == "Slideshow":
+            self._update_preview_overlay()
 
     def _sl_toggle_dyn_text_overlay_widgets(self) -> None:
         if self._var_sl_dyn_text_overlay.get():
             self._sl_dyn_text_overlay_frame.grid()
         else:
             self._sl_dyn_text_overlay_frame.grid_remove()
+        if getattr(self, "_current_mode", "") == "Slideshow":
+            self._update_preview_overlay()
 
     def _on_sl_dyn_text_mode_change(self) -> None:
         mode = self._var_sl_dyn_text_mode.get() if hasattr(self, "_var_sl_dyn_text_mode") else "Texto fijo"
@@ -12536,6 +12571,8 @@ class AudioToVideoApp(ctk.CTk):
                 self._sl_dyn_text_fixed_frame.grid()
             else:
                 self._sl_dyn_text_fixed_frame.grid_remove()
+        if getattr(self, "_current_mode", "") == "Slideshow":
+            self._update_preview_overlay()
 
     def _sho_toggle_dyn_text_overlay(self) -> None:
         if self._var_sho_dyn_text_overlay.get():
