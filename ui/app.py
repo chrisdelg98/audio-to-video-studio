@@ -696,6 +696,12 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         self._row_frames: dict[str, ctk.CTkFrame] = {}
         self._copy_btns: dict[str, ctk.CTkButton] = {}
 
+        self.transient(parent)
+        self.lift()
+        self.focus_force()
+        self.attributes("-topmost", True)
+        self.after(120, lambda: self.attributes("-topmost", False))
+
         self._build()
         self.after(60, self._center)
 
@@ -723,7 +729,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
                                         border_width=1, border_color=_mode_color)
         self._mode_badge.grid(row=0, column=2, sticky="e", padx=(0, 8))
         self._mode_lbl = ctk.CTkLabel(
-            self._mode_badge, text=f"? {self._app._current_theme}",
+            self._mode_badge, text=f"Modo: {self._app._current_theme}",
             font=ctk.CTkFont(size=10, weight="bold"), text_color=_mode_color,
         )
         self._mode_lbl.pack(padx=10, pady=4)
@@ -808,8 +814,8 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
             for key in keys:
                 color = _TM.get_color(key, self._app._current_theme)
                 row_f = ctk.CTkFrame(
-                    self._scroll, fg_color=C_CARD, corner_radius=8,
-                    border_width=1, border_color=C_BORDER,
+                    self._scroll, fg_color=C_PANEL, corner_radius=8,
+                    border_width=2, border_color=C_BORDER,
                 )
                 row_f.grid(row=r, column=0, sticky="ew", padx=4, pady=2)
                 row_f.grid_columnconfigure(2, weight=1)
@@ -819,7 +825,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
                 swatch = ctk.CTkFrame(
                     row_f, fg_color=color, width=36, height=36,
                     corner_radius=6, cursor="hand2",
-                    border_width=1, border_color=C_BORDER,
+                    border_width=2, border_color=C_TEXT_DIM,
                 )
                 swatch.grid(row=0, column=0, padx=(10, 8), pady=8)
                 swatch.grid_propagate(False)
@@ -922,7 +928,7 @@ class ThemeSettingsDialog(ctk.CTkToplevel):
         # Update own badge
         _c = C_ACCENT if new_mode == "Dark" else C_ACCENT_SLIDE
         self._mode_badge.configure(border_color=_c)
-        self._mode_lbl.configure(text=f"? {new_mode}", text_color=_c)
+        self._mode_lbl.configure(text=f"Modo: {new_mode}", text_color=_c)
         # Rebuild color list for new mode
         for w in self._scroll.winfo_children():
             w.destroy()
@@ -2330,6 +2336,18 @@ class AudioToVideoApp(ctk.CTk):
             btn.pack(side="left", padx=2, pady=4)
             self._font_btns[_size] = btn
 
+        ctk.CTkFrame(ctrl, width=1, height=18, fg_color=C_BORDER).pack(
+            side="left", padx=5, pady=4
+        )
+        ctk.CTkButton(
+            ctrl, text=FA_FONT_IC, width=30, height=26,
+            fg_color="transparent", hover_color=C_HOVER,
+            text_color=C_TEXT_DIM,
+            font=ctk.CTkFont(family=_FA_FAMILY, size=13),
+            corner_radius=4,
+            command=self._open_font_manager_modal,
+        ).pack(side="left", padx=(0, 0), pady=4)
+
         # -- Divisor + Botón de configuración de tema -----------------
         ctk.CTkFrame(ctrl, width=1, height=18, fg_color=C_BORDER).pack(
             side="left", padx=5, pady=4
@@ -2757,19 +2775,6 @@ class AudioToVideoApp(ctk.CTk):
                       button_hover_color=C_ACCENT_H,
                       command=lambda v: _fs_lbl.configure(text=_val_to_pct(float(v), 12, 72))).grid(
             row=0, column=1, sticky="ew", padx=4)
-        ctk.CTkButton(
-            fs_f,
-            text=FA_GEAR,
-            width=28,
-            height=28,
-            fg_color="transparent",
-            hover_color=C_HOVER,
-            border_width=1,
-            border_color=C_BORDER,
-            text_color=C_TEXT,
-            font=ctk.CTkFont(family=_FA_FAMILY, size=self._fs(11)),
-            command=self._open_font_manager_modal,
-        ).grid(row=0, column=3, padx=(8, 0), sticky="e")
         tof += 1
 
         gi_f = ctk.CTkFrame(self._text_overlay_frame, fg_color="transparent")
@@ -11217,6 +11222,18 @@ class AudioToVideoApp(ctk.CTk):
         """Devuelve el tamaño de fuente escalado a la preferencia del usuario."""
         return max(8, int(base * self._font_scale))
 
+    def _safe_textbox_get(self, widget_name: str) -> str:
+        """Devuelve texto de un CTkTextbox solo si el widget existe y sigue vivo."""
+        if not hasattr(self, widget_name):
+            return ""
+        w = getattr(self, widget_name)
+        try:
+            if not w.winfo_exists():
+                return ""
+            return w.get("1.0", "end").strip()
+        except Exception:
+            return ""
+
     def _toggle_theme(self) -> None:
         """Alterna entre tema Dark y Light, reconstruye toda la UI con los nuevos colores."""
         if self._runner and self._runner.is_running():
@@ -11251,7 +11268,9 @@ class AudioToVideoApp(ctk.CTk):
         a theme change). All other exceptions are printed to stderr as usual.
         """
         import _tkinter
-        if isinstance(val, _tkinter.TclError) and "bad window path name" in str(val):
+        if isinstance(val, _tkinter.TclError) and (
+            "bad window path name" in str(val) or "invalid command name" in str(val)
+        ):
             return
         import traceback
         traceback.print_exception(exc, val, tb)
@@ -11651,6 +11670,11 @@ class AudioToVideoApp(ctk.CTk):
 
     def _sl_update_count(self) -> None:
         if not hasattr(self, "_sl_lbl_count"):
+            return
+        try:
+            if not self._sl_lbl_count.winfo_exists():
+                return
+        except Exception:
             return
         mode = self._var_sl_image_mode.get() if hasattr(self, "_var_sl_image_mode") else "single"
         if mode == "single":
@@ -13793,7 +13817,7 @@ class AudioToVideoApp(ctk.CTk):
             "pl_category": self._var_pl_category.get() if hasattr(self, "_var_pl_category") else "General",
             "pl_skill": self._var_pl_skill.get() if hasattr(self, "_var_pl_skill") else "Skill General",
             "pl_model_mode": self._var_pl_model_mode.get() if hasattr(self, "_var_pl_model_mode") else "Calidad alta",
-            "pl_prompt_text": self._txt_pl_prompt.get("1.0", "end").strip() if hasattr(self, "_txt_pl_prompt") else "",
+            "pl_prompt_text": self._safe_textbox_get("_txt_pl_prompt"),
             "pl_backend_url": self._var_pl_backend_url.get() if hasattr(self, "_var_pl_backend_url") else "http://127.0.0.1:11434",
             "pl_model_quality": self._var_pl_model_quality.get() if hasattr(self, "_var_pl_model_quality") else "llama3.1:8b",
             "pl_model_fast": self._var_pl_model_fast.get() if hasattr(self, "_var_pl_model_fast") else "llama3.2:3b",
@@ -13805,8 +13829,8 @@ class AudioToVideoApp(ctk.CTk):
             "rn_fixed_name": self._var_rn_fixed_name.get() if hasattr(self, "_var_rn_fixed_name") else "",
             "rn_prefix": self._var_rn_prefix.get() if hasattr(self, "_var_rn_prefix") else "",
             "rn_naming_custom_list": [
-                ln.strip() for ln in self._txt_rn_naming_list.get("1.0", "end").splitlines() if ln.strip()
-            ] if hasattr(self, "_txt_rn_naming_list") else [],
+                ln.strip() for ln in self._safe_textbox_get("_txt_rn_naming_list").splitlines() if ln.strip()
+            ],
             "rn_update_title_metadata": (
                 self._var_rn_update_title.get() if hasattr(self, "_var_rn_update_title") else False
             ),

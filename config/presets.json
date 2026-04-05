@@ -28,6 +28,8 @@
     "text_glitch_speed": 1.0,
     "theme": "Dark",
     "font_size": "Medium",
+    "sl_image_mode": "single",
+    "sl_single_image": "",
     "sl_audio_mode": "file",
     "sl_crossfade": 2.0,
     "sl_output_name": "slideshow",
