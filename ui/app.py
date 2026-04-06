@@ -49,6 +49,7 @@ from PIL import Image, ImageDraw, ImageFont
 from config.settings_manager import SettingsManager
 from config.theme_manager import ThemeManager as _ThemeManager
 from core.runner import JobResult, Runner, ShortsJobResult, ShortsRunner
+from core.audio_merge_runner import AudioMergeRunner
 from core.rename_runner import RenameJobResult, RenameRunner
 from core.shorts_splitter import distribute_fragments, suggest_quantity, validate_request
 from core.slideshow_runner import SlideshowRunner
@@ -123,6 +124,7 @@ FA_DOWNLOAD      = "\uf019"   # download (arrow-down-to-line)
 FA_UPLOAD        = "\uf093"   # upload (arrow-up-from-bracket)
 FA_CHECK         = "\uf00c"   # check
 FA_WARNING       = "\uf071"   # triangle-exclamation
+FA_LINK          = "\uf0c1"   # link (audio merge)
 
 
 # -- Tema --------------------------------------------------------------------
@@ -192,6 +194,7 @@ def _apply_theme(mode: str) -> None:
     global C_BG, C_PANEL, C_CARD, C_BORDER, C_ACCENT, C_ACCENT_H
     global C_ACCENT_SLIDE, C_ACCENT_SLIDE_H
     global C_ACCENT_SHORTS, C_ACCENT_SHORTS_H
+    global C_ACCENT_MERGE, C_ACCENT_MERGE_H
     global C_ACCENT_RENAME, C_ACCENT_RENAME_H
     global C_ACCENT_YT, C_ACCENT_YT_H
     global C_ACCENT_LAB, C_ACCENT_LAB_H
@@ -204,6 +207,7 @@ def _apply_theme(mode: str) -> None:
     C_ACCENT_SLIDE = t["C_ACCENT_SLIDE"]; C_ACCENT_SLIDE_H = t["C_ACCENT_SLIDE_H"]
     # Shorts/Rename/YouTube accents are fixed (not exposed in ThemeManager yet)
     C_ACCENT_SHORTS = "#F97316"; C_ACCENT_SHORTS_H = "#FB923C"
+    C_ACCENT_MERGE = "#06B6D4"; C_ACCENT_MERGE_H = "#22D3EE"
     C_ACCENT_RENAME = "#22C55E"; C_ACCENT_RENAME_H = "#16A34A"
     C_ACCENT_YT = "#FF4D4F"; C_ACCENT_YT_H = "#FF6B6D"
     C_ACCENT_LAB = "#14B8A6"; C_ACCENT_LAB_H = "#2DD4BF"
@@ -1610,8 +1614,9 @@ class AudioToVideoApp(ctk.CTk):
         self._image_assignment: dict[str, Path] = {}
         self._used_names: set[str] = set()
         self._last_run_names: list[str] = []
-        self._current_mode: str = "Audio ? Video"
+        self._current_mode: str = "Audio → Video"
         self._slideshow_runner: SlideshowRunner | None = None
+        self._audio_merge_runner: AudioMergeRunner | None = None
         self._shorts_runner: ShortsRunner | None = None
         self._rename_runner: RenameRunner | None = None
         self._rename_pending_files: list[Path] = []
@@ -1638,6 +1643,8 @@ class AudioToVideoApp(ctk.CTk):
         self._yt_sync_summary_var = None
         self._yt_sync_close_btn = None
         self._yt_sync_total = 0
+        self._am_recommended_format = "wav"
+        self._am_format_user_override = False
         self._var_pl_workspace = tk.StringVar(value=self.settings.get("pl_workspace", "General"))
         self._var_pl_category = tk.StringVar(value=self.settings.get("pl_category", "General"))
         self._var_pl_skill = tk.StringVar(value=self.settings.get("pl_skill", "Skill General"))
@@ -2310,6 +2317,8 @@ class AudioToVideoApp(ctk.CTk):
                          lambda: self._switch_mode("Audio \u2192 Video"), "atv")
         _create_mode_btn(FA_IMAGES, "SLIDESHOW", self._current_mode == "Slideshow",
                          C_ACCENT_SLIDE, lambda: self._switch_mode("Slideshow"), "slide")
+        _create_mode_btn(FA_LINK, "MERGE", self._current_mode == "Audio Merge",
+                 C_ACCENT_MERGE, lambda: self._switch_mode("Audio Merge"), "merge")
         _create_mode_btn(FA_SHORTS, "SHORTS", self._current_mode == "Shorts",
                          C_ACCENT_SHORTS, lambda: self._switch_mode("Shorts"), "shorts")
         _create_mode_btn(FA_EDIT, "RENAME", self._current_mode == "Rename",
@@ -2437,6 +2446,7 @@ class AudioToVideoApp(ctk.CTk):
         self._build_left_panel(main)
         self._build_right_panel(main)
         self._build_slideshow_left_panel(main)
+        self._build_audio_merge_left_panel(main)
         self._build_shorts_left_panel(main)
         self._build_rename_left_panel(main)
         self._build_youtube_left_panel(main)
@@ -5382,6 +5392,253 @@ class AudioToVideoApp(ctk.CTk):
             self._lbl_rn_queue.configure(
                 text=f"Pendientes: {len(self._rename_pending_files)} | Renombrados: {len(self._rename_completed)}"
             )
+
+    # --- Audio Merge left panel -------------------------------------
+
+    def _build_audio_merge_left_panel(self, parent: ctk.CTkFrame) -> None:
+        panel, _tabs = self._make_tab_panel(
+            parent,
+            [("Merge", "merge")],
+            accent=C_ACCENT_MERGE,
+        )
+        panel.grid(row=0, column=0, sticky="nsew", padx=(0, 16))
+        self._am_scroll_frame = panel
+        panel.grid_remove()
+
+        tab_merge = _tabs["merge"]
+        mf = ctk.CTkScrollableFrame(tab_merge, fg_color="transparent")
+        mf.pack(fill="both", expand=True, padx=16, pady=(8, 12))
+        mf.grid_columnconfigure(0, weight=1)
+        _init_scrollbar(mf)
+
+        card = ctk.CTkFrame(mf, fg_color=C_CARD, corner_radius=10,
+                            border_width=1, border_color=C_BORDER)
+        card.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+        card.grid_columnconfigure(0, weight=1)
+        self._section_header(card, "Unir audios").grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 20))
+        inner.grid_columnconfigure(0, weight=1)
+
+        r = 0
+        self._var_am_audio_folder = tk.StringVar()
+        r = self._file_row(inner, "Carpeta de audios:", self._var_am_audio_folder, self._am_browse_audio_folder, r)
+
+        self._var_am_output_folder = tk.StringVar()
+        self._var_am_output_folder.trace_add("write", lambda *_: self._update_open_folder_btn())
+        r = self._file_row(inner, "Carpeta de salida:", self._var_am_output_folder, self._am_browse_output_folder, r)
+
+        _nm_row = ctk.CTkFrame(inner, fg_color="transparent")
+        _nm_row.grid(row=r, column=0, sticky="ew", padx=12, pady=(0, 8))
+        _nm_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_nm_row, text="Nombre de salida:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), anchor="w").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self._var_am_output_name = tk.StringVar(value="mix_extendido")
+        ctk.CTkEntry(_nm_row, textvariable=self._var_am_output_name, height=30).grid(row=0, column=1, sticky="ew")
+        r += 1
+
+        _fmt_row = ctk.CTkFrame(inner, fg_color="transparent")
+        _fmt_row.grid(row=r, column=0, sticky="ew", padx=12, pady=(0, 8))
+        _fmt_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_fmt_row, text="Formato salida:", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0, sticky="w")
+        self._var_am_output_format = tk.StringVar(value="wav")
+        ctk.CTkOptionMenu(
+            _fmt_row,
+            values=["wav", "flac", "mp3"],
+            variable=self._var_am_output_format,
+            command=self._am_on_format_changed,
+            fg_color=C_INPUT,
+            button_color=C_ACCENT_MERGE,
+            button_hover_color=C_ACCENT_MERGE_H,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)),
+            width=120,
+            height=30,
+        ).grid(row=0, column=1, sticky="w", padx=(8, 0))
+        ctk.CTkButton(
+            _fmt_row,
+            text="Aplicar recomendación",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            width=170,
+            height=30,
+            command=self._am_apply_recommendation,
+        ).grid(row=0, column=2, sticky="e", padx=(8, 0))
+        r += 1
+
+        self._var_am_crossfade = tk.DoubleVar(value=2.0)
+        _xf_row = ctk.CTkFrame(inner, fg_color="transparent")
+        _xf_row.grid(row=r, column=0, sticky="ew", padx=12, pady=(0, 8))
+        _xf_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(_xf_row, text="Crossfade (s):", text_color=C_MUTED,
+                     font=ctk.CTkFont(size=self._fs(11)), width=120, anchor="w").grid(row=0, column=0, sticky="w")
+        _xf_val_lbl = ctk.CTkLabel(_xf_row, text="2.0s", text_color=C_TEXT,
+                                   font=ctk.CTkFont(size=self._fs(11)), width=50)
+        _xf_val_lbl.grid(row=0, column=2, padx=(4, 0))
+
+        def _update_xf_lbl(v: str) -> None:
+            try:
+                _xf_val_lbl.configure(text=f"{float(v):.1f}s")
+            except ValueError:
+                pass
+
+        ctk.CTkSlider(
+            _xf_row, from_=0.0, to=5.0, number_of_steps=10,
+            variable=self._var_am_crossfade, command=_update_xf_lbl,
+            fg_color=C_INPUT, progress_color=C_ACCENT_MERGE,
+            button_color=C_ACCENT_MERGE, button_hover_color=C_ACCENT_MERGE_H,
+        ).grid(row=0, column=1, sticky="ew", padx=8)
+        r += 1
+
+        self._am_lbl_detect = ctk.CTkLabel(
+            inner, text="Audios detectados: —",
+            font=ctk.CTkFont(size=self._fs(11)), text_color=C_MUTED,
+            anchor="w", justify="left",
+        )
+        self._am_lbl_detect.grid(row=r, column=0, sticky="w", padx=14, pady=(0, 4))
+        r += 1
+
+        self._am_lbl_reco = ctk.CTkLabel(
+            inner, text="Recomendación: —",
+            font=ctk.CTkFont(size=self._fs(11)), text_color=C_MUTED,
+            anchor="w", justify="left",
+        )
+        self._am_lbl_reco.grid(row=r, column=0, sticky="w", padx=14, pady=(0, 6))
+
+    def _am_browse_audio_folder(self) -> None:
+        path = filedialog.askdirectory(title="Seleccionar carpeta de audios")
+        if path:
+            self._var_am_audio_folder.set(path)
+            self._am_format_user_override = False
+            self._am_scan_audio_folder()
+
+    def _am_on_format_changed(self, _selected: str) -> None:
+        self._am_format_user_override = True
+
+    def _am_browse_output_folder(self) -> None:
+        path = filedialog.askdirectory(title="Seleccionar carpeta de salida")
+        if path:
+            self._var_am_output_folder.set(path)
+            self._update_open_folder_btn()
+
+    def _am_scan_audio_folder(self) -> None:
+        if not hasattr(self, "_var_am_audio_folder"):
+            return
+        folder = self._var_am_audio_folder.get().strip()
+        if not folder or not Path(folder).is_dir():
+            if hasattr(self, "_am_lbl_detect"):
+                self._am_lbl_detect.configure(text="Audios detectados: 0", text_color=C_MUTED)
+            if hasattr(self, "_am_lbl_reco"):
+                self._am_lbl_reco.configure(text="Recomendación: selecciona una carpeta válida.", text_color=C_MUTED)
+            return
+
+        files = get_audio_files(folder)
+        counts: dict[str, int] = {}
+        for p in files:
+            ext = p.suffix.lower().lstrip(".")
+            counts[ext] = counts.get(ext, 0) + 1
+
+        if not files:
+            self._am_lbl_detect.configure(text="Audios detectados: 0", text_color=C_WARN)
+            self._am_lbl_reco.configure(text="Recomendación: no hay audios soportados en la carpeta.", text_color=C_WARN)
+            return
+
+        details = ", ".join(f"{k.upper()}: {v}" for k, v in sorted(counts.items()))
+        self._am_lbl_detect.configure(
+            text=f"Audios detectados: {len(files)}  ({details})",
+            text_color=C_SUCCESS,
+        )
+
+        only_wav = len(counts) == 1 and "wav" in counts
+        only_mp3 = len(counts) == 1 and "mp3" in counts
+        if only_wav:
+            self._am_recommended_format = "wav"
+            msg = "Recomendación: WAV (sin pérdida)."
+        elif only_mp3:
+            self._am_recommended_format = "mp3"
+            msg = "Recomendación: MP3 320k (mejor compatibilidad para origen MP3)."
+        else:
+            self._am_recommended_format = "flac"
+            msg = "Recomendación: FLAC (sin pérdida adicional para mezcla de formatos)."
+
+        self._am_lbl_reco.configure(text=msg, text_color=C_ACCENT_MERGE)
+        if hasattr(self, "_var_am_output_format") and not self._am_format_user_override:
+            self._var_am_output_format.set(self._am_recommended_format)
+
+    def _am_apply_recommendation(self) -> None:
+        if hasattr(self, "_var_am_output_format"):
+            self._am_format_user_override = False
+            self._var_am_output_format.set(getattr(self, "_am_recommended_format", "wav"))
+
+    def _am_validate_inputs(self) -> tuple[list[Path], Path] | None:
+        folder = self._var_am_audio_folder.get().strip() if hasattr(self, "_var_am_audio_folder") else ""
+        out_folder = self._var_am_output_folder.get().strip() if hasattr(self, "_var_am_output_folder") else ""
+        name = self._var_am_output_name.get().strip() if hasattr(self, "_var_am_output_name") else ""
+        fmt = self._var_am_output_format.get().strip().lower() if hasattr(self, "_var_am_output_format") else "wav"
+
+        errors: list[str] = []
+        if not folder or not Path(folder).is_dir():
+            errors.append("• Selecciona una carpeta de audios válida.")
+            files: list[Path] = []
+        else:
+            files = get_audio_files(folder)
+            if not files:
+                errors.append("• La carpeta no contiene audios soportados.")
+
+        if not out_folder:
+            errors.append("• Selecciona una carpeta de salida.")
+        if not name:
+            errors.append("• Ingresa un nombre de salida.")
+        if fmt not in ("wav", "flac", "mp3"):
+            errors.append("• El formato de salida no es válido.")
+
+        if errors:
+            messagebox.showerror("Audio Merge", "\n".join(errors))
+            return None
+
+        out_path = Path(out_folder) / f"{name}.{fmt}"
+        return files, out_path
+
+    def _on_generate_audio_merge(self) -> None:
+        validated = self._am_validate_inputs()
+        if not validated:
+            return
+
+        files, out_path = validated
+        crossfade = float(self._var_am_crossfade.get()) if hasattr(self, "_var_am_crossfade") else 0.0
+        fmt = self._var_am_output_format.get().strip().lower() if hasattr(self, "_var_am_output_format") else "wav"
+
+        self._collect_settings()
+        self._set_processing_state(True)
+        self._clear_log()
+        self._log(f"[Audio Merge] Preparando mezcla de {len(files)} audios...")
+
+        self._audio_merge_runner = AudioMergeRunner(
+            on_log=self._queue_log,
+            on_finished=self._am_on_finished,
+        )
+        self._audio_merge_runner.start(
+            audio_paths=files,
+            output_path=out_path,
+            crossfade_s=crossfade,
+            output_format=fmt,
+        )
+
+    def _am_on_finished(self, success: bool, output_path: Path | None) -> None:
+        self.after(0, self._am_on_finished_ui, success, output_path)
+
+    def _am_on_finished_ui(self, success: bool, output_path: Path | None) -> None:
+        self._set_processing_state(False)
+        self._play_notify_sound()
+        if success and output_path is not None:
+            self._log(f"[Audio Merge] Completado: {output_path.name}")
+        else:
+            self._log("[Audio Merge] Finalizado con errores.")
 
     # --- YouTube Publisher left panel --------------------------------
 
@@ -11408,6 +11665,10 @@ class AudioToVideoApp(ctk.CTk):
         if hasattr(self, "_sl_scroll_frame"):
             self._sl_scroll_frame.destroy()
         self._build_slideshow_left_panel(self._main_panel)
+        # Rebuild audio merge panel too
+        if hasattr(self, "_am_scroll_frame"):
+            self._am_scroll_frame.destroy()
+        self._build_audio_merge_left_panel(self._main_panel)
         # Rebuild shorts panel too
         if hasattr(self, "_sho_scroll_frame"):
             self._sho_scroll_frame.destroy()
@@ -11428,6 +11689,10 @@ class AudioToVideoApp(ctk.CTk):
         self.after_idle(self._collapse_all_sections)
         if self._current_mode == "Slideshow":
             self._sl_scroll_frame.grid()
+            self._scroll_frame.grid_remove()
+        elif self._current_mode == "Audio Merge":
+            if hasattr(self, "_am_scroll_frame"):
+                self._am_scroll_frame.grid()
             self._scroll_frame.grid_remove()
         elif self._current_mode == "Shorts":
             if hasattr(self, "_sho_scroll_frame"):
@@ -11455,12 +11720,13 @@ class AudioToVideoApp(ctk.CTk):
 
     def _update_mode_buttons(self) -> None:
         """Actualiza el color activo/inactivo de los botones de modo del header."""
-        for prefix in ("atv", "slide", "shorts", "rename", "yt", "pl"):
+        for prefix in ("atv", "slide", "merge", "shorts", "rename", "yt", "pl"):
             if not hasattr(self, f"_frame_mode_{prefix}"):
                 continue
             active = (
                 (prefix == "atv" and self._current_mode == "Audio \u2192 Video")
                 or (prefix == "slide" and self._current_mode == "Slideshow")
+                or (prefix == "merge" and self._current_mode == "Audio Merge")
                 or (prefix == "shorts" and self._current_mode == "Shorts")
                 or (prefix == "rename" and self._current_mode == "Rename")
                 or (prefix == "yt" and self._current_mode == "YouTube Publisher")
@@ -11506,6 +11772,7 @@ class AudioToVideoApp(ctk.CTk):
         return bool(
             (self._runner and self._runner.is_running())
             or (self._slideshow_runner and self._slideshow_runner.is_running())
+            or (self._audio_merge_runner and self._audio_merge_runner.is_running())
             or (self._shorts_runner and self._shorts_runner.is_running())
             or (self._rename_runner and self._rename_runner.is_running())
             or getattr(self, "_yt_sync_in_progress", False)
@@ -11549,6 +11816,8 @@ class AudioToVideoApp(ctk.CTk):
         self._scroll_frame.grid_remove()
         if hasattr(self, "_sl_scroll_frame"):
             self._sl_scroll_frame.grid_remove()
+        if hasattr(self, "_am_scroll_frame"):
+            self._am_scroll_frame.grid_remove()
         if hasattr(self, "_sho_scroll_frame"):
             self._sho_scroll_frame.grid_remove()
         if hasattr(self, "_rn_scroll_frame"):
@@ -11635,6 +11904,24 @@ class AudioToVideoApp(ctk.CTk):
                         self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
             else:
                 self._lbl_audio_count.configure(text="Audios: \u2014", text_color=C_MUTED)
+
+        elif mode == "Audio Merge":
+            if hasattr(self, "_right_panel_frame"):
+                self._right_panel_frame.grid_rowconfigure(0, weight=0)
+                self._right_panel_frame.grid_rowconfigure(3, weight=1)
+            if hasattr(self, "_am_scroll_frame"):
+                self._am_scroll_frame.grid()
+            self._btn_generate.configure(
+                text="\u25b6  UNIR AUDIOS", command=self._on_generate_audio_merge)
+            if hasattr(self, "_rename_status_frame"):
+                self._rename_status_frame.grid_remove()
+            if hasattr(self, "_preview_frame"):
+                self._preview_frame.grid_remove()
+            self._thumb_strip.grid_remove()
+            if hasattr(self, "_thumb_strip_vert"):
+                self._thumb_strip_vert.grid_remove()
+            self._lbl_audio_count.configure(text="Audio Merge", text_color=C_ACCENT_MERGE)
+            self._am_scan_audio_folder()
 
         elif mode == "Shorts":
             if hasattr(self, "_right_panel_frame"):
@@ -13275,6 +13562,8 @@ class AudioToVideoApp(ctk.CTk):
             self._runner.cancel()
         if self._slideshow_runner:
             self._slideshow_runner.cancel()
+        if self._audio_merge_runner:
+            self._audio_merge_runner.cancel()
         if self._shorts_runner:
             self._shorts_runner.cancel()
         if self._rename_runner:
@@ -13363,6 +13652,8 @@ class AudioToVideoApp(ctk.CTk):
         mode = getattr(self, "_current_mode", "Audio \u2192 Video")
         if mode == "Slideshow":
             return self._var_sl_output_folder.get() if hasattr(self, "_var_sl_output_folder") else ""
+        if mode == "Audio Merge":
+            return self._var_am_output_folder.get() if hasattr(self, "_var_am_output_folder") else ""
         if mode == "Shorts":
             return self._var_sho_output_folder.get() if hasattr(self, "_var_sho_output_folder") else ""
         if mode == "Rename":
@@ -13947,6 +14238,12 @@ class AudioToVideoApp(ctk.CTk):
             "rn_update_title_metadata": (
                 self._var_rn_update_title.get() if hasattr(self, "_var_rn_update_title") else False
             ),
+            # Audio Merge
+            "am_audio_folder": self._var_am_audio_folder.get() if hasattr(self, "_var_am_audio_folder") else "",
+            "am_output_folder": self._var_am_output_folder.get() if hasattr(self, "_var_am_output_folder") else "",
+            "am_output_name": self._var_am_output_name.get().strip() if hasattr(self, "_var_am_output_name") else "mix_extendido",
+            "am_crossfade": round(self._var_am_crossfade.get(), 1) if hasattr(self, "_var_am_crossfade") else 2.0,
+            "am_output_format": self._var_am_output_format.get() if hasattr(self, "_var_am_output_format") else "wav",
         })
         # Save slideshow settings if panel exists
         if hasattr(self, "_var_sl_images_folder"):
@@ -14143,6 +14440,16 @@ class AudioToVideoApp(ctk.CTk):
                 self._var_sl_dyn_text_glitch_speed.set(s.get("sl_dyn_text_glitch_speed", 4.0))
                 self._on_sl_dyn_text_mode_change()
                 self._sl_toggle_dyn_text_overlay_widgets()
+
+        # Audio Merge settings
+        if hasattr(self, "_var_am_audio_folder"):
+            self._var_am_audio_folder.set(s.get("am_audio_folder", ""))
+            self._var_am_output_folder.set(s.get("am_output_folder", ""))
+            self._var_am_output_name.set(s.get("am_output_name", "mix_extendido"))
+            self._var_am_crossfade.set(s.get("am_crossfade", 2.0))
+            self._am_format_user_override = True
+            self._var_am_output_format.set(str(s.get("am_output_format", "wav")).lower())
+            self._am_scan_audio_folder()
 
         # Shorts settings
         if hasattr(self, "_var_sho_audio"):
@@ -14377,6 +14684,10 @@ class AudioToVideoApp(ctk.CTk):
                 self._btn_generate.configure(
                     state="normal", text="\u25b6  GENERAR VIDEO",
                     command=self._on_generate_slideshow)
+            elif self._current_mode == "Audio Merge":
+                self._btn_generate.configure(
+                    state="normal", text="\u25b6  UNIR AUDIOS",
+                    command=self._on_generate_audio_merge)
             elif self._current_mode == "Shorts":
                 self._btn_generate.configure(
                     state="normal", text="\u25b6  GENERAR SHORTS",
@@ -14413,6 +14724,8 @@ class AudioToVideoApp(ctk.CTk):
                 self._runner.cancel()
             if self._slideshow_runner:
                 self._slideshow_runner.cancel()
+            if self._audio_merge_runner:
+                self._audio_merge_runner.cancel()
             if self._shorts_runner:
                 self._shorts_runner.cancel()
             if self._rename_runner:

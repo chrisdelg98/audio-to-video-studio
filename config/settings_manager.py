@@ -113,6 +113,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "rn_prefix": "",
     "rn_naming_custom_list": [],
     "rn_update_title_metadata": False,
+    # Audio Merge mode
+    "am_audio_folder": "",
+    "am_output_folder": "",
+    "am_output_name": "mix_extendido",
+    "am_crossfade": 2.0,
+    "am_output_format": "wav",
 }
 
 # Preset semilla — se crea si presets.json no existe
@@ -162,6 +168,8 @@ _PRESET_EXCLUDED_KEYS = {
     "yt_source_folders",
     # Rename source folder is project-specific
     "rn_folder",
+    # Audio Merge paths are project-specific
+    "am_audio_folder", "am_output_folder",
 }
 
 
