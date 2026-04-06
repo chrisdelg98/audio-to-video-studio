@@ -14,7 +14,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core.slideshow_builder import SlideshowBuilder
-from core.utils import ensure_dir, get_audio_duration, get_audio_files, merge_audio_files
+from core.utils import (
+    ensure_dir,
+    export_audio_timeline_txts,
+    get_audio_duration,
+    get_audio_files,
+    merge_audio_files,
+    build_audio_timeline,
+)
 
 # Ocultar consola en modo windowed (PyInstaller --windowed)
 _STARTUPINFO = None
@@ -157,8 +164,17 @@ class SlideshowRunner:
                 audio_files = get_audio_files(folder)
                 if audio_files:
                     folder_audio_files = list(audio_files)
+                    chapters_path = output_path.with_name(f"{output_path.stem}_chapters.txt")
+                    segments_path = output_path.with_name(f"{output_path.stem}_segments.txt")
                     merge_temp = output_path.parent / f"_merge_tmp_{output_path.stem}.wav"
                     crossfade_s = float(self.settings.get("sl_crossfade", 2.0))
+                    try:
+                        timeline = build_audio_timeline(folder_audio_files, crossfade_s)
+                        export_audio_timeline_txts(timeline, chapters_path, segments_path)
+                        self.on_log(f"  → TXT capítulos: {chapters_path.name}")
+                        self.on_log(f"  → TXT segmentos: {segments_path.name}")
+                    except Exception as exc:
+                        self.on_log(f"  → Aviso: no se pudo exportar timeline ({exc})")
                     self.on_log(
                         f"  → Mezclando {len(audio_files)} pistas de audio "
                         f"(crossfade: {crossfade_s}s)…"

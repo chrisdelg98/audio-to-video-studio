@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from core.utils import build_audio_timeline, export_audio_timeline_txts
+
 # Hide console window on Windows
 _STARTUPINFO = None
 if os.name == "nt":
@@ -172,6 +174,16 @@ class AudioMergeRunner:
 
         self.on_log(f"[Audio Merge] Uniendo {len(audio_paths)} archivo(s) -> {output_path.name}")
         self.on_log(f"[Audio Merge] Formato salida: {output_format.upper()} | Crossfade: {crossfade_s:.1f}s")
+
+        chapters_path = output_path.with_name(f"{output_path.stem}_chapters.txt")
+        segments_path = output_path.with_name(f"{output_path.stem}_segments.txt")
+        try:
+            timeline = build_audio_timeline(audio_paths, crossfade_s)
+            export_audio_timeline_txts(timeline, chapters_path, segments_path)
+            self.on_log(f"[Audio Merge] TXT capítulos: {chapters_path.name}")
+            self.on_log(f"[Audio Merge] TXT segmentos: {segments_path.name}")
+        except Exception as exc:
+            self.on_log(f"[Audio Merge] Aviso: no se pudieron exportar timestamps ({exc})")
 
         try:
             if len(audio_paths) == 1:

@@ -144,6 +144,117 @@ def format_duration(seconds: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+def seconds_to_timestamp(seconds: float) -> str:
+    """Convierte segundos a timestamp tipo H:MM:SS o M:SS (estilo capítulos)."""
+    secs = max(0, int(round(float(seconds))))
+    h = secs // 3600
+    m = (secs % 3600) // 60
+    s = secs % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def build_audio_timeline(
+    paths: list[Path],
+    crossfade_s: float,
+) -> list[dict[str, float | int | str]]:
+    """Construye una línea de tiempo de canciones usando las duraciones de entrada.
+
+    Campos por entrada:
+      - index: índice 1-based
+      - file_name: nombre de archivo original
+      - title: stem del archivo
+      - start_sec: inicio real del track en la mezcla
+      - chapter_sec: inicio sugerido para capítulo (después del crossfade)
+      - end_sec: fin del track
+      - duration_sec: duración individual
+    """
+    timeline: list[dict[str, float | int | str]] = []
+    if not paths:
+        return timeline
+
+    xf = max(0.0, float(crossfade_s))
+    current_start = 0.0
+
+    for idx, p in enumerate(paths, start=1):
+        dur = float(get_audio_duration(p))
+        if dur <= 0.0:
+            continue
+
+        audio_start = current_start
+        audio_end = audio_start + dur
+
+        if idx == 1:
+            chapter_start = 0.0
+        else:
+            chapter_start = min(audio_end, audio_start + xf)
+
+        timeline.append(
+            {
+                "index": idx,
+                "file_name": p.name,
+                "title": p.stem,
+                "start_sec": round(audio_start, 3),
+                "chapter_sec": round(chapter_start, 3),
+                "end_sec": round(audio_end, 3),
+                "duration_sec": round(dur, 3),
+            }
+        )
+
+        current_start = max(audio_start, audio_end - xf)
+
+    return timeline
+
+
+def _timeline_to_chapters_text(timeline: list[dict[str, float | int | str]]) -> str:
+    lines: list[str] = []
+    for item in timeline:
+        ts = seconds_to_timestamp(float(item.get("chapter_sec", 0.0)))
+        title = str(item.get("title", "")).strip() or str(item.get("file_name", "")).strip() or "Track"
+        lines.append(f"{ts} {title}")
+    return "\n".join(lines).strip() + ("\n" if lines else "")
+
+
+def _timeline_to_segments_text(timeline: list[dict[str, float | int | str]]) -> str:
+    lines: list[str] = ["index|chapter_ts|start_sec|chapter_sec|end_sec|duration_sec|title|file_name"]
+    for item in timeline:
+        lines.append(
+            "|".join(
+                [
+                    str(item.get("index", "")),
+                    seconds_to_timestamp(float(item.get("chapter_sec", 0.0))),
+                    f"{float(item.get('start_sec', 0.0)):.3f}",
+                    f"{float(item.get('chapter_sec', 0.0)):.3f}",
+                    f"{float(item.get('end_sec', 0.0)):.3f}",
+                    f"{float(item.get('duration_sec', 0.0)):.3f}",
+                    str(item.get("title", "")).replace("|", "/"),
+                    str(item.get("file_name", "")).replace("|", "/"),
+                ]
+            )
+        )
+    return "\n".join(lines).strip() + "\n"
+
+
+def export_audio_timeline_txts(
+    timeline: list[dict[str, float | int | str]],
+    chapters_path: str | Path,
+    segments_path: str | Path,
+) -> tuple[Path, Path]:
+    """Exporta dos TXT de timeline: capítulos listos para pegar y tabla técnica."""
+    ch_path = Path(chapters_path)
+    sg_path = Path(segments_path)
+    ch_path.parent.mkdir(parents=True, exist_ok=True)
+    sg_path.parent.mkdir(parents=True, exist_ok=True)
+
+    chapters_txt = _timeline_to_chapters_text(timeline)
+    segments_txt = _timeline_to_segments_text(timeline)
+
+    ch_path.write_text(chapters_txt, encoding="utf-8")
+    sg_path.write_text(segments_txt, encoding="utf-8")
+    return ch_path, sg_path
+
+
 def _run_merge_cmd(cmd: list[str]) -> None:
     """Ejecuta un comando FFmpeg de merge; lanza RuntimeError si falla."""
     result = subprocess.run(

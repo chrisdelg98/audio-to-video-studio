@@ -1617,6 +1617,8 @@ class AudioToVideoApp(ctk.CTk):
         self._current_mode: str = "Audio → Video"
         self._slideshow_runner: SlideshowRunner | None = None
         self._audio_merge_runner: AudioMergeRunner | None = None
+        self._sl_last_chapters_txt: Path | None = None
+        self._am_last_chapters_txt: Path | None = None
         self._shorts_runner: ShortsRunner | None = None
         self._rename_runner: RenameRunner | None = None
         self._rename_pending_files: list[Path] = []
@@ -3622,6 +3624,17 @@ class AudioToVideoApp(ctk.CTk):
             text_color=C_MUTED, font=ctk.CTkFont(size=self._fs(10)), anchor="w",
         )
         self._sl_audio_folder_lbl.grid(row=2, column=0, sticky="w", padx=14, pady=(0, 4))
+        ctk.CTkButton(
+            self._sl_folder_audio_frame,
+            text=FA_LIST + "  COPIAR CAPÍTULOS TXT",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            height=30,
+            command=self._sl_copy_chapters_txt,
+        ).grid(row=3, column=0, sticky="w", padx=14, pady=(0, 6))
         self._sl_folder_audio_frame.grid_remove()  # hidden until folder mode selected
 
         # -- Crossfade slider ------------------------------------------
@@ -5509,6 +5522,19 @@ class AudioToVideoApp(ctk.CTk):
             anchor="w", justify="left",
         )
         self._am_lbl_reco.grid(row=r, column=0, sticky="w", padx=14, pady=(0, 6))
+        r += 1
+
+        ctk.CTkButton(
+            inner,
+            text=FA_LIST + "  COPIAR CAPÍTULOS TXT",
+            fg_color="transparent",
+            hover_color=C_HOVER,
+            border_width=1,
+            border_color=C_BORDER,
+            text_color=C_TEXT,
+            height=32,
+            command=self._am_copy_chapters_txt,
+        ).grid(row=r, column=0, sticky="w", padx=12, pady=(0, 6))
 
     def _am_browse_audio_folder(self) -> None:
         path = filedialog.askdirectory(title="Seleccionar carpeta de audios")
@@ -5617,6 +5643,7 @@ class AudioToVideoApp(ctk.CTk):
         self._set_processing_state(True)
         self._clear_log()
         self._log(f"[Audio Merge] Preparando mezcla de {len(files)} audios...")
+        self._am_last_chapters_txt = out_path.with_name(f"{out_path.stem}_chapters.txt")
 
         self._audio_merge_runner = AudioMergeRunner(
             on_log=self._queue_log,
@@ -5639,6 +5666,39 @@ class AudioToVideoApp(ctk.CTk):
             self._log(f"[Audio Merge] Completado: {output_path.name}")
         else:
             self._log("[Audio Merge] Finalizado con errores.")
+
+    def _copy_text_file_to_clipboard(self, file_path: Path, label: str) -> None:
+        try:
+            if not file_path.is_file():
+                messagebox.showwarning("TXT no encontrado", f"No existe {label}:\n{file_path.name}")
+                return
+            content = file_path.read_text(encoding="utf-8").strip()
+            if not content:
+                messagebox.showwarning("TXT vacío", f"El archivo {file_path.name} está vacío.")
+                return
+            self.clipboard_clear()
+            self.clipboard_append(content)
+            self._log(f"[TXT] {label} copiado al portapapeles: {file_path.name}")
+            messagebox.showinfo("Copiado", f"Se copió {label} al portapapeles.")
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo copiar {label}:\n{exc}")
+
+    def _am_copy_chapters_txt(self) -> None:
+        p = getattr(self, "_am_last_chapters_txt", None)
+        if p is None:
+            messagebox.showwarning("Sin datos", "Genera primero una mezcla para crear el TXT de capítulos.")
+            return
+        self._copy_text_file_to_clipboard(Path(p), "capítulos")
+
+    def _sl_copy_chapters_txt(self) -> None:
+        p = getattr(self, "_sl_last_chapters_txt", None)
+        if p is None:
+            messagebox.showwarning(
+                "Sin datos",
+                "Genera primero un slideshow con carpeta de audios para crear el TXT de capítulos.",
+            )
+            return
+        self._copy_text_file_to_clipboard(Path(p), "capítulos")
 
     # --- YouTube Publisher left panel --------------------------------
 
@@ -12312,6 +12372,11 @@ class AudioToVideoApp(ctk.CTk):
 
         out_name = self._var_sl_output_name.get().strip() or "slideshow"
         out_path = Path(self._var_sl_output_folder.get()) / f"{out_name}.mp4"
+
+        if self._var_sl_audio_enabled.get() and self._var_sl_audio_mode.get() == "folder":
+            self._sl_last_chapters_txt = out_path.with_name(f"{out_path.stem}_chapters.txt")
+        else:
+            self._sl_last_chapters_txt = None
 
         self._slideshow_runner = SlideshowRunner(
             settings=self.settings.all(),
