@@ -1945,6 +1945,8 @@ class AudioToVideoApp(ctk.CTk):
         list_box.grid_columnconfigure(0, weight=1)
 
         summary_var = tk.StringVar(value="")
+        sample_text = "Aa Bb Cc 0123 | LoFi Chill Beats"
+        _font_preview_imgs: list[ctk.CTkImage] = []
         ctk.CTkLabel(
             root,
             textvariable=summary_var,
@@ -1952,6 +1954,51 @@ class AudioToVideoApp(ctk.CTk):
             anchor="w",
             font=ctk.CTkFont(size=self._fs(10)),
         ).grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        ctk.CTkLabel(
+            root,
+            text=f"Muestra: {sample_text}",
+            text_color=C_MUTED,
+            anchor="w",
+            font=ctk.CTkFont(size=self._fs(10)),
+        ).grid(row=2, column=0, sticky="e", pady=(8, 0))
+
+        def _resolve_font_file(font_name: str) -> Path | None:
+            for base in (get_app_dir() / "fonts", _BUNDLE_DIR / "fonts"):
+                for ext in (".ttf", ".otf"):
+                    p = base / f"{font_name}{ext}"
+                    if p.exists():
+                        return p
+            return None
+
+        def _make_font_preview(font_name: str) -> ctk.CTkImage:
+            w, h = 340, 34
+            img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+
+            pil_font = None
+            fp = _resolve_font_file(font_name)
+            if fp is not None:
+                try:
+                    pil_font = ImageFont.truetype(str(fp), 20)
+                except Exception:
+                    pil_font = None
+
+            if pil_font is None:
+                try:
+                    pil_font = ImageFont.truetype("arial.ttf", 20)
+                except Exception:
+                    pil_font = ImageFont.load_default()
+
+            bbox = draw.textbbox((0, 0), sample_text, font=pil_font)
+            th = bbox[3] - bbox[1]
+            x = 6
+            y = max(0, (h - th) // 2 - bbox[1])
+            draw.text((x + 1, y + 1), sample_text, font=pil_font, fill=(0, 0, 0, 170))
+            draw.text((x, y), sample_text, font=pil_font, fill=(236, 236, 236, 255))
+
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(w, h))
+            _font_preview_imgs.append(ctk_img)
+            return ctk_img
 
         def _set_visible(font_name: str, visible: bool) -> None:
             if self._is_font_awesome_name(font_name):
@@ -2048,6 +2095,7 @@ class AudioToVideoApp(ctk.CTk):
         def _refresh_rows() -> None:
             for child in list_box.winfo_children():
                 child.destroy()
+            _font_preview_imgs.clear()
 
             rows = self._available_font_entries()
             summary_var.set(f"Fuentes detectadas: {len(rows)}")
@@ -2083,7 +2131,7 @@ class AudioToVideoApp(ctk.CTk):
                     toggle.configure(state="disabled", text="Bloqueada (Font Awesome no usable en overlay)")
 
                 actions = ctk.CTkFrame(item, fg_color="transparent")
-                actions.grid(row=0, column=1, rowspan=2, sticky="ne", padx=(8, 10), pady=(8, 8))
+                actions.grid(row=0, column=1, rowspan=3, sticky="ne", padx=(8, 10), pady=(8, 8))
                 if bool(row.get("can_delete", False)):
                     ctk.CTkButton(
                         actions,
@@ -2103,6 +2151,16 @@ class AudioToVideoApp(ctk.CTk):
                         text_color=C_TEXT_DIM,
                         font=ctk.CTkFont(size=self._fs(10)),
                     ).pack(side="top", pady=(6, 0))
+
+                preview_img = _make_font_preview(row["name"])
+                preview_lbl = ctk.CTkLabel(
+                    item,
+                    image=preview_img,
+                    text="",
+                    fg_color=C_PANEL,
+                    corner_radius=6,
+                )
+                preview_lbl.grid(row=2, column=0, sticky="ew", padx=(10, 10), pady=(0, 8))
 
         actions_bar = ctk.CTkFrame(root, fg_color="transparent")
         actions_bar.grid(row=3, column=0, sticky="ew", pady=(10, 0))
