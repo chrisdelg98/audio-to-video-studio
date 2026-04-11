@@ -74,6 +74,10 @@
     "rn_fixed_name": "",
     "rn_prefix": "",
     "rn_naming_custom_list": [],
-    "rn_update_title_metadata": false
+    "rn_update_title_metadata": false,
+    "am_output_name": "mix_extendido",
+    "am_crossfade": 2.0,
+    "am_output_format": "wav",
+    "sho_generation_mode": "fragments"
   }
 }

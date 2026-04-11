@@ -542,6 +542,10 @@ class ShortsRunner:
             s["dyn_text_color"]            = s.get("sho_dyn_text_color", "Blanco")
             s["dyn_text_glitch_intensity"] = s.get("sho_dyn_text_glitch_intensity", 3)
             s["dyn_text_glitch_speed"]     = s.get("sho_dyn_text_glitch_speed", 4.0)
+        else:
+            # Evita heredar configuración dinámica global (ATV) cuando Shorts está desactivado.
+            s["enable_dyn_text_overlay"] = False
+            s.pop("_resolved_dyn_text", None)
         builder = FFmpegBuilder(s)
         cmd = builder.build_short_cmd(
             audio_path=audio_path,

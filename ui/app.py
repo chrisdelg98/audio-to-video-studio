@@ -4320,31 +4320,81 @@ class AudioToVideoApp(ctk.CTk):
         _sec_frag.grid_columnconfigure(0, weight=1)
         self._section_header(_sec_frag, "Fragmentos").grid(
             row=0, column=0, sticky="ew", padx=0, pady=0)
-        _frag_inner = ctk.CTkFrame(_sec_frag, fg_color="transparent")
-        _frag_inner.grid(row=1, column=0, sticky="ew", padx=12, pady=(16, 12))
-        _frag_inner.grid_columnconfigure(0, weight=1)
+
+        _frag_mode_row = ctk.CTkFrame(_sec_frag, fg_color="transparent")
+        _frag_mode_row.grid(row=1, column=0, sticky="ew", padx=12, pady=(12, 0))
+        _frag_mode_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            _frag_mode_row,
+            text="Modo de salida:",
+            text_color=C_MUTED,
+            font=ctk.CTkFont(size=self._fs(11)),
+            width=120,
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+        self._var_sho_generation_mode = tk.StringVar(value="fragments")
+        ctk.CTkRadioButton(
+            _frag_mode_row,
+            text="Fragmentos",
+            variable=self._var_sho_generation_mode,
+            value="fragments",
+            command=self._sho_toggle_generation_mode,
+            fg_color=C_ACCENT_SHORTS,
+            hover_color=C_ACCENT_SHORTS_H,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)),
+        ).grid(row=0, column=1, sticky="w", padx=(8, 10))
+        ctk.CTkRadioButton(
+            _frag_mode_row,
+            text="Video completo",
+            variable=self._var_sho_generation_mode,
+            value="full",
+            command=self._sho_toggle_generation_mode,
+            fg_color=C_ACCENT_SHORTS,
+            hover_color=C_ACCENT_SHORTS_H,
+            text_color=C_TEXT,
+            font=ctk.CTkFont(size=self._fs(11)),
+        ).grid(row=0, column=2, sticky="w")
+
+        self._sho_frag_controls = ctk.CTkFrame(_sec_frag, fg_color="transparent")
+        self._sho_frag_controls.grid(row=2, column=0, sticky="ew", padx=12, pady=(8, 12))
+        self._sho_frag_controls.grid_columnconfigure(0, weight=1)
         self._var_sho_duration = tk.IntVar(value=45)
         self._slider_row(
-            _frag_inner, "Duración por short:", self._var_sho_duration,
+            self._sho_frag_controls, "Duración por short:", self._var_sho_duration,
             30, 59, 0, fmt="{:.0f} s", number_of_steps=29,
             tooltip_text="Duración de cada short en segundos (30–59 s)",
         )
         self._var_sho_duration.trace_add("write", lambda *_: self._sho_update_fragment_suggestion())
-        _qty_row = ctk.CTkFrame(_frag_inner, fg_color="transparent")
+        _qty_row = ctk.CTkFrame(self._sho_frag_controls, fg_color="transparent")
         _qty_row.grid(row=2, column=0, sticky="ew", padx=4, pady=(8, 4))
         _qty_row.grid_columnconfigure(2, weight=1)
         ctk.CTkLabel(_qty_row, text="Cantidad de shorts:", text_color=C_MUTED,
                      font=ctk.CTkFont(size=self._fs(11)), width=140, anchor="w").grid(
             row=0, column=0, sticky="w")
         self._var_sho_quantity = tk.IntVar(value=3)
-        ctk.CTkEntry(_qty_row, textvariable=self._var_sho_quantity,
-                     width=64, height=28, justify="center").grid(
-            row=0, column=1, padx=(8, 0))
+        self._sho_qty_entry = ctk.CTkEntry(
+            _qty_row, textvariable=self._var_sho_quantity,
+            width=64, height=28, justify="center",
+        )
+        self._sho_qty_entry.grid(row=0, column=1, padx=(8, 0))
         self._sho_lbl_suggestion = ctk.CTkLabel(
-            _frag_inner, text="Sugerencia: —",
+            self._sho_frag_controls, text="Sugerencia: —",
             font=ctk.CTkFont(size=self._fs(10)), text_color=C_MUTED, anchor="w",
         )
         self._sho_lbl_suggestion.grid(row=3, column=0, sticky="w", padx=8, pady=(2, 6))
+
+        self._sho_full_mode_note = ctk.CTkLabel(
+            _sec_frag,
+            text="Modo completo: se generará 1 video vertical con toda la duración del audio.",
+            font=ctk.CTkFont(size=self._fs(11)),
+            text_color=C_MUTED,
+            anchor="w",
+            justify="left",
+        )
+        self._sho_full_mode_note.grid(row=3, column=0, sticky="w", padx=18, pady=(0, 12))
+        self._sho_full_mode_note.grid_remove()
+        self._sho_toggle_generation_mode()
         cr += 1
 
         # --------------------------------------------------------------
@@ -12422,6 +12472,10 @@ class AudioToVideoApp(ctk.CTk):
         """Update suggested quantity label based on audio duration and short duration."""
         if not hasattr(self, "_sho_lbl_suggestion"):
             return
+        mode = self._var_sho_generation_mode.get() if hasattr(self, "_var_sho_generation_mode") else "fragments"
+        if mode == "full":
+            self._sho_lbl_suggestion.configure(text="Modo completo: se exportará un único video vertical.")
+            return
         path = self._var_sho_audio.get() if hasattr(self, "_var_sho_audio") else ""
         if not (path and Path(path).is_file()):
             self._sho_lbl_suggestion.configure(text="Sugerencia: —")
@@ -12434,6 +12488,21 @@ class AudioToVideoApp(ctk.CTk):
         suggested = suggest_quantity(dur, short_s)
         self._sho_lbl_suggestion.configure(
             text=f"Sugerencia: {suggested} shorts para este audio")
+
+    def _sho_toggle_generation_mode(self) -> None:
+        mode = self._var_sho_generation_mode.get() if hasattr(self, "_var_sho_generation_mode") else "fragments"
+        is_full = mode == "full"
+        if hasattr(self, "_sho_frag_controls"):
+            if is_full:
+                self._sho_frag_controls.grid_remove()
+            else:
+                self._sho_frag_controls.grid()
+        if hasattr(self, "_sho_full_mode_note"):
+            if is_full:
+                self._sho_full_mode_note.grid()
+            else:
+                self._sho_full_mode_note.grid_remove()
+        self._sho_update_fragment_suggestion()
 
     def _sho_browse_image(self) -> None:
         path = filedialog.askopenfilename(
@@ -12572,6 +12641,13 @@ class AudioToVideoApp(ctk.CTk):
             self._log("ERROR: Selecciona una carpeta de salida.")
             return False
         dur = get_audio_duration(audio)
+        mode = self._var_sho_generation_mode.get() if hasattr(self, "_var_sho_generation_mode") else "fragments"
+        if mode == "full":
+            if not dur or dur <= 0:
+                self._log("ERROR: No se pudo determinar la duración del audio.")
+                return False
+            return True
+
         qty = int(self._var_sho_quantity.get()) if hasattr(self, "_var_sho_quantity") else 1
         short_s = int(self._var_sho_duration.get()) if hasattr(self, "_var_sho_duration") else 45
         ok, msg = validate_request(dur or 0.0, short_s, qty)
@@ -12592,6 +12668,7 @@ class AudioToVideoApp(ctk.CTk):
             "sho_images_folder":    self._var_sho_images_folder.get() if hasattr(self, "_var_sho_images_folder") else "",
             "sho_multi_image":      multi,
             "sho_output_folder":    self._var_sho_output_folder.get() if hasattr(self, "_var_sho_output_folder") else "",
+            "sho_generation_mode":  self._var_sho_generation_mode.get() if hasattr(self, "_var_sho_generation_mode") else "fragments",
             "sho_duration":         int(self._var_sho_duration.get()) if hasattr(self, "_var_sho_duration") else 45,
             "sho_quantity":         int(self._var_sho_quantity.get()) if hasattr(self, "_var_sho_quantity") else 3,
             "sho_resolution":       self._var_sho_resolution.get() if hasattr(self, "_var_sho_resolution") else "1080p",
@@ -12666,9 +12743,15 @@ class AudioToVideoApp(ctk.CTk):
             return
 
         audio_dur  = get_audio_duration(audio) or 0.0
-        short_s    = int(s["sho_duration"])
-        qty        = int(s["sho_quantity"])
-        starts     = distribute_fragments(audio_dur, short_s, qty)
+        gen_mode   = str(s.get("sho_generation_mode", "fragments"))
+        if gen_mode == "full":
+            qty = 1
+            short_s = max(1.0, float(audio_dur))
+            starts = [0.0]
+        else:
+            short_s = int(s["sho_duration"])
+            qty = int(s["sho_quantity"])
+            starts = distribute_fragments(audio_dur, short_s, qty)
         out_folder = Path(s["sho_output_folder"])
 
         # Build output names via NamingManager
@@ -12689,7 +12772,10 @@ class AudioToVideoApp(ctk.CTk):
         output_names = nm.generate_names([audio_path] * qty)
 
         self._set_processing_state(True)
-        self._log(f"Generando {qty} short(s) desde: {audio_path.name}")
+        if gen_mode == "full":
+            self._log(f"Generando video vertical completo desde: {audio_path.name}")
+        else:
+            self._log(f"Generando {qty} short(s) desde: {audio_path.name}")
 
         self._shorts_runner = ShortsRunner(
             settings=s,
@@ -14528,6 +14614,9 @@ class AudioToVideoApp(ctk.CTk):
                 self._sho_toggle_multi_image()
             if hasattr(self, "_var_sho_output_folder"):
                 self._var_sho_output_folder.set(s.get("sho_output_folder", ""))
+            if hasattr(self, "_var_sho_generation_mode"):
+                self._var_sho_generation_mode.set(s.get("sho_generation_mode", "fragments"))
+                self._sho_toggle_generation_mode()
             if hasattr(self, "_var_sho_duration"):
                 self._var_sho_duration.set(s.get("sho_duration", 45))
             if hasattr(self, "_var_sho_quantity"):

@@ -119,6 +119,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "am_output_name": "mix_extendido",
     "am_crossfade": 2.0,
     "am_output_format": "wav",
+    # Shorts mode
+    "sho_generation_mode": "fragments",
 }
 
 # Preset semilla — se crea si presets.json no existe

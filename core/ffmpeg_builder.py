@@ -541,7 +541,7 @@ class FFmpegBuilder:
             "text_glitch_intensity": int(s.get("sho_text_glitch_intensity", 3)),
             "text_glitch_speed":     float(s.get("sho_text_glitch_speed", 4.0)),
             # Dynamic text overlay — use pre-resolved values from runner (sho_ prefix mapped)
-            "enable_dyn_text_overlay":   bool(s.get("enable_dyn_text_overlay", bool(s.get("sho_enable_dyn_text_overlay", False)))),
+            "enable_dyn_text_overlay":   bool(s.get("sho_enable_dyn_text_overlay", False)),
             "_resolved_dyn_text":        s.get("_resolved_dyn_text", s.get("sho_dyn_text_content", "")),
             "dyn_text_position":         s.get("dyn_text_position", s.get("sho_dyn_text_position", "Bottom")),
             "dyn_text_margin":           int(s.get("dyn_text_margin", s.get("sho_dyn_text_margin", 40))),
